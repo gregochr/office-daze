@@ -1,0 +1,16 @@
+# Xcode
+DerivedData/
+build/
+*.xcuserstate
+xcuserdata/
+
+# macOS
+.DS_Store
+
+# Swift Package Manager
+.swiftpm/
+.build/
+
+# Secrets — the Anthropic key lives in the Keychain, never on disk.
+# This line is here so a stray file can't be committed by accident.
+*.secret
