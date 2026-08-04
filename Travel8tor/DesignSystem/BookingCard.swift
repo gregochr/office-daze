@@ -97,8 +97,8 @@ struct EmptyDayCard: View {
 
     var body: some View {
         Text(text)
-            .t8(.typeCode)
-            .foregroundStyle(Palette.rail.opacity(0.5))
+            .t8(.meta)
+            .foregroundStyle(Palette.bone.opacity(0.3))
             .padding(.vertical, Metrics.cardPaddingV)
             .padding(.horizontal, Metrics.cardPaddingH)
             .frame(maxWidth: .infinity, alignment: .leading)

@@ -6,6 +6,9 @@ import Observation
 nonisolated enum T8Label: String, CaseIterable, Sendable {
     case targets, killCount, theMission, terminated, forecast, leftAlive
     case acquireTarget, targetAcquired, subRoute, dataIncomplete
+    // Beyond the README's table, which is a sample rather than the full set —
+    // these appear on cards and in the month grid and need pairs too.
+    case counts, attendedTag, bookedTag, effectOnCount
 
     var terminator: String {
         switch self {
@@ -19,6 +22,10 @@ nonisolated enum T8Label: String, CaseIterable, Sendable {
         case .targetAcquired: "TARGET ACQUIRED"
         case .subRoute: "SUB-ROUTE"
         case .dataIncomplete: "DATA INCOMPLETE"
+        case .counts: "TERMINATES"
+        case .attendedTag: "KILL"
+        case .bookedTag: "PEND"
+        case .effectOnCount: "EFFECT ON KILL COUNT"
         }
     }
 
@@ -34,6 +41,10 @@ nonisolated enum T8Label: String, CaseIterable, Sendable {
         case .targetAcquired: "YOU'VE ARRIVED"
         case .subRoute: "NESTED TRIP"
         case .dataIncomplete: "NEEDS CHECKING"
+        case .counts: "COUNTS"
+        case .attendedTag: "IN"
+        case .bookedTag: "BOOKED"
+        case .effectOnCount: "EFFECT ON OFFICE DAYS"
         }
     }
 }

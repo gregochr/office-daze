@@ -9,7 +9,7 @@ struct Travel8torApp: App {
 
     var body: some Scene {
         WindowGroup {
-            Gallery()
+            RootView()
         }
         .modelContainer(container)
     }

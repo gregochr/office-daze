@@ -57,6 +57,11 @@ nonisolated struct RailDetail: Codable, Hashable, Sendable {
     /// document lists only stations; these two fields are the addition.
     var originCity: String
     var destCity: String
+    /// Short codes as printed on the ticket — `KGX`, `STP`, `MIDI`. Optional
+    /// because not every source supplies them; `Abbreviate` falls back to a
+    /// table and then to the full name, never to a truncation.
+    var originCode: String?
+    var destCode: String?
     var platform: String?
     var coach: String?
     var seat: String?
