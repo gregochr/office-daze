@@ -7,17 +7,59 @@
 	  this file at build time, so simple keys belong there. This file is for
 	  the nested structures that cannot be expressed as build settings.
 
+	  CFBundleDocumentTypes is what replaces the share extension. Declaring the
+	  types we accept puts Travel8tor in the iOS share sheet's app row; iOS
+	  copies the shared file into the app's inbox and launches us, and the app
+	  handles it in onOpenURL. A share extension would have needed App Groups
+	  to hand data back to the app, and App Groups needs a paid account.
+
 	  Still to come:
-	    CFBundleDocumentTypes  — stage 4. Registers .pkpass, images and PDFs so
-	                             Travel8tor appears in the share sheet's app row.
-	                             This replaces the share extension, which would
-	                             have needed App Groups and a paid account.
-	    UIBackgroundModes      — stage 5. Location updates for region monitoring.
+	    UIBackgroundModes — stage 5. Location updates for region monitoring.
 	-->
 	<key>UIAppFonts</key>
 	<array>
 		<string>SpaceMono-Regular.ttf</string>
 		<string>SpaceMono-Bold.ttf</string>
+	</array>
+
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Wallet Pass</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.apple.pkpass</string>
+			</array>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Booking Screenshot</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.image</string>
+			</array>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Booking PDF</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.adobe.pdf</string>
+			</array>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+		</dict>
 	</array>
 </dict>
 </plist>

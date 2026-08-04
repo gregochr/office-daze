@@ -1,11 +1,15 @@
 import SwiftData
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// The root. Chronological list, nearest first, plus the month's gauge.
 struct TargetsScreen: View {
     @Environment(\.modelContext) private var context
     @Query(sort: \Booking.startsAt) private var bookings: [Booking]
     @Query(sort: \Trip.startsOnDate) private var trips: [Trip]
+
+    @Environment(CaptureCoordinator.self) private var capture
+    @State private var importing = false
 
     private let copy = Copy.shared
     private let today = Day.today
@@ -31,21 +35,38 @@ struct TargetsScreen: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text("T8 ▪ ATTENDANCE PROTOCOL")
-                    .t8(.appTitle)
-                    .foregroundStyle(Palette.rail)
+                // The design has no settings affordance in the header, so the
+                // title carries it rather than adding chrome the mock doesn't
+                // have.
+                NavigationLink(value: Route.settings) {
+                    Text("T8 ▪ ATTENDANCE PROTOCOL")
+                        .t8(.appTitle)
+                        .foregroundStyle(Palette.rail)
+                }
+                .buttonStyle(.plain)
                 Spacer()
-                // Capture is stage 4; the affordance is here so the header is
-                // the real one rather than a placeholder that has to move.
-                Text("+")
-                    .font(.custom(T8Fonts.regular, size: 20))
-                    .foregroundStyle(Palette.bone.opacity(0.6))
+                // The share sheet is the real capture path; this drives the
+                // same pipeline from inside the app, which is how it gets
+                // tested without a second device.
+                Button { importing = true } label: {
+                    Text("+")
+                        .font(.custom(T8Fonts.regular, size: 20))
+                        .foregroundStyle(Palette.bone.opacity(0.6))
+                }
+                .buttonStyle(.plain)
             }
             .padding(.bottom, 10)
             HUDRule()
         }
         .padding(.horizontal, Metrics.headerPadding)
         .padding(.top, Metrics.headerTopInset)
+        .fileImporter(
+            isPresented: $importing,
+            allowedContentTypes: [UTType("com.apple.pkpass")!, .image, .pdf]
+        ) { result in
+            guard case .success(let url) = result else { return }
+            Task { await capture.receive(url: url) }
+        }
     }
 
     // MARK: Gauge

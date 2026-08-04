@@ -1,5 +1,6 @@
 import SwiftData
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// A plain push/pop stack. Targets is the root; every card pushes its detail.
 ///
@@ -14,10 +15,19 @@ enum Route: Hashable {
     case desk(UUID)
     case stay(UUID)
     case mission
+    case settings
 }
 
 struct RootView: View {
     @State private var path = NavigationPath()
+    @Environment(CaptureCoordinator.self) private var capture
+
+    private var capturing: Binding<Bool> {
+        Binding(
+            get: { capture.phase != .idle },
+            set: { if !$0 { capture.abort() } }
+        )
+    }
 
     @Query(sort: \Booking.startsAt) private var bookings: [Booking]
     @Query(sort: \Trip.startsOnDate) private var trips: [Trip]
@@ -31,6 +41,12 @@ struct RootView: View {
         }
         .tint(Palette.rail)
         .task { openDebugScreen() }
+        // The capture confirm screen is a full-screen presentation rather than
+        // the mock's bottom sheet: with no share extension, the app is launched
+        // *by* the share, so there is no host app to sit over.
+        .fullScreenCover(isPresented: capturing) {
+            ConfirmScreen(coordinator: capture)
+        }
     }
 
     /// `-screen ticket|eurostar|desk|stay|trip|mission` pushes straight to a
@@ -40,10 +56,21 @@ struct RootView: View {
     private func openDebugScreen() {
         #if DEBUG
         let arguments = ProcessInfo.processInfo.arguments
-        guard let index = arguments.firstIndex(of: "-screen"),
-              index + 1 < arguments.count else { return }
 
-        let route: Route? = switch arguments[index + 1] {
+        // -screen and -capture are independent: an early return here would
+        // make -capture unreachable whenever -screen is absent.
+        if let index = arguments.firstIndex(of: "-screen"), index + 1 < arguments.count {
+            openScreen(named: arguments[index + 1])
+        }
+        if let index = arguments.firstIndex(of: "-capture"), index + 1 < arguments.count {
+            runCapture(named: arguments[index + 1])
+        }
+        #endif
+    }
+
+    #if DEBUG
+    private func openScreen(named name: String) {
+        let route: Route? = switch name {
         case "ticket":
             bookings.first { $0.kind == .rail }.map { .ticket($0.id) }
         case "eurostar":
@@ -64,8 +91,41 @@ struct RootView: View {
         }
 
         if let route { path.append(route) }
-        #endif
     }
+
+    /// `-capture pass|stay|failed` drives the real pipeline: the pass path
+    /// parses an actual .pkpass, the others skip the network and hand the
+    /// coordinator a response shaped like the model's.
+    private func runCapture(named which: String) {
+            Task {
+                switch which {
+                case "pass":
+                    await capture.receive(
+                        data: CaptureSamples.zip(
+                            named: "pass.json",
+                            contents: Data(CaptureSamples.eurostarPassJSON.utf8)
+                        ),
+                        filename: "eurostar.pkpass",
+                        type: nil
+                    )
+                case "stay":
+                    capture.extractor = { _ in
+                        (CaptureSamples.incompleteStay, .init(inputTokens: 1180, outputTokens: 194))
+                    }
+                    await capture.receive(
+                        data: Data("screengrab".utf8), filename: "ropewalk.png", type: .png
+                    )
+                case "failed":
+                    capture.extractor = { _ in throw CaptureError.noAPIKey }
+                    await capture.receive(
+                        data: Data("screengrab".utf8), filename: "ropewalk.png", type: .png
+                    )
+                default:
+                    break
+                }
+            }
+    }
+    #endif
 
     @ViewBuilder
     private func destination(for route: Route) -> some View {
@@ -75,6 +135,7 @@ struct RootView: View {
         case .desk(let id): DeskScreen(bookingID: id)
         case .stay(let id): StayScreen(bookingID: id)
         case .mission: MissionScreen()
+        case .settings: SettingsScreen()
         }
     }
 }
