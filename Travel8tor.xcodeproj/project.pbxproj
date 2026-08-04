@@ -6,18 +6,7 @@
 	objectVersion = 77;
 	objects = {
 
-/* Begin PBXBuildFile section */
-		AA0000000000000000000029 /* Travel8torShare.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000027 /* Travel8torShare.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-/* End PBXBuildFile section */
-
 /* Begin PBXContainerItemProxy section */
-		AA000000000000000000002B /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = AA0000000000000000000001 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = AA0000000000000000000020;
-			remoteInfo = Travel8torShare;
-		};
 		AA000000000000000000003A /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = AA0000000000000000000001 /* Project object */;
@@ -27,33 +16,18 @@
 		};
 /* End PBXContainerItemProxy section */
 
-/* Begin PBXCopyFilesBuildPhase section */
-		AA0000000000000000000017 /* Embed Foundation Extensions */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "";
-			dstSubfolderSpec = 13;
-			files = (
-				AA0000000000000000000029 /* Travel8torShare.appex in Embed Foundation Extensions */,
-			);
-			name = "Embed Foundation Extensions";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXCopyFilesBuildPhase section */
-
 /* Begin PBXFileReference section */
 		AA0000000000000000000018 /* Travel8tor.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Travel8tor.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		AA0000000000000000000027 /* Travel8torShare.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = Travel8torShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA0000000000000000000037 /* Travel8torTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = Travel8torTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		AA000000000000000000002C /* Exceptions for "Travel8torShare" folder in "Travel8torShare" target */ = {
+		AA000000000000000000001A /* Exceptions for "Travel8tor" folder in "Travel8tor" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
 			);
-			target = AA0000000000000000000020 /* Travel8torShare */;
+			target = AA0000000000000000000010 /* Travel8tor */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
@@ -61,16 +35,9 @@
 		AA0000000000000000000019 /* Travel8tor */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
+				AA000000000000000000001A /* Exceptions for "Travel8tor" folder in "Travel8tor" target */,
 			);
 			path = Travel8tor;
-			sourceTree = "<group>";
-		};
-		AA0000000000000000000028 /* Travel8torShare */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				AA000000000000000000002C /* Exceptions for "Travel8torShare" folder in "Travel8torShare" target */,
-			);
-			path = Travel8torShare;
 			sourceTree = "<group>";
 		};
 		AA0000000000000000000038 /* Travel8torTests */ = {
@@ -84,13 +51,6 @@
 
 /* Begin PBXFrameworksBuildPhase section */
 		AA0000000000000000000015 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		AA0000000000000000000025 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -111,7 +71,6 @@
 			isa = PBXGroup;
 			children = (
 				AA0000000000000000000019 /* Travel8tor */,
-				AA0000000000000000000028 /* Travel8torShare */,
 				AA0000000000000000000038 /* Travel8torTests */,
 				AA0000000000000000000003 /* Products */,
 			);
@@ -121,7 +80,6 @@
 			isa = PBXGroup;
 			children = (
 				AA0000000000000000000018 /* Travel8tor.app */,
-				AA0000000000000000000027 /* Travel8torShare.appex */,
 				AA0000000000000000000037 /* Travel8torTests.xctest */,
 			);
 			name = Products;
@@ -137,12 +95,10 @@
 				AA0000000000000000000014 /* Sources */,
 				AA0000000000000000000015 /* Frameworks */,
 				AA0000000000000000000016 /* Resources */,
-				AA0000000000000000000017 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
-				AA000000000000000000002A /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				AA0000000000000000000019 /* Travel8tor */,
@@ -153,28 +109,6 @@
 			productName = Travel8tor;
 			productReference = AA0000000000000000000018 /* Travel8tor.app */;
 			productType = "com.apple.product-type.application";
-		};
-		AA0000000000000000000020 /* Travel8torShare */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = AA0000000000000000000021 /* Build configuration list for PBXNativeTarget "Travel8torShare" */;
-			buildPhases = (
-				AA0000000000000000000024 /* Sources */,
-				AA0000000000000000000025 /* Frameworks */,
-				AA0000000000000000000026 /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			fileSystemSynchronizedGroups = (
-				AA0000000000000000000028 /* Travel8torShare */,
-			);
-			name = Travel8torShare;
-			packageProductDependencies = (
-			);
-			productName = Travel8torShare;
-			productReference = AA0000000000000000000027 /* Travel8torShare.appex */;
-			productType = "com.apple.product-type.app-extension";
 		};
 		AA0000000000000000000030 /* Travel8torTests */ = {
 			isa = PBXNativeTarget;
@@ -212,9 +146,6 @@
 					AA0000000000000000000010 = {
 						CreatedOnToolsVersion = 26.3;
 					};
-					AA0000000000000000000020 = {
-						CreatedOnToolsVersion = 26.3;
-					};
 					AA0000000000000000000030 = {
 						CreatedOnToolsVersion = 26.3;
 						TestTargetID = AA0000000000000000000010;
@@ -236,7 +167,6 @@
 			projectRoot = "";
 			targets = (
 				AA0000000000000000000010 /* Travel8tor */,
-				AA0000000000000000000020 /* Travel8torShare */,
 				AA0000000000000000000030 /* Travel8torTests */,
 			);
 		};
@@ -244,13 +174,6 @@
 
 /* Begin PBXResourcesBuildPhase section */
 		AA0000000000000000000016 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		AA0000000000000000000026 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -274,13 +197,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		AA0000000000000000000024 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		AA0000000000000000000034 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -291,11 +207,6 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		AA000000000000000000002A /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = AA0000000000000000000020 /* Travel8torShare */;
-			targetProxy = AA000000000000000000002B /* PBXContainerItemProxy */;
-		};
 		AA0000000000000000000039 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = AA0000000000000000000010 /* Travel8tor */;
@@ -398,13 +309,13 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Travel8tor/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UIUserInterfaceStyle = Dark;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				INFOPLIST_KEY_UIUserInterfaceStyle = Dark;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -424,13 +335,13 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Travel8tor/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UIUserInterfaceStyle = Dark;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				INFOPLIST_KEY_UIUserInterfaceStyle = Dark;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -438,50 +349,6 @@
 				MARKETING_VERSION = 0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.thegregorysonline.travel8tor;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				TARGETED_DEVICE_FAMILY = 1;
-			};
-			name = Release;
-		};
-		AA0000000000000000000022 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = Travel8torShare/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = Travel8tor;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@executable_path/../../Frameworks",
-				);
-				MARKETING_VERSION = 0.1;
-				PRODUCT_BUNDLE_IDENTIFIER = com.thegregorysonline.travel8tor.share;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SKIP_INSTALL = YES;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				TARGETED_DEVICE_FAMILY = 1;
-			};
-			name = Debug;
-		};
-		AA0000000000000000000023 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = Travel8torShare/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = Travel8tor;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@executable_path/../../Frameworks",
-				);
-				MARKETING_VERSION = 0.1;
-				PRODUCT_BUNDLE_IDENTIFIER = com.thegregorysonline.travel8tor.share;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SKIP_INSTALL = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				TARGETED_DEVICE_FAMILY = 1;
 			};
@@ -536,15 +403,6 @@
 			buildConfigurations = (
 				AA0000000000000000000012 /* Debug */,
 				AA0000000000000000000013 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		AA0000000000000000000021 /* Build configuration list for PBXNativeTarget "Travel8torShare" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				AA0000000000000000000022 /* Debug */,
-				AA0000000000000000000023 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
