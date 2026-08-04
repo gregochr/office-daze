@@ -29,6 +29,17 @@ nonisolated enum Abbreviate {
         return name.uppercased()
     }
 
+    /// `L3` → `LEVEL 3`. Floors arrive already prefixed as often as not, and
+    /// `LEVEL L3` reads as a typo.
+    static func level(_ floor: String) -> String {
+        let trimmed = floor.trimmingCharacters(in: .whitespaces).uppercased()
+        let stripped = trimmed.hasPrefix("L") && trimmed.dropFirst().allSatisfy(\.isNumber)
+            ? String(trimmed.dropFirst())
+            : trimmed
+        // A floor that is already a word ("MEZZANINE", "GROUND") stands alone.
+        return stripped.allSatisfy(\.isNumber) ? "LEVEL \(stripped)" : stripped
+    }
+
     private static let placeSuffixes: [String: String] = [
         "PLACE": "PL", "STREET": "ST", "ROAD": "RD", "AVENUE": "AVE",
         "SQUARE": "SQ", "BUILDING": "BLDG", "HOUSE": "HSE", "COURT": "CT",

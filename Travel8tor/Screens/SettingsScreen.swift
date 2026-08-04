@@ -65,6 +65,30 @@ struct SettingsScreen: View {
                     Rectangle().strokeBorder(Palette.railBorder, lineWidth: Metrics.hairline)
                 }
 
+                SectionKicker(text: "ARRIVAL")
+                    .padding(.top, 20)
+                    .padding(.bottom, 10)
+                NavigationLink(value: Route.arrivalSettings) {
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text(Copy.shared(.arrivalTrigger))
+                                .t8(.rowAction)
+                                .foregroundStyle(Palette.bone)
+                            Text("PERIMETER, FIRE RATE, AND THE ONCE-PER-DAY RULE")
+                                .t8(.rowActionNote)
+                                .foregroundStyle(Palette.bone.opacity(0.4))
+                        }
+                        Spacer(minLength: 0)
+                        Text("→").t8(.rowAction).foregroundStyle(Palette.rail.opacity(0.6))
+                    }
+                    .padding(.vertical, 14)
+                    .padding(.horizontal, 15)
+                    .overlay {
+                        Rectangle().strokeBorder(Palette.rail.opacity(0.25), lineWidth: Metrics.hairline)
+                    }
+                }
+                .buttonStyle(.plain)
+
                 SectionKicker(text: "COPY MODE")
                     .padding(.top, 20)
                     .padding(.bottom, 10)

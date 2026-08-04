@@ -13,13 +13,28 @@
 	  handles it in onOpenURL. A share extension would have needed App Groups
 	  to hand data back to the app, and App Groups needs a paid account.
 
-	  Still to come:
-	    UIBackgroundModes — stage 5. Location updates for region monitoring.
+	  NSLocation*UsageDescription are the strings iOS shows in the permission
+	  prompts. When In Use is requested first and Always only once that is
+	  granted — asking for Always cold gets denied.
+
+	  UIBackgroundModes carries "location" because the handoff asks for it.
+	  Strictly, region monitoring does not need it: iOS relaunches the app for
+	  a region crossing regardless. It is here so the capability matches the
+	  brief, not because the geofence would fail without it.
 	-->
 	<key>UIAppFonts</key>
 	<array>
 		<string>SpaceMono-Regular.ttf</string>
 		<string>SpaceMono-Bold.ttf</string>
+	</array>
+
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Travel8tor watches a 50m perimeter around the offices you have booked a desk at, so it can show you your desk number the moment you arrive.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>Always is what lets the arrival alert fire when Travel8tor is closed — which is every time, since you will be walking in with the phone in your pocket. Your location is never sent anywhere; it never leaves the device.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
 	</array>
 
 	<key>CFBundleDocumentTypes</key>

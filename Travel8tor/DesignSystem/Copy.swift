@@ -9,6 +9,8 @@ nonisolated enum T8Label: String, CaseIterable, Sendable {
     // Beyond the README's table, which is a sample rather than the full set —
     // these appear on cards and in the month grid and need pairs too.
     case counts, attendedTag, bookedTag, effectOnCount
+    // Arrival, stage 5.
+    case confirmArrival, logThisDay, arrivalTrigger
 
     var terminator: String {
         switch self {
@@ -26,6 +28,9 @@ nonisolated enum T8Label: String, CaseIterable, Sendable {
         case .attendedTag: "KILL"
         case .bookedTag: "PEND"
         case .effectOnCount: "EFFECT ON KILL COUNT"
+        case .confirmArrival: "CLAIM THE KILL"
+        case .logThisDay: "LOG THE DAY AND CLAIM THE KILL?"
+        case .arrivalTrigger: "ARRIVAL TRIGGER"
         }
     }
 
@@ -45,6 +50,9 @@ nonisolated enum T8Label: String, CaseIterable, Sendable {
         case .attendedTag: "IN"
         case .bookedTag: "BOOKED"
         case .effectOnCount: "EFFECT ON OFFICE DAYS"
+        case .confirmArrival: "LOG THIS DAY"
+        case .logThisDay: "RECORD TODAY AS AN OFFICE DAY?"
+        case .arrivalTrigger: "ARRIVAL ALERT"
         }
     }
 }

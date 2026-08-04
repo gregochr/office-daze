@@ -16,6 +16,8 @@ enum Route: Hashable {
     case stay(UUID)
     case mission
     case settings
+    case arrivalSettings
+    case arrival(placeID: UUID, bookingID: UUID?, day: Day)
 }
 
 struct RootView: View {
@@ -86,6 +88,16 @@ struct RootView: View {
                 .map { .trip($0.id) }
         case "mission":
             .mission
+        case "arrival":
+            bookings.first { $0.kind == .desk }.map {
+                .arrival(
+                    placeID: $0.detail?.deskDetail?.placeID ?? SeedData.ropemakerPlaceID,
+                    bookingID: $0.id,
+                    day: $0.anchorDay
+                )
+            }
+        case "arrival-settings":
+            .arrivalSettings
         default:
             nil
         }
@@ -136,6 +148,9 @@ struct RootView: View {
         case .stay(let id): StayScreen(bookingID: id)
         case .mission: MissionScreen()
         case .settings: SettingsScreen()
+        case .arrivalSettings: ArrivalSettingsScreen()
+        case .arrival(let placeID, let bookingID, let day):
+            ArrivalScreen(placeID: placeID, bookingID: bookingID, day: day)
         }
     }
 }
