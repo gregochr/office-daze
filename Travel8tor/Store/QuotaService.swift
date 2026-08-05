@@ -56,5 +56,9 @@ extension Day {
     /// The current day, in UK time. The quota is about UK working days, so the
     /// day boundary is the UK one even when the phone is abroad — otherwise a
     /// late Brussels evening would roll the count over early.
-    static var today: Day { Day(of: .now, in: TimeDisplay.uk) }
+    ///
+    /// `nonisolated` because it is a clock reading and nothing more — the
+    /// project defaults every declaration to the main actor, which would
+    /// otherwise stop a plain struct using it as a default value.
+    nonisolated static var today: Day { Day(of: .now, in: TimeDisplay.uk) }
 }

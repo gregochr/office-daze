@@ -65,29 +65,23 @@ struct SettingsScreen: View {
                     Rectangle().strokeBorder(Palette.railBorder, lineWidth: Metrics.hairline)
                 }
 
+                SectionKicker(text: "INTAKE")
+                    .padding(.top, 20)
+                    .padding(.bottom, 10)
+                linkRow(
+                    to: .manualEntry,
+                    title: "ADD A BOOKING BY HAND",
+                    note: "FOR ANYTHING THAT WAS NEVER GOING TO BE A SCREENSHOT"
+                )
+
                 SectionKicker(text: "ARRIVAL")
                     .padding(.top, 20)
                     .padding(.bottom, 10)
-                NavigationLink(value: Route.arrivalSettings) {
-                    HStack(spacing: 12) {
-                        VStack(alignment: .leading, spacing: 5) {
-                            Text(Copy.shared(.arrivalTrigger))
-                                .t8(.rowAction)
-                                .foregroundStyle(Palette.bone)
-                            Text("PERIMETER, FIRE RATE, AND THE ONCE-PER-DAY RULE")
-                                .t8(.rowActionNote)
-                                .foregroundStyle(Palette.bone.opacity(0.4))
-                        }
-                        Spacer(minLength: 0)
-                        Text("→").t8(.rowAction).foregroundStyle(Palette.rail.opacity(0.6))
-                    }
-                    .padding(.vertical, 14)
-                    .padding(.horizontal, 15)
-                    .overlay {
-                        Rectangle().strokeBorder(Palette.rail.opacity(0.25), lineWidth: Metrics.hairline)
-                    }
-                }
-                .buttonStyle(.plain)
+                linkRow(
+                    to: .arrivalSettings,
+                    title: Copy.shared(.arrivalTrigger),
+                    note: "PERIMETER, FIRE RATE, AND THE ONCE-PER-DAY RULE"
+                )
 
                 SectionKicker(text: "COPY MODE")
                     .padding(.top, 20)
@@ -95,6 +89,31 @@ struct SettingsScreen: View {
                 copyModeRow
             }
         }
+    }
+
+    private func linkRow(to route: Route, title: String, note: String) -> some View {
+        NavigationLink(value: route) {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(title)
+                        .t8(.rowAction)
+                        .foregroundStyle(Palette.bone)
+                    Text(note)
+                        .t8(.rowActionNote)
+                        .foregroundStyle(Palette.bone.opacity(0.4))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+                Text("→").t8(.rowAction).foregroundStyle(Palette.rail.opacity(0.6))
+            }
+            .padding(.vertical, 14)
+            .padding(.horizontal, 15)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .overlay {
+                Rectangle().strokeBorder(Palette.rail.opacity(0.25), lineWidth: Metrics.hairline)
+            }
+        }
+        .buttonStyle(.plain)
     }
 
     private var explanation: String {

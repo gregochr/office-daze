@@ -18,12 +18,16 @@ nonisolated struct ParsedBooking: Hashable, Sendable {
     var unsureFields: [String]
     var provenance: Provenance
     var confidence: Confidence
+    /// A desk capture's building address, when the source printed one. It is
+    /// not on `DeskDetail` because it belongs to the `Place`, not the booking —
+    /// this carries it as far as `PlaceResolver` and no further.
+    var placeAddress: String? = nil
 
     var kind: BookingKind { detail.kind }
 
-    /// A model call costs money; a pass file does not. The capture sheet shows
-    /// this as `1 CALL` or `FREE`.
-    var costedCall: Bool { provenance != .pass }
+    /// A model call costs money; a pass file does not, and neither does typing
+    /// it in. The capture sheet shows this as `1 CALL` or `FREE`.
+    var costedCall: Bool { provenance != .pass && provenance != .manual }
 }
 
 nonisolated enum CaptureError: LocalizedError, Equatable {

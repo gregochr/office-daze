@@ -14,6 +14,13 @@ struct ArrivalSettingsScreen: View {
     @State private var settings = ArrivalSettings.shared
     @State private var authorization: CLAuthorizationStatus = .notDetermined
 
+    @State private var adding = false
+    @State private var newName = ""
+    @State private var newCity = ""
+    @State private var newAddress = ""
+    @State private var locating = false
+    @State private var addResult: (text: String, problem: Bool)?
+
     private let copy = Copy.shared
 
     var body: some View {
@@ -33,12 +40,17 @@ struct ArrivalSettingsScreen: View {
                     .padding(.top, 20)
                     .padding(.bottom, 10)
                 perimeterPanel
+                addBuildingRow.padding(.top, 8)
+                if adding { addBuildingForm.padding(.top, 8) }
 
                 invertedPromptPanel.padding(.top, 11)
             }
         }
         .task {
             authorization = CLLocationManager().authorizationStatus
+            #if DEBUG
+            await runDebugAdd()
+            #endif
         }
     }
 
@@ -233,9 +245,15 @@ struct ArrivalSettingsScreen: View {
                                 .t8(.rowAction)
                                 .foregroundStyle(Palette.boneSecondary)
                         }
-                        Text("\(Int(place.radiusMetres))m RADIUS ▪ LEARNED FROM BOOKINGS")
+                        // The mock says "LEARNED FROM BOOKINGS", which stopped
+                        // being true the moment a building could be added by
+                        // hand. What the row says now is the thing worth
+                        // knowing anyway: whether this perimeter is armed.
+                        Text(perimeterNote(place))
                             .t8(.rowActionNote)
-                            .foregroundStyle(Palette.bone.opacity(0.4))
+                            .foregroundStyle(
+                                place.isLocated ? Palette.bone.opacity(0.4) : Palette.desk
+                            )
                             .padding(.top, 6)
                     }
                     .padding(.vertical, 14)
@@ -245,6 +263,136 @@ struct ArrivalSettingsScreen: View {
             }
         }
         .overlay { Rectangle().strokeBorder(Palette.rail.opacity(0.25), lineWidth: Metrics.hairline) }
+    }
+
+    private func perimeterNote(_ place: Place) -> String {
+        place.isLocated
+            ? "\(Int(place.radiusMetres))m RADIUS ▪ PERIMETER ARMED"
+            : "NOT FOUND ON THE MAP ▪ NO PERIMETER"
+    }
+
+    // MARK: Adding a building
+
+    /// The design says places are "learned from bookings", and mostly they are
+    /// — `PlaceResolver` creates one from the first desk captured at a new
+    /// building. This is for the other case: a perimeter you want armed before
+    /// the first booking arrives, or a building whose geocode came back wrong.
+    private var addBuildingRow: some View {
+        Button {
+            adding.toggle()
+            addResult = nil
+        } label: {
+            HStack(spacing: 12) {
+                Text(adding ? "CANCEL" : "+ ADD BUILDING")
+                    .t8(.rowAction)
+                    .foregroundStyle(adding ? Palette.boneSecondary : Palette.bone)
+                Spacer(minLength: 0)
+            }
+            .padding(.vertical, 13)
+            .padding(.horizontal, 15)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .overlay {
+                Rectangle().strokeBorder(Palette.rail.opacity(0.25), lineWidth: Metrics.hairline)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var addBuildingForm: some View {
+        VStack(spacing: 8) {
+            FieldRow(label: "NAME", value: $newName, placeholder: "ROPEMAKER PLACE", required: true)
+            FieldRow(label: "CITY", value: $newCity, placeholder: "LONDON")
+            FieldRow(label: "ADDRESS", value: $newAddress, placeholder: "25 ROPEMAKER ST")
+
+            Text("THE POSTCODE AND THE 50m PERIMETER COME FROM THE GEOCODER. A BUILDING IT CANNOT FIND IS STILL SAVED — IT SIMPLY HAS NO PERIMETER.")
+                .t8(.panelBody)
+                .foregroundStyle(Palette.bone.opacity(0.45))
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            if let addResult {
+                HStack(spacing: 9) {
+                    Rectangle()
+                        .fill(addResult.problem ? Palette.desk : Palette.stay)
+                        .frame(width: 6, height: 6)
+                    Text(addResult.text)
+                        .t8(.offline)
+                        .foregroundStyle(addResult.problem ? Palette.desk : Palette.stay)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                }
+                .padding(.vertical, 11)
+                .padding(.horizontal, 13)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background((addResult.problem ? Palette.desk : Palette.stay).opacity(0.07))
+                .overlay {
+                    Rectangle().strokeBorder(
+                        (addResult.problem ? Palette.desk : Palette.stay).opacity(0.45),
+                        lineWidth: Metrics.hairline
+                    )
+                }
+            }
+
+            SolidAction(
+                title: locating ? "LOCATING…" : "SAVE BUILDING",
+                fill: newName.trimmed.isEmpty ? Palette.desk.opacity(0.3) : Palette.desk
+            ) {
+                Task { await addBuilding() }
+            }
+        }
+    }
+
+    #if DEBUG
+    /// `-screen arrival-settings -add-building "Broadgate Tower|London"` runs
+    /// the real geocoder, which the unit tests deliberately stub out. Without
+    /// it the only untested thing in this path is the one bit of new API.
+    private func runDebugAdd() async {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard let index = arguments.firstIndex(of: "-add-building"),
+              index + 1 < arguments.count else { return }
+        let parts = arguments[index + 1].split(separator: "|").map(String.init)
+        adding = true
+        newName = parts.first ?? ""
+        newCity = parts.count > 1 ? parts[1] : ""
+        newAddress = parts.count > 2 ? parts[2] : ""
+        await addBuilding()
+    }
+    #endif
+
+    private func addBuilding() async {
+        guard !newName.trimmed.isEmpty, !locating else { return }
+
+        let places = (try? context.fetch(FetchDescriptor<Place>())) ?? []
+        if PlaceResolver.existing(named: newName, city: newCity, among: places) != nil {
+            addResult = ("THAT BUILDING IS ALREADY ON THE LIST.", true)
+            return
+        }
+
+        let place = Place(
+            name: newName.trimmed,
+            city: newCity.trimmed,
+            address: newAddress.trimmed,
+            postcode: "",
+            latitude: 0,
+            longitude: 0
+        )
+        context.insert(place)
+
+        locating = true
+        let located = await PlaceResolver.locate(place)
+        locating = false
+        try? context.save()
+
+        // Armed straight away rather than at the next launch: a perimeter you
+        // just added and that does nothing until you relaunch reads as broken.
+        ArrivalMonitor(ledger: ArrivalLedger(context: context)).refreshRegions()
+
+        addResult = located
+            ? ("\(place.name.uppercased()) LOCATED. PERIMETER ARMED.", false)
+            : ("SAVED, BUT NOT FOUND ON THE MAP. NO PERIMETER.", true)
+        newName = ""
+        newCity = ""
+        newAddress = ""
     }
 
     /// The inversion, stated. Arrive with nothing booked and the prompt offers

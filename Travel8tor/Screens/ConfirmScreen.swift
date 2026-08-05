@@ -12,6 +12,7 @@ struct ConfirmScreen: View {
     @Environment(\.dismiss) private var dismiss
 
     let coordinator: CaptureCoordinator
+    @State private var manual = false
     private let copy = Copy.shared
 
     var body: some View {
@@ -27,6 +28,14 @@ struct ConfirmScreen: View {
                 case .failed(let error, let filename):
                     failure(error, filename: filename)
                 }
+            }
+        }
+        .fullScreenCover(isPresented: $manual) {
+            ManualEntryScreen(coordinator: coordinator) {
+                // The typed booking is written; the failed parse underneath has
+                // nothing left to say.
+                coordinator.abort()
+                dismiss()
             }
         }
     }
@@ -235,9 +244,9 @@ struct ConfirmScreen: View {
             .padding(.horizontal, Metrics.screenPadding)
             .padding(.top, 18)
 
-            // Manual entry is stage 6; the affordance is here so the failure
-            // path is complete rather than a dead end.
-            OutlinedAction(title: "ENTER MANUALLY") { coordinator.abort(); dismiss() }
+            // Never a dead end: the file could not be read, so the booking gets
+            // typed instead, and lands through the same commit.
+            OutlinedAction(title: "ENTER MANUALLY") { manual = true }
                 .padding(.horizontal, Metrics.screenPadding)
                 .padding(.top, 11)
 
@@ -284,6 +293,9 @@ struct ConfirmScreen: View {
         try? coordinator.commit(parsed, captureID: captureID)
         coordinator.abort()
         dismiss()
+        // A new building's perimeter is a network round trip away. The booking
+        // is already written, so the screen goes first and the geocode follows.
+        Task { await coordinator.locateNewPlaces() }
     }
 }
 

@@ -17,6 +17,7 @@ enum Route: Hashable {
     case mission
     case settings
     case arrivalSettings
+    case manualEntry
     case arrival(placeID: UUID, bookingID: UUID?, day: Day)
     #if DEBUG
     /// Screen 5d's panel, rendered in the app rather than by ActivityKit.
@@ -111,6 +112,8 @@ struct RootView: View {
             }
         case "arrival-settings":
             .arrivalSettings
+        case "manual":
+            .manualEntry
         case "activity":
             .liveActivityPreview
         default:
@@ -187,6 +190,7 @@ struct RootView: View {
         case .mission: MissionScreen()
         case .settings: SettingsScreen()
         case .arrivalSettings: ArrivalSettingsScreen()
+        case .manualEntry: ManualEntryScreen(coordinator: capture)
         case .arrival(let placeID, let bookingID, let day):
             ArrivalScreen(placeID: placeID, bookingID: bookingID, day: day)
         #if DEBUG

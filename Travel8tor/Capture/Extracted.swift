@@ -187,7 +187,10 @@ nonisolated struct Extracted: Decodable {
             endZoneID: nil,
             unsureFields: unsure,
             provenance: .screengrab,
-            confidence: confidence
+            confidence: confidence,
+            // Not part of the booking — it belongs to the building, and it is
+            // what saves the geocoder from working off a name alone.
+            placeAddress: honouring("address", desk.address)
         )
     }
 

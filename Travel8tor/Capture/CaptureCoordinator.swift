@@ -52,6 +52,14 @@ final class CaptureCoordinator {
         return try await HaikuClient(apiKey: key).extract(input)
     }
 
+    /// Buildings created by the last commit and not yet located. Drained by
+    /// `locateNewPlaces`, which the confirm screen calls once it has dismissed.
+    private var newPlaces: [Place] = []
+
+    /// Swapped in tests so nothing reaches Apple's geocoder — a test at the
+    /// mercy of a network index is a test that fails on a train.
+    var geocoder: @Sendable (String) async -> Geocode.Located? = Geocode.live
+
     private let context: ModelContext
 
     init(context: ModelContext) {
@@ -143,6 +151,23 @@ final class CaptureCoordinator {
     /// existing one, if the capture merged into it.
     @discardableResult
     func commit(_ parsed: ParsedBooking, captureID: UUID?) throws -> UUID {
+        var parsed = parsed
+
+        // Which building this is, before dedupe runs — desk bookings match on
+        // place and date, so a desk arriving with a freshly invented placeID
+        // would never match the one already stored for the same day.
+        if let desk = parsed.detail.deskDetail {
+            let (resolved, created) = PlaceResolver.resolve(
+                desk, address: parsed.placeAddress, in: context
+            )
+            parsed.detail = .desk(resolved)
+            if let created {
+                // Off the critical path: the commit must not wait on a network
+                // round trip, and the building is usable without one.
+                newPlaces.append(created)
+            }
+        }
+
         let existing = try context.fetch(FetchDescriptor<Booking>())
         let candidates = existing.compactMap { booking -> Dedupe.Candidate? in
             guard let detail = booking.detail else { return nil }
@@ -231,6 +256,19 @@ final class CaptureCoordinator {
         for booking in bookings {
             booking.tripID = result.tripID(of: booking.id)
         }
+    }
+
+    /// Geocodes any building the last commit invented, then saves. Separate
+    /// from `commit` so the confirm screen can dismiss immediately: the booking
+    /// is already written and the building is already listed; only its
+    /// perimeter is pending.
+    func locateNewPlaces() async {
+        let pending = newPlaces
+        newPlaces = []
+        for place in pending {
+            await PlaceResolver.locate(place, using: geocoder)
+        }
+        if !pending.isEmpty { try? context.save() }
     }
 
     func abort() {

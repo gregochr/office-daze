@@ -227,6 +227,11 @@ final class Place {
         self.longitude = longitude
         self.radiusMetres = radiusMetres
     }
+
+    /// Whether there is a point to draw a perimeter around. 0,0 is the
+    /// Atlantic, and it is what a building the geocoder could not find holds —
+    /// so it is the absence, not a location.
+    var isLocated: Bool { latitude != 0 || longitude != 0 }
 }
 
 /// One row per place per day. The entire implementation of "fires once": on a

@@ -165,7 +165,6 @@ final class ArrivalLedger {
 
     /// Places worth monitoring: those we have coordinates for.
     var monitorablePlaces: [Place] {
-        ((try? context.fetch(FetchDescriptor<Place>())) ?? [])
-            .filter { $0.latitude != 0 || $0.longitude != 0 }
+        ((try? context.fetch(FetchDescriptor<Place>())) ?? []).filter(\.isLocated)
     }
 }
