@@ -9,6 +9,18 @@ struct SettingsScreen: View {
     @State private var key: String = ""
     @State private var stored: Bool = Keychain.has(.anthropicAPIKey)
     @State private var message: String?
+    /// Whether the message is a refusal rather than a confirmation. A rejected
+    /// paste in the same cyan as "STORED." reads as success.
+    @State private var messageIsProblem = false
+
+    /// Reveals what is being typed, not what is stored. A paste that arrived
+    /// truncated is invisible behind dots, which is the whole failure this is
+    /// here to make visible.
+    @State private var revealed = false
+
+    /// `sk-ant-…QAA7 ▪ 108 CHARS` — enough to tell two keys apart and to see
+    /// that a short one is short, without putting the secret on screen.
+    @State private var fingerprint: String? = Keychain.fingerprint(.anthropicAPIKey)
 
     /// The erase is two taps. `armed` is the first one.
     @State private var armed = false
@@ -31,26 +43,23 @@ struct SettingsScreen: View {
                         .t8(.incompleteHeader)
                         .foregroundStyle(stored ? Palette.stay : Palette.desk)
 
+                    // The fingerprint, not the key. "KEY STORED" was true of a
+                    // truncated key too, which is how one sat there until it
+                    // failed mid-capture.
+                    if stored, let fingerprint {
+                        Text(fingerprint)
+                            .t8(.meta)
+                            .foregroundStyle(Palette.bone.opacity(0.5))
+                            .padding(.top, 7)
+                    }
+
                     Text(explanation)
                         .t8(.panelBody)
                         .foregroundStyle(Palette.bone.opacity(0.55))
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.top, 10)
 
-                    SecureField("", text: $key, prompt: Text("sk-ant-…").foregroundStyle(Palette.bone.opacity(0.28)))
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .font(.custom(T8Fonts.regular, size: 12))
-                        .foregroundStyle(Palette.bone)
-                        .padding(.vertical, 11)
-                        .padding(.horizontal, 12)
-                        .background(Palette.ground)
-                        .overlay {
-                            Rectangle().strokeBorder(
-                                Palette.rail.opacity(0.3), lineWidth: Metrics.hairline
-                            )
-                        }
-                        .padding(.top, 14)
+                    keyField.padding(.top, 14)
 
                     HStack(spacing: 9) {
                         SolidAction(title: "STORE KEY", fill: Palette.desk) { store() }
@@ -63,7 +72,8 @@ struct SettingsScreen: View {
                     if let message {
                         Text(message)
                             .t8(.panelBody)
-                            .foregroundStyle(Palette.stay)
+                            .foregroundStyle(messageIsProblem ? Palette.desk : Palette.stay)
+                            .fixedSize(horizontal: false, vertical: true)
                             .padding(.top, 10)
                     }
                 }
@@ -236,6 +246,60 @@ struct SettingsScreen: View {
         .buttonStyle(.plain)
     }
 
+    /// A `SecureField` and a `TextField` rather than one field with a flag:
+    /// SwiftUI has no way to toggle secure entry on a single field, and swapping
+    /// the view is what everyone ends up doing.
+    ///
+    /// The eye reveals the field being typed into. It deliberately does not
+    /// reveal the stored key — that would mean reading the secret back out of
+    /// the Keychain to put it on a screen, and the fingerprint above already
+    /// answers the only question worth asking of a stored key, which is whether
+    /// it is the one you meant.
+    private var keyField: some View {
+        HStack(spacing: 0) {
+            Group {
+                if revealed {
+                    TextField("", text: $key)
+                } else {
+                    SecureField("", text: $key)
+                }
+            }
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            .textContentType(.password)
+            .font(.custom(T8Fonts.regular, size: 12))
+            .foregroundStyle(Palette.bone)
+            .overlay(alignment: .leading) {
+                if key.isEmpty {
+                    // The field is empty every time this screen opens, because
+                    // the stored key is never read back into it. With `sk-ant-…`
+                    // sitting there that reads as "nothing stored" — so when
+                    // something *is* stored, the placeholder says what an empty
+                    // field means instead of what a key looks like.
+                    Text(stored ? "PASTE A NEW KEY TO REPLACE" : "sk-ant-…")
+                        .font(.custom(T8Fonts.regular, size: 12))
+                        .foregroundStyle(Palette.bone.opacity(0.28))
+                        .allowsHitTesting(false)
+                }
+            }
+
+            Button { revealed.toggle() } label: {
+                Image(systemName: revealed ? "eye.slash" : "eye")
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundStyle(Palette.rail.opacity(revealed ? 0.9 : 0.55))
+                    .padding(.leading, 10)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(revealed ? "Hide the key" : "Show the key")
+        }
+        .padding(.vertical, 11)
+        .padding(.horizontal, 12)
+        .background(Palette.ground)
+        .overlay {
+            Rectangle().strokeBorder(Palette.rail.opacity(0.3), lineWidth: Metrics.hairline)
+        }
+    }
+
     private var explanation: String {
         """
         USED ONLY TO READ SCREENSHOTS AND PDFS. PASS FILES ARE PARSED ON DEVICE \
@@ -273,20 +337,36 @@ struct SettingsScreen: View {
 
     private func store() {
         let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+
+        // Refused here rather than accepted and left to fail as a 401 in the
+        // middle of a capture, where the paste is far enough away to look
+        // unrelated. This cannot prove a key works — only the API can — but it
+        // catches the shapes that cannot possibly.
+        if let problem = APIKeyCheck.validate(trimmed) {
+            message = problem.message
+            messageIsProblem = true
+            return
+        }
+
         do {
             try Keychain.set(trimmed, for: .anthropicAPIKey)
             key = ""
+            revealed = false
             stored = true
+            fingerprint = APIKeyCheck.fingerprint(trimmed)
             message = "STORED. SCREENSHOT AND PDF CAPTURE IS NOW AVAILABLE."
+            messageIsProblem = false
         } catch {
             message = (error as? LocalizedError)?.errorDescription ?? "COULD NOT STORE THE KEY."
+            messageIsProblem = true
         }
     }
 
     private func remove() {
         Keychain.remove(.anthropicAPIKey)
         stored = false
+        fingerprint = nil
         message = "REMOVED."
+        messageIsProblem = false
     }
 }

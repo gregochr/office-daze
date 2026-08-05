@@ -51,6 +51,17 @@ nonisolated enum Keychain {
         get(item)?.isEmpty == false
     }
 
+    /// A redacted descriptor of what is stored — `sk-ant-…QAA7 ▪ 108 CHARS`.
+    ///
+    /// Here rather than at the call site so the secret is read, reduced and
+    /// dropped inside this file. The settings screen holds the descriptor and
+    /// never the key, which is the point: "KEY STORED IN KEYCHAIN" was equally
+    /// true of a truncated one.
+    static func fingerprint(_ item: Item) -> String? {
+        guard let key = get(item), !key.isEmpty else { return nil }
+        return APIKeyCheck.fingerprint(key)
+    }
+
     private static func query(for item: Item) -> [String: Any] {
         [
             kSecClass as String: kSecClassGenericPassword,

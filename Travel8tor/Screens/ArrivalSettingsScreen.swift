@@ -12,7 +12,10 @@ struct ArrivalSettingsScreen: View {
     @Query private var places: [Place]
 
     @State private var settings = ArrivalSettings.shared
-    @State private var authorization: CLAuthorizationStatus = .notDetermined
+    /// Watched, not sampled. A single reading taken as the screen appears is
+    /// wrong the moment the permission is granted.
+    @State private var location = LocationAuthorization()
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var adding = false
     @State private var newName = ""
@@ -47,10 +50,14 @@ struct ArrivalSettingsScreen: View {
             }
         }
         .task {
-            authorization = CLLocationManager().authorizationStatus
             #if DEBUG
             await runDebugAdd()
             #endif
+        }
+        // Coming back from Settings.app: the delegate callback is not
+        // guaranteed to have arrived while the app was suspended.
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { location.refresh() }
         }
     }
 
@@ -107,19 +114,26 @@ struct ArrivalSettingsScreen: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 9)
 
-            if authorization != .authorizedAlways {
+            // Nothing left to ask for once Always is granted, so no button.
+            // The two remaining cases want different buttons: iOS only ever
+            // prompts once, so a permission already answered can only be
+            // changed in Settings.app — offering ASK FOR ACCESS there would be
+            // a button that does nothing.
+            if !location.isSettled {
                 SolidAction(
-                    title: authorization == .notDetermined ? "ASK FOR ACCESS" : "OPEN SETTINGS",
+                    title: location.mustUseSettings ? "OPEN SETTINGS" : "ASK FOR ACCESS",
                     fill: Palette.desk
                 ) {
-                    if authorization == .notDetermined {
-                        let monitor = ArrivalMonitor(ledger: ArrivalLedger(context: context))
+                    if location.mustUseSettings {
+                        if let url = URL(string: UIApplication.openSettingsURLString) {
+                            UIApplication.shared.open(url)
+                        }
+                    } else {
                         // Both permissions are asked for here, together, at the
                         // point the feature is being switched on.
+                        let monitor = ArrivalMonitor(ledger: ArrivalLedger(context: context))
                         Task { await monitor.requestNotifications() }
-                        monitor.requestAuthorization()
-                    } else if let url = URL(string: UIApplication.openSettingsURLString) {
-                        UIApplication.shared.open(url)
+                        location.request()
                     }
                 }
                 .padding(.top, 12)
@@ -133,7 +147,7 @@ struct ArrivalSettingsScreen: View {
     }
 
     private var authorizationState: (String, String, Color) {
-        switch authorization {
+        switch location.status {
         case .authorizedAlways:
             (
                 "LOCATION ▪ ALWAYS",

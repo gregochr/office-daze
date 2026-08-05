@@ -450,3 +450,72 @@ struct ConfirmFieldsTests {
         #expect(fields.first { $0.label == "DEPARTS" }?.value == "17:04")
     }
 }
+
+@Suite("API key check")
+struct APIKeyCheckTests {
+
+    /// Shaped like a real key: the prefix, then enough characters that length
+    /// is not what is being tested.
+    let plausible = "sk-ant-api03-" + String(repeating: "A", count: 95)
+
+    @Test("A key-shaped string passes")
+    func accepts() {
+        #expect(APIKeyCheck.validate(plausible) == nil)
+        // Whitespace from a paste is trimmed, not rejected.
+        #expect(APIKeyCheck.validate("  \(plausible)\n") == nil)
+    }
+
+    @Test("The masked key the console shows after the fact is caught by name")
+    func catchesMasked() {
+        // The likeliest way to arrive at a 401: copying what the console
+        // displays once you navigate back to it, rather than at creation.
+        #expect(APIKeyCheck.validate("sk-ant-api03-abc…xyz") == .masked)
+        #expect(APIKeyCheck.validate("sk-ant-api03-abc...xyz") == .masked)
+    }
+
+    @Test("Masked is reported before wrong-prefix, since a masked key has the prefix")
+    func maskedBeatsPrefix() {
+        // "That does not look like an API key" would be a misleading thing to
+        // say about a string that is unmistakably a masked one.
+        let masked = "sk-ant-…QAA7"
+        #expect(APIKeyCheck.validate(masked) == .masked)
+        #expect(APIKeyCheck.validate(masked) != .wrongPrefix)
+    }
+
+    @Test("Something that is not a key at all is refused")
+    func catchesNonKey() {
+        #expect(APIKeyCheck.validate("") == .empty)
+        #expect(APIKeyCheck.validate("   ") == .empty)
+        // A key's *name* rather than the key.
+        #expect(APIKeyCheck.validate("travel8tor-key") == .wrongPrefix)
+    }
+
+    @Test("A truncated paste is caught and its length named")
+    func catchesTruncation() {
+        #expect(APIKeyCheck.validate("sk-ant-api03-tooshort") == .tooShort(21))
+        // The message says the number, so the cause is diagnosable.
+        #expect(APIKeyCheck.Problem.tooShort(21).message.contains("21"))
+    }
+
+    @Test("The fingerprint identifies a key without disclosing it")
+    func fingerprint() {
+        let print = APIKeyCheck.fingerprint(plausible)
+        #expect(print.hasPrefix("sk-ant-…"))
+        #expect(print.contains("108 CHARS"))
+        // The body of the key never appears.
+        #expect(!print.contains(String(repeating: "A", count: 10)))
+    }
+
+    @Test("Every problem says something, upper case but for the literal prefix")
+    func messages() {
+        let problems: [APIKeyCheck.Problem] = [.empty, .wrongPrefix, .masked, .tooShort(5)]
+        for problem in problems {
+            #expect(!problem.message.isEmpty)
+            // The interface shouts, but `sk-ant-` is quoted verbatim: printing
+            // it as SK-ANT- would be telling the user to look for the wrong
+            // thing. Everything that is not that literal is upper case.
+            let prose = problem.message.replacingOccurrences(of: APIKeyCheck.prefix, with: "")
+            #expect(prose == prose.uppercased())
+        }
+    }
+}
