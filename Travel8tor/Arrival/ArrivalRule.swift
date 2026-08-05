@@ -7,8 +7,13 @@ nonisolated enum FireRate: String, CaseIterable, Sendable {
     case firstArrivalOnly
     /// Every geofence crossing.
     case everyArrival
-    /// Persists on the lock screen until the booking ends. The Live Activity
-    /// is stage 6; until then this behaves as `firstArrivalOnly`.
+    /// Alerts once, exactly as `firstArrivalOnly` does, and additionally starts
+    /// a Live Activity that persists on the lock screen and in the Dynamic
+    /// Island until the desk booking ends.
+    ///
+    /// It is deliberately additive rather than a replacement: the notification
+    /// is what carries the confirm action, and attendance is never written
+    /// without one. A Live Activity on its own could only show the desk.
     case persistAllDay
 
     var title: String {
@@ -23,7 +28,7 @@ nonisolated enum FireRate: String, CaseIterable, Sendable {
         switch self {
         case .firstArrivalOnly: "SPENT ONCE DELIVERED. LUNCH RUNS DO NOT RE-FIRE."
         case .everyArrival: "EVERY GEOFENCE CROSSING"
-        case .persistAllDay: "LIVE ACTIVITY ▪ STAGE 6"
+        case .persistAllDay: "ALERTS ONCE, THEN HOLDS THE LOCK SCREEN UNTIL THE DESK ENDS"
         }
     }
 }
@@ -46,6 +51,11 @@ nonisolated enum ArrivalRule {
         var deskID: String
         var floor: String?
         var zone: String?
+        /// When the desk is held until, which is what the Live Activity counts
+        /// down to. Optional and defaulted so the rule's own tests, which do
+        /// not care, keep their short call.
+        var endsAt: Date?
+        var endZoneID: String?
     }
 
     struct Input: Sendable {

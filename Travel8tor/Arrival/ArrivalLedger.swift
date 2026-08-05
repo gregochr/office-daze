@@ -53,13 +53,20 @@ final class ArrivalLedger {
         case .offerBooked(let booking):
             let result = try? QuotaService
                 .snapshot(for: day.month_, today: day, in: context).result
+            let dayNumber = Int((result?.attended ?? 0).rounded()) + 1
+            let target = result?.target ?? 0
             await deliver(ArrivalNotifications.bookedContent(
                 place: place, booking: booking, day: day,
                 shortfall: Int((result?.shortfall ?? 0).rounded()),
-                target: result?.target ?? 0,
-                dayNumber: Int((result?.attended ?? 0).rounded()) + 1,
+                target: target,
+                dayNumber: dayNumber,
                 copy: copy.callAsFunction
             ))
+            // PERSIST ALL DAY, and only that setting. The alert has already
+            // gone out either way; this adds the panel that outlives it.
+            if settings.fireRate == .persistAllDay {
+                startActivity(place, booking, day, dayNumber, target)
+            }
         case .offerUnbooked:
             await deliver(ArrivalNotifications.unbookedContent(
                 place: place, day: day, copy: copy.callAsFunction
@@ -67,6 +74,31 @@ final class ArrivalLedger {
         case .doNothing:
             break
         }
+    }
+
+    /// Swapped in tests, which must not reach ActivityKit — `Activity.request`
+    /// on a machine with Live Activities disabled is a throw, and on one with
+    /// them enabled it would leave a real panel behind after the test run.
+    var startActivity: (Place, ArrivalRule.DeskBooking, Day, Int, Int) -> Void = {
+        place, booking, day, dayNumber, target in
+        DeskActivityController.start(
+            placeName: place.name,
+            day: day,
+            deskID: booking.deskID,
+            floor: booking.floor,
+            zone: booking.zone,
+            // The one TimeDisplay implementation, so a desk booked abroad
+            // still renders `18:00 (17:00 UK)` rather than a bare figure.
+            heldUntil: booking.endsAt.map {
+                TimeDisplay.inline(
+                    $0,
+                    in: booking.endZoneID.flatMap(TimeZone.init(identifier:)) ?? TimeDisplay.uk
+                )
+            },
+            dayNumber: dayNumber,
+            target: target,
+            endsAt: booking.endsAt
+        )
     }
 
     func decide(placeID: UUID, day: Day) -> ArrivalRule.Decision {
@@ -78,7 +110,8 @@ final class ArrivalLedger {
                 guard let desk = booking.detail?.deskDetail else { return nil }
                 return ArrivalRule.DeskBooking(
                     id: booking.id, placeID: desk.placeID, day: booking.anchorDay,
-                    deskID: desk.deskID, floor: desk.floor, zone: desk.zone
+                    deskID: desk.deskID, floor: desk.floor, zone: desk.zone,
+                    endsAt: booking.endsAt, endZoneID: booking.endZoneID ?? booking.startZoneID
                 )
             }
 
@@ -112,6 +145,17 @@ final class ArrivalLedger {
             day: day, placeID: placeID, source: .geofence, fraction: 1.0, bookingID: bookingID
         ))
         try? context.save()
+
+        // The panel is showing a day count that has just moved. Nothing depends
+        // on this landing, so it is fired and forgotten rather than awaited.
+        if let result = try? QuotaService
+            .snapshot(for: day.month_, today: day, in: context).result {
+            Task {
+                await DeskActivityController.recount(
+                    dayNumber: Int(result.attended.rounded()), target: result.target
+                )
+            }
+        }
         return true
     }
 

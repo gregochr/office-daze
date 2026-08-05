@@ -44,6 +44,10 @@ struct Travel8torApp: App {
                     // moment the arrival trigger is switched on, not to launch.
                     arrival.registerNotificationHandling()
                     arrival.refreshRegions()
+                    // A Live Activity whose stale date passed while the app was
+                    // dead outlives the booking it describes. Launch is the
+                    // only moment we are guaranteed to be running.
+                    await DeskActivityController.endAll()
                 }
         }
         .modelContainer(container)

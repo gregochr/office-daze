@@ -14,19 +14,25 @@ final class ArrivalSettings {
         static let fireRate = "arrival.fireRate"
     }
 
+    /// Which defaults to read and write. `.standard` in the app; a throwaway
+    /// suite in tests, so a test that switches the fire rate does not leave it
+    /// switched for the next run of the app on the same simulator.
+    private let defaults: UserDefaults
+
     var enabled: Bool {
-        didSet { UserDefaults.standard.set(enabled, forKey: Key.enabled) }
+        didSet { defaults.set(enabled, forKey: Key.enabled) }
     }
 
     var fireRate: FireRate {
-        didSet { UserDefaults.standard.set(fireRate.rawValue, forKey: Key.fireRate) }
+        didSet { defaults.set(fireRate.rawValue, forKey: Key.fireRate) }
     }
 
-    private init() {
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
         // `object(forKey:)` rather than `bool(forKey:)`, which cannot tell
         // "never set" from "set to false".
-        enabled = UserDefaults.standard.object(forKey: Key.enabled) as? Bool ?? true
-        fireRate = UserDefaults.standard.string(forKey: Key.fireRate)
+        enabled = defaults.object(forKey: Key.enabled) as? Bool ?? true
+        fireRate = defaults.string(forKey: Key.fireRate)
             .flatMap(FireRate.init(rawValue:)) ?? .firstArrivalOnly
     }
 }

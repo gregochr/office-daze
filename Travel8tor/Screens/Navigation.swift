@@ -18,6 +18,16 @@ enum Route: Hashable {
     case settings
     case arrivalSettings
     case arrival(placeID: UUID, bookingID: UUID?, day: Day)
+    #if DEBUG
+    /// Screen 5d's panel, rendered in the app rather than by ActivityKit.
+    ///
+    /// The Simulator cannot be locked from the command line — there is no
+    /// `simctl` verb for it — so the lock-screen presentation of a Live
+    /// Activity cannot be screenshotted. This renders the identical view, which
+    /// is how its layout gets checked. The Dynamic Island presentation *is*
+    /// visible without locking, and is what proves ActivityKit itself runs.
+    case liveActivityPreview
+    #endif
 }
 
 struct RootView: View {
@@ -67,6 +77,9 @@ struct RootView: View {
         if let index = arguments.firstIndex(of: "-capture"), index + 1 < arguments.count {
             runCapture(named: arguments[index + 1])
         }
+        if arguments.contains("-live-activity") {
+            startDebugActivity()
+        }
         #endif
     }
 
@@ -98,11 +111,36 @@ struct RootView: View {
             }
         case "arrival-settings":
             .arrivalSettings
+        case "activity":
+            .liveActivityPreview
         default:
             nil
         }
 
         if let route { path.append(route) }
+    }
+
+    /// `-live-activity` starts the Live Activity from the first desk booking,
+    /// so screen 5d can be looked at without walking into a geofence.
+    private func startDebugActivity() {
+        guard let booking = bookings.first(where: { $0.kind == .desk }),
+              let desk = booking.detail?.deskDetail else { return }
+        DeskActivityController.start(
+            placeName: desk.placeName,
+            day: booking.anchorDay,
+            deskID: desk.deskID,
+            floor: desk.floor,
+            zone: desk.zone,
+            heldUntil: booking.endsAt.map {
+                TimeDisplay.inline($0, in: booking.endZone ?? booking.startZone)
+            },
+            dayNumber: 3,
+            target: 7,
+            // Not the booking's own end: the seed's desks are dated August and
+            // September 2026 and a stale date in the past would have the system
+            // dim the panel the instant it appeared.
+            endsAt: Date().addingTimeInterval(8 * 3600)
+        )
     }
 
     /// `-capture pass|stay|failed` drives the real pipeline: the pass path
@@ -151,6 +189,9 @@ struct RootView: View {
         case .arrivalSettings: ArrivalSettingsScreen()
         case .arrival(let placeID, let bookingID, let day):
             ArrivalScreen(placeID: placeID, bookingID: bookingID, day: day)
+        #if DEBUG
+        case .liveActivityPreview: LiveActivityPreviewScreen()
+        #endif
         }
     }
 }

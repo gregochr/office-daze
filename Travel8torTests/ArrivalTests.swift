@@ -70,8 +70,8 @@ struct ArrivalRuleTests {
         )
         #expect(every.deskBookings.first.map(ArrivalRule.Decision.offerBooked) == ArrivalRule.decide(every))
 
-        // Persist-all-day still honours the ledger until the Live Activity
-        // lands in stage 6.
+        // Persist-all-day honours the ledger too: the Live Activity it starts
+        // is additive to the once-a-day alert, not a second way to fire.
         let persist = ArrivalRule.Input(
             day: wednesday, placeID: ropemaker, ledger: ledger,
             deskBookings: [desk()], fireRate: .persistAllDay
@@ -342,5 +342,113 @@ struct FloorTests {
         #expect(Abbreviate.level("Mezzanine") == "MEZZANINE")
         // "LG" is a name, not L-then-digits, so it is left as it is.
         #expect(Abbreviate.level("LG") == "LG")
+    }
+}
+
+@Suite("Live Activity")
+@MainActor
+struct LiveActivityTests {
+
+    let wednesday = Day(2026, 8, 5)
+
+    /// A throwaway defaults suite per test, so switching the fire rate here
+    /// does not leave it switched for the app on the same simulator.
+    func settings(_ rate: FireRate) -> ArrivalSettings {
+        let suite = UserDefaults(suiteName: "t8.tests.\(UUID().uuidString)")!
+        let settings = ArrivalSettings(defaults: suite)
+        settings.fireRate = rate
+        return settings
+    }
+
+    /// Records what would have been handed to ActivityKit. Nothing in this
+    /// suite reaches the real one — a request would leave a panel on the lock
+    /// screen of whatever ran the tests.
+    final class Started: @unchecked Sendable {
+        var calls: [(place: Place, booking: ArrivalRule.DeskBooking, day: Day, dayNumber: Int, target: Int)] = []
+    }
+
+    /// The container is held here rather than left as a local in the factory.
+    /// `mainContext` does not keep its container alive, so letting one go out
+    /// of scope leaves the context pointing at freed storage — which crashes
+    /// inside SwiftData on the next fetch rather than failing an assertion.
+    struct Rig {
+        let container: ModelContainer
+        let ledger: ArrivalLedger
+        let started: Started
+    }
+
+    func rig(_ rate: FireRate) throws -> Rig {
+        let container = try Store.makeInMemoryContainer(seeded: true)
+        let ledger = ArrivalLedger(
+            context: container.mainContext, settings: settings(rate)
+        )
+        let started = Started()
+        ledger.deliver = { _ in }
+        ledger.startActivity = { place, booking, day, dayNumber, target in
+            started.calls.append((place, booking, day, dayNumber, target))
+        }
+        return Rig(container: container, ledger: ledger, started: started)
+    }
+
+    @Test("PERSIST ALL DAY starts the activity as well as alerting")
+    func persistStartsActivity() async throws {
+        let rig = try rig(.persistAllDay)
+        await rig.ledger.handleEntry(placeID: SeedData.ropemakerPlaceID, day: wednesday)
+
+        #expect(rig.started.calls.count == 1)
+        let call = try #require(rig.started.calls.first)
+        #expect(call.booking.deskID == "3C-114")
+        #expect(call.place.name == "Ropemaker Place")
+        // The activity is additive: the notification still went out, because it
+        // is the only thing carrying the confirm action.
+        #expect(rig.ledger.lastDecision == .offerBooked(call.booking))
+    }
+
+    @Test("FIRST ARRIVAL ONLY alerts and starts nothing")
+    func firstArrivalStartsNothing() async throws {
+        let rig = try rig(.firstArrivalOnly)
+        await rig.ledger.handleEntry(placeID: SeedData.ropemakerPlaceID, day: wednesday)
+        #expect(rig.started.calls.isEmpty)
+    }
+
+    @Test("An unbooked arrival starts nothing — there is no desk to hold")
+    func unbookedStartsNothing() async throws {
+        let rig = try rig(.persistAllDay)
+        // Sunday: nothing booked anywhere.
+        await rig.ledger.handleEntry(placeID: SeedData.ropemakerPlaceID, day: Day(2026, 8, 9))
+        #expect(rig.started.calls.isEmpty)
+    }
+
+    @Test("A second entry the same day starts no second activity")
+    func firesOnce() async throws {
+        let rig = try rig(.persistAllDay)
+        await rig.ledger.handleEntry(placeID: SeedData.ropemakerPlaceID, day: wednesday)
+        await rig.ledger.handleEntry(placeID: SeedData.ropemakerPlaceID, day: wednesday)
+        #expect(rig.started.calls.count == 1, "the ledger governs the activity too")
+    }
+
+    @Test("The panel's derived strings read as the design does")
+    func derivedStrings() {
+        let state = DeskActivityAttributes.ContentState(
+            deskID: "3C-114", floor: "L3", zone: "C",
+            heldUntil: "17:00", dayNumber: 3, target: 7
+        )
+        #expect(state.floorZone == "3 / C")
+        #expect(state.dayCount == "DAY 03/07")
+    }
+
+    @Test("An unread field is absent from the panel, never filled in")
+    func neverGuesses() {
+        let neither = DeskActivityAttributes.ContentState(
+            deskID: "3C-114", floor: nil, zone: nil,
+            heldUntil: nil, dayNumber: 1, target: 7
+        )
+        #expect(neither.floorZone == nil, "no cell at all rather than a guess")
+
+        let zoneOnly = DeskActivityAttributes.ContentState(
+            deskID: "3C-114", floor: nil, zone: "C",
+            heldUntil: nil, dayNumber: 1, target: 7
+        )
+        #expect(zoneOnly.floorZone == "C")
     }
 }

@@ -40,6 +40,15 @@ nonisolated enum Abbreviate {
         return stripped.allSatisfy(\.isNumber) ? "LEVEL \(stripped)" : stripped
     }
 
+    /// `L3` → `3`. The bare figure, for the Live Activity's `L / Z` cell, where
+    /// the label already says which is which and `L3 / C` reads as a stutter.
+    static func floorFigure(_ floor: String) -> String {
+        let trimmed = floor.trimmingCharacters(in: .whitespaces).uppercased()
+        return trimmed.hasPrefix("L") && trimmed.dropFirst().allSatisfy(\.isNumber)
+            ? String(trimmed.dropFirst())
+            : trimmed
+    }
+
     private static let placeSuffixes: [String: String] = [
         "PLACE": "PL", "STREET": "ST", "ROAD": "RD", "AVENUE": "AVE",
         "SQUARE": "SQ", "BUILDING": "BLDG", "HOUSE": "HSE", "COURT": "CT",
