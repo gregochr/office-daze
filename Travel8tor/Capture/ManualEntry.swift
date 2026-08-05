@@ -51,7 +51,6 @@ nonisolated enum ManualEntry {
         var deskCity = ""
         var deskID = ""
         var floor = ""
-        var deskZone = ""
         var hours = ""
 
         // Stay
@@ -99,6 +98,35 @@ nonisolated enum ManualEntry {
         case .stay:
             [("HOTEL", draft.hotelName)].filter { $0.1.trimmed.isEmpty }.map(\.0)
         }
+    }
+
+    /// The floor hiding inside a desk id.
+    ///
+    /// Coleman writes its desks as `CO03A424` — site, floor, desk, run together
+    /// — so typing the id and then typing the floor again is asking for the
+    /// same fact twice. The shape matched is two or three letters of site code,
+    /// exactly two digits of floor, then an alphanumeric desk: `CO03A424`,
+    /// `CO03C407`, `CO03D211`.
+    ///
+    /// The id itself is never altered. What the booking system prints is what
+    /// is stored, because that is what is on the confirmation and on the desk.
+    ///
+    /// Anything not matching the shape returns nil rather than a guess.
+    /// `3C-114` has a floor in it too, but reading it needs a different rule,
+    /// and a wrong floor is worse than a blank one — the same reasoning that
+    /// stops the model inferring a value it cannot read.
+    static func floor(inDeskID id: String) -> String? {
+        let text = id.trimmed.uppercased()
+        let letters = text.prefix { $0.isLetter }
+        guard (2...3).contains(letters.count) else { return nil }
+        let afterLetters = text.dropFirst(letters.count)
+        let digits = afterLetters.prefix { $0.isNumber }
+        guard digits.count == 2 else { return nil }
+        // `CO03` on its own is a site and a floor, not a desk. Filling the floor
+        // from it would be reading a desk id that has not been typed out yet.
+        let desk = afterLetters.dropFirst(digits.count)
+        guard !desk.isEmpty, desk.allSatisfy({ $0.isLetter || $0.isNumber }) else { return nil }
+        return String(digits)
     }
 
     static func validate(_ draft: Draft) -> Problem? {
@@ -158,7 +186,6 @@ nonisolated enum ManualEntry {
                     placeName: draft.placeName.trimmed,
                     city: draft.deskCity.trimmed,
                     floor: draft.floor.nilIfBlank,
-                    zone: draft.deskZone.nilIfBlank,
                     deskID: draft.deskID.trimmed,
                     hours: draft.hours.nilIfBlank,
                     countsToQuota: true

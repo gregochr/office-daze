@@ -16,7 +16,7 @@ struct ArrivalRuleTests {
     ) -> ArrivalRule.DeskBooking {
         ArrivalRule.DeskBooking(
             id: UUID(), placeID: place ?? ropemaker, day: day,
-            deskID: id, floor: "3", zone: "C"
+            deskID: id, floor: "3"
         )
     }
 
@@ -430,25 +430,19 @@ struct LiveActivityTests {
     @Test("The panel's derived strings read as the design does")
     func derivedStrings() {
         let state = DeskActivityAttributes.ContentState(
-            deskID: "3C-114", floor: "L3", zone: "C",
+            deskID: "CO03A424", floor: "03",
             heldUntil: "17:00", dayNumber: 3, target: 7
         )
-        #expect(state.floorZone == "3 / C")
+        #expect(state.level == "03", "as the booking system prints it")
         #expect(state.dayCount == "DAY 03/07")
     }
 
     @Test("An unread field is absent from the panel, never filled in")
     func neverGuesses() {
-        let neither = DeskActivityAttributes.ContentState(
-            deskID: "3C-114", floor: nil, zone: nil,
+        let unread = DeskActivityAttributes.ContentState(
+            deskID: "CO03A424", floor: nil,
             heldUntil: nil, dayNumber: 1, target: 7
         )
-        #expect(neither.floorZone == nil, "no cell at all rather than a guess")
-
-        let zoneOnly = DeskActivityAttributes.ContentState(
-            deskID: "3C-114", floor: nil, zone: "C",
-            heldUntil: nil, dayNumber: 1, target: 7
-        )
-        #expect(zoneOnly.floorZone == "C")
+        #expect(unread.level == nil, "no cell at all rather than a guess")
     }
 }

@@ -50,7 +50,6 @@ nonisolated enum ArrivalRule {
         var day: Day
         var deskID: String
         var floor: String?
-        var zone: String?
         /// When the desk is held until, which is what the Live Activity counts
         /// down to. Optional and defaulted so the rule's own tests, which do
         /// not care, keep their short call.

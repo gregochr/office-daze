@@ -33,8 +33,8 @@ struct DeskLiveActivity: Widget {
                     islandBlock(label: "DESK", value: context.state.deskID.uppercased(), size: 20)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    if let floorZone = context.state.floorZone {
-                        islandBlock(label: "L / Z", value: floorZone, size: 20, trailing: true)
+                    if let level = context.state.level {
+                        islandBlock(label: "LEVEL", value: level, size: 20, trailing: true)
                     }
                 }
                 DynamicIslandExpandedRegion(.bottom) {

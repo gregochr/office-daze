@@ -56,6 +56,34 @@ nonisolated enum CaptureSamples {
         confidence: .low
     )
 
+    /// A desk system's week, as a screengrab of its table comes back: three
+    /// rows, one per day, same building and hours throughout — and a fourth row
+    /// whose date was cut off by the screenshot, which is a failure rather than
+    /// a booking. What the confirm screen has to walk through one at a time.
+    static let colemanWeek = CaptureBatch(
+        bookings: (4...6).map { day in
+            ParsedBooking(
+                detail: .desk(DeskDetail(
+                    placeID: UUID(),
+                    placeName: "Coleman",
+                    city: "London",
+                    floor: "03",
+                    deskID: ["CO03A424", "CO03C407", "CO03D211"][day - 4],
+                    hours: "08:00–17:00",
+                    countsToQuota: true
+                )),
+                startsAt: Day(2026, 8, day).at(8, 0, in: TimeDisplay.uk),
+                startZoneID: "Europe/London",
+                endsAt: Day(2026, 8, day).at(17, 0, in: TimeDisplay.uk),
+                endZoneID: "Europe/London",
+                unsureFields: [],
+                provenance: .screengrab,
+                confidence: .high
+            )
+        },
+        unreadable: [.modelReturnedNothingUsable("no readable date")]
+    )
+
     /// A stored (uncompressed) zip holding one file.
     static func zip(named name: String, contents: Data) -> Data {
         var data = Data()

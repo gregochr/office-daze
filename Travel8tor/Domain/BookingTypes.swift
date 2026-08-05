@@ -75,7 +75,6 @@ nonisolated struct DeskDetail: Codable, Hashable, Sendable {
     var placeName: String
     var city: String
     var floor: String?
-    var zone: String?
     var deskID: String
     var hours: String?
     /// A desk in a building that isn't the office — a client site, say — is a

@@ -307,7 +307,7 @@ struct ExtractedTests {
          "rail":null,"stay":null,
          "desk":{"placeName":"Ropemaker Place","address":"25 Ropemaker St","city":"London",
                  "date":"2026-09-11T09:00:00+01:00","zone":null,
-                 "floor":"L3","deskZone":"C","deskID":"3C-118","hours":"09-17"}}
+                 "floor":"L3","deskID":"3C-118","hours":"09-17"}}
         """)
         let parsed = try extracted.parsed(today: Day(2026, 8, 4))
         // No zone from the model, but a known city — the identifier beats the
@@ -327,10 +327,11 @@ struct ExtractedTests {
     @Test("Token counts are read off the response for the cost record")
     func usage() throws {
         let inner = """
-        {"kind":"stay","confidence":"high","unsureFields":[],"rail":null,"desk":null,
-         "stay":{"hotelName":"Hotel Sablon","address":null,"city":"Brussels",
-                 "checkIn":"2026-09-07T21:00:00+02:00","checkOut":"2026-09-10T11:00:00+02:00",
-                 "zone":"Europe/Brussels","nights":3,"bookingRef":null}}
+        {"bookings":[
+         {"kind":"stay","confidence":"high","unsureFields":[],"rail":null,"desk":null,
+          "stay":{"hotelName":"Hotel Sablon","address":null,"city":"Brussels",
+                  "checkIn":"2026-09-07T21:00:00+02:00","checkOut":"2026-09-10T11:00:00+02:00",
+                  "zone":"Europe/Brussels","nights":3,"bookingRef":null}}]}
         """
         let envelope: [String: Any] = [
             "content": [["type": "text", "text": inner]],
@@ -338,12 +339,106 @@ struct ExtractedTests {
         ]
         let data = try JSONSerialization.data(withJSONObject: envelope)
 
-        let (parsed, usage) = try HaikuClient.decode(data, today: Day(2026, 8, 4))
+        let (batch, usage) = try HaikuClient.decode(data, today: Day(2026, 8, 4))
         #expect(usage.inputTokens == 1234)
         #expect(usage.outputTokens == 210)
+        let parsed = try #require(batch.bookings.first)
         #expect(parsed.detail.stayDetail?.hotelName == "Hotel Sablon")
         #expect(parsed.startZoneID == "Europe/Brussels")
         #expect(parsed.costedCall, "a model call is costed")
+    }
+}
+
+/// A screenshot of a desk system is a table, and every row of it is a booking.
+/// Reading one and dropping the rest would look like a successful capture.
+@Suite("Several bookings in one document")
+struct BatchTests {
+
+    /// The Coleman week, as the desk system prints it: same building, same
+    /// hours, one row per day.
+    func table(rows: [(day: Int, desk: String)]) -> String {
+        let bookings = rows.map { row in
+            """
+            {"kind":"desk","confidence":"high","unsureFields":[],"rail":null,"stay":null,
+             "desk":{"placeName":"Coleman","address":"","city":"London",
+                     "date":"2026-08-\(String(format: "%02d", row.day))T08:00:00+01:00",
+                     "zone":"Europe/London","floor":"03","deskID":"\(row.desk)",
+                     "hours":"08:00-17:00"}}
+            """
+        }
+        return "{\"bookings\":[\(bookings.joined(separator: ","))]}"
+    }
+
+    func decode(_ json: String) throws -> ExtractedBatch {
+        try JSONDecoder().decode(ExtractedBatch.self, from: Data(json.utf8))
+    }
+
+    @Test("Every row of the table becomes its own booking")
+    func rowsAreBookings() throws {
+        let json = table(rows: [
+            (4, "CO03A424"), (5, "CO03C407"), (6, "CO03D211"),
+        ])
+        let batch = try decode(json).parsed(today: Day(2026, 8, 4))
+
+        #expect(batch.bookings.count == 3, "three rows, three bookings")
+        #expect(batch.unreadable.isEmpty)
+        #expect(
+            batch.bookings.compactMap { $0.detail.deskDetail?.deskID }
+                == ["CO03A424", "CO03C407", "CO03D211"],
+            "in the order printed"
+        )
+        // Same building three days running is three bookings, not one. Nothing
+        // here may collapse them; the desk changes and so does the day.
+        #expect(Set(batch.bookings.map(\.startsAt)).count == 3)
+    }
+
+    @Test("A single booking is a list of one, not a special case")
+    func oneRow() throws {
+        let batch = try decode(table(rows: [(5, "CO03C407")])).parsed(today: Day(2026, 8, 4))
+        #expect(batch.bookings.count == 1)
+        #expect(batch.unreadable.isEmpty)
+    }
+
+    @Test("An unreadable row is carried, not allowed to sink the readable ones")
+    func partialTable() throws {
+        // Three-quarters of a table beats none of it: what read is committed,
+        // and the row that didn't is reported once the rest are through.
+        let json = """
+        {"bookings":[
+         {"kind":"desk","confidence":"high","unsureFields":["date"],"rail":null,"stay":null,
+          "desk":{"placeName":"Coleman","address":"","city":"London","date":"",
+                  "zone":"Europe/London","floor":"03","deskID":"CO03A424","hours":""}},
+         {"kind":"desk","confidence":"high","unsureFields":[],"rail":null,"stay":null,
+          "desk":{"placeName":"Coleman","address":"","city":"London",
+                  "date":"2026-08-06T08:00:00+01:00","zone":"Europe/London",
+                  "floor":"03","deskID":"CO03D211","hours":"08:00-17:00"}}]}
+        """
+        let batch = try decode(json).parsed(today: Day(2026, 8, 4))
+
+        #expect(batch.bookings.count == 1)
+        #expect(batch.bookings.first?.detail.deskDetail?.deskID == "CO03D211")
+        #expect(batch.unreadable.count == 1, "the cut-off row is reported, not dropped silently")
+    }
+
+    @Test("A document with nothing readable in it is still a failure")
+    func nothingReadable() throws {
+        let json = """
+        {"bookings":[
+         {"kind":"desk","confidence":"low","unsureFields":["date","deskID"],
+          "rail":null,"stay":null,
+          "desk":{"placeName":"Coleman","address":"","city":"London","date":"",
+                  "zone":"","floor":"","deskID":"","hours":""}}]}
+        """
+        #expect(throws: CaptureError.self) {
+            try decode(json).parsed(today: Day(2026, 8, 4))
+        }
+    }
+
+    @Test("An empty list is a failure rather than a silent success")
+    func emptyList() throws {
+        #expect(throws: CaptureError.self) {
+            try decode(#"{"bookings":[]}"#).parsed(today: Day(2026, 8, 4))
+        }
     }
 }
 
@@ -378,12 +473,49 @@ struct SchemaTests {
         _ = try JSONSerialization.data(withJSONObject: HaikuClient.schema)
     }
 
+    /// `properties.bookings.items` — the shape one booking takes inside the
+    /// list the root now returns.
+    var bookingItem: [String: Any]? {
+        let root = HaikuClient.schema["properties"] as? [String: Any]
+        let bookings = root?["bookings"] as? [String: Any]
+        return bookings?["items"] as? [String: Any]
+    }
+
+    @Test("The root returns a list, so a table is not silently truncated to its first row")
+    func rootIsAList() throws {
+        let bookings = try #require(
+            (HaikuClient.schema["properties"] as? [String: Any])?["bookings"] as? [String: Any]
+        )
+        #expect(bookings["type"] as? String == "array")
+        #expect(bookingItem?["type"] as? String == "object")
+        #expect(HaikuClient.userPrompt(today: Day(2026, 8, 5)).contains("every booking"))
+        #expect(HaikuClient.systemPrompt.contains("one row per day"))
+    }
+
     @Test("Every kind is offered and the never-guess rule is in the prompt")
     func promptAndKinds() {
-        let kinds = (HaikuClient.schema["properties"] as? [String: Any])?["kind"] as? [String: Any]
+        let kinds = (bookingItem?["properties"] as? [String: Any])?["kind"] as? [String: Any]
         #expect(Set(kinds?["enum"] as? [String] ?? []) == ["rail", "desk", "stay"])
         #expect(HaikuClient.systemPrompt.contains("NEVER INFER A VALUE"))
         #expect(HaikuClient.systemPrompt.contains("unsureFields"))
+    }
+
+    /// The 400 that cost a commit to find: structured outputs cap the number of
+    /// union-typed parameters, and nesting the booking inside an array must not
+    /// have multiplied them.
+    @Test("Wrapping the booking in a list adds no union types")
+    func unionCount() {
+        func unions(_ node: Any) -> Int {
+            guard let object = node as? [String: Any] else { return 0 }
+            var count = object["anyOf"] == nil ? 0 : 1
+            for value in (object["properties"] as? [String: Any])?.values ?? [:].values {
+                count += unions(value)
+            }
+            for branch in object["anyOf"] as? [Any] ?? [] { count += unions(branch) }
+            if let items = object["items"] { count += unions(items) }
+            return count
+        }
+        #expect(unions(HaikuClient.schema) <= 16)
     }
 }
 
@@ -572,18 +704,17 @@ struct SchemaLimitTests {
         {"kind":"desk","confidence":"high","unsureFields":[],
          "desk":{"placeName":"Ropemaker Place","address":"","city":"London",
                  "date":"2026-09-11T09:00:00+01:00","zone":"Europe/London",
-                 "floor":"","deskZone":"  ","deskID":"3C-118","hours":""}}
+                 "floor":"","deskID":"3C-118","hours":"  "}}
         """
         let extracted = try JSONDecoder().decode(Extracted.self, from: Data(json.utf8))
         let parsed = try extracted.parsed(today: Day(2026, 9, 1))
         let desk = try #require(parsed.detail.deskDetail)
 
         #expect(desk.floor == nil, "an empty string is an absence")
-        #expect(desk.zone == nil, "whitespace only is an absence too")
-        #expect(desk.hours == nil)
+        #expect(desk.hours == nil, "whitespace only is an absence too")
         #expect(desk.deskID == "3C-118")
         // And the blanks are named, so the amber flag still counts them.
-        #expect(Set(parsed.unsureFields).isSuperset(of: ["floor", "zone", "hours"]))
+        #expect(Set(parsed.unsureFields).isSuperset(of: ["floor", "hours"]))
     }
 }
 

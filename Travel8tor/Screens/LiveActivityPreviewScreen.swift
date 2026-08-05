@@ -30,7 +30,6 @@ struct LiveActivityPreviewScreen: View {
                         state: .init(
                             deskID: detail.deskID,
                             floor: detail.floor,
-                            zone: detail.zone,
                             heldUntil: booking.endsAt.map {
                                 TimeDisplay.inline($0, in: booking.endZone ?? booking.startZone)
                             },
@@ -50,7 +49,7 @@ struct LiveActivityPreviewScreen: View {
                         ),
                         state: .init(
                             deskID: detail.deskID,
-                            floor: nil, zone: nil, heldUntil: nil,
+                            floor: nil, heldUntil: nil,
                             dayNumber: 3, target: 7
                         )
                     )

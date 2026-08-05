@@ -33,11 +33,22 @@ nonisolated struct CaptureInput: Sendable {
 @Observable
 final class CaptureCoordinator {
 
+    /// Which booking of how many is on screen. `1 OF 1` for a single
+    /// confirmation, `1 OF 3` for a table — the counter is what tells the user
+    /// there is more behind this one.
+    struct Position: Equatable, Sendable {
+        /// One-based, because it is shown rather than indexed with.
+        var number: Int
+        var total: Int
+
+        var isOnlyOne: Bool { total == 1 }
+    }
+
     enum Phase: Equatable {
         case idle
         /// The design's `INTAKE ▪ PARSED 1.2s` state, roughly 1–2 seconds.
         case parsing(filename: String)
-        case review(ParsedBooking, elapsed: TimeInterval, captureID: UUID)
+        case review(ParsedBooking, elapsed: TimeInterval, captureID: UUID, at: Position)
         /// Never a silent drop — a failure always offers manual entry.
         case failed(CaptureError, filename: String)
     }
@@ -45,12 +56,24 @@ final class CaptureCoordinator {
     var phase: Phase = .idle
 
     /// Swapped out in tests so no network call is made.
-    var extractor: (CaptureInput) async throws -> (ParsedBooking, HaikuClient.Usage) = { input in
+    var extractor: (CaptureInput) async throws -> (CaptureBatch, HaikuClient.Usage) = { input in
         guard let key = Keychain.get(.anthropicAPIKey), !key.isEmpty else {
             throw CaptureError.noAPIKey
         }
         return try await HaikuClient(apiKey: key).extract(input)
     }
+
+    /// The bookings from this capture still waiting to be reviewed, and what is
+    /// needed to keep showing them. Held here rather than in the review screen
+    /// so that the screen stays a pure function of `phase` — it renders what it
+    /// is given and has no queue of its own to get out of step.
+    private var queue: [ParsedBooking] = []
+    private var reviewed = 0
+    private var batchTotal = 0
+    private var batchUnreadable: [CaptureError] = []
+    private var batchElapsed: TimeInterval = 0
+    private var batchCaptureID: UUID?
+    private var batchFilename = ""
 
     /// Buildings created by the last commit and not yet located. Drained by
     /// `locateNewPlaces`, which the confirm screen calls once it has dismissed.
@@ -101,7 +124,11 @@ final class CaptureCoordinator {
                 let capture = record(
                     inputType: .passFile, asset: data, model: nil, usage: nil, status: .parsed
                 )
-                phase = .review(parsed, elapsed: Date().timeIntervalSince(started), captureID: capture)
+                // A pass is one booking by construction — one ticket, one file.
+                begin(
+                    CaptureBatch(parsed), elapsed: Date().timeIntervalSince(started),
+                    captureID: capture, filename: filename
+                )
             } catch let error as CaptureError {
                 record(inputType: .passFile, asset: data, model: nil, usage: nil, status: .failed)
                 phase = .failed(error, filename: filename)
@@ -127,12 +154,15 @@ final class CaptureCoordinator {
 
         let input = CaptureInput(payload: payload, filename: filename, today: .today)
         do {
-            let (parsed, usage) = try await extractor(input)
+            let (batch, usage) = try await extractor(input)
             let capture = record(
                 inputType: input.inputType, asset: data,
                 model: HaikuClient.model, usage: usage, status: .parsed
             )
-            phase = .review(parsed, elapsed: Date().timeIntervalSince(started), captureID: capture)
+            begin(
+                batch, elapsed: Date().timeIntervalSince(started),
+                captureID: capture, filename: filename
+            )
         } catch let error as CaptureError {
             record(
                 inputType: input.inputType, asset: data,
@@ -142,6 +172,61 @@ final class CaptureCoordinator {
         } catch {
             phase = .failed(.network(error.localizedDescription), filename: filename)
         }
+    }
+
+    // MARK: The review queue
+
+    /// Takes a capture's bookings and shows the first of them.
+    private func begin(
+        _ batch: CaptureBatch, elapsed: TimeInterval, captureID: UUID, filename: String
+    ) {
+        queue = batch.bookings
+        reviewed = 0
+        batchTotal = batch.bookings.count
+        batchUnreadable = batch.unreadable
+        batchElapsed = elapsed
+        batchCaptureID = captureID
+        batchFilename = filename
+        advance()
+    }
+
+    /// Moves to the next booking in the capture, or ends it.
+    ///
+    /// Called after a commit and after a skip, because from here the two are
+    /// the same event: this booking is done with, show what is behind it. What
+    /// the user chose is the caller's business.
+    func advance() {
+        guard let next = queue.first, let captureID = batchCaptureID else {
+            finish()
+            return
+        }
+        queue.removeFirst()
+        reviewed += 1
+        phase = .review(
+            next, elapsed: batchElapsed, captureID: captureID,
+            at: Position(number: reviewed, total: batchTotal)
+        )
+    }
+
+    /// The end of a capture. Rows the mapping could not read are reported here
+    /// rather than at the start, so the readable ones are already committed by
+    /// the time the failure appears and ENTER MANUALLY covers only what is
+    /// actually missing.
+    private func finish() {
+        if let unreadable = batchUnreadable.first {
+            phase = .failed(unreadable, filename: batchFilename)
+        } else {
+            phase = .idle
+        }
+        clearBatch()
+    }
+
+    private func clearBatch() {
+        queue = []
+        reviewed = 0
+        batchTotal = 0
+        batchUnreadable = []
+        batchCaptureID = nil
     }
 
     // MARK: Committing
@@ -271,7 +356,11 @@ final class CaptureCoordinator {
         if !pending.isEmpty { try? context.save() }
     }
 
+    /// ABORT drops the whole capture, not just the booking on screen. The rest
+    /// of the table goes with it — the user asked to stop, and advancing to the
+    /// next row instead would read as the button not working.
     func abort() {
+        clearBatch()
         phase = .idle
     }
 

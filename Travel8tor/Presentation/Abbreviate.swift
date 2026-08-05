@@ -40,8 +40,10 @@ nonisolated enum Abbreviate {
         return stripped.allSatisfy(\.isNumber) ? "LEVEL \(stripped)" : stripped
     }
 
-    /// `L3` → `3`. The bare figure, for the Live Activity's `L / Z` cell, where
-    /// the label already says which is which and `L3 / C` reads as a stutter.
+    /// `L3` → `3`. The bare figure, for the Live Activity's LEVEL cell, where
+    /// the label already says what it is and `L3` under it reads as a stutter.
+    /// A floor written as `03` stays `03` — that is how the booking system
+    /// prints it, and trimming it to `3` would be tidying, not reading.
     static func floorFigure(_ floor: String) -> String {
         let trimmed = floor.trimmingCharacters(in: .whitespaces).uppercased()
         return trimmed.hasPrefix("L") && trimmed.dropFirst().allSatisfy(\.isNumber)

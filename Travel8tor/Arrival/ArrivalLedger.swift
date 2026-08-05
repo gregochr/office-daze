@@ -86,7 +86,6 @@ final class ArrivalLedger {
             day: day,
             deskID: booking.deskID,
             floor: booking.floor,
-            zone: booking.zone,
             // The one TimeDisplay implementation, so a desk booked abroad
             // still renders `18:00 (17:00 UK)` rather than a bare figure.
             heldUntil: booking.endsAt.map {
@@ -110,7 +109,7 @@ final class ArrivalLedger {
                 guard let desk = booking.detail?.deskDetail else { return nil }
                 return ArrivalRule.DeskBooking(
                     id: booking.id, placeID: desk.placeID, day: booking.anchorDay,
-                    deskID: desk.deskID, floor: desk.floor, zone: desk.zone,
+                    deskID: desk.deskID, floor: desk.floor,
                     endsAt: booking.endsAt, endZoneID: booking.endZoneID ?? booking.startZoneID
                 )
             }

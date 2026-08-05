@@ -18,19 +18,16 @@ nonisolated struct DeskActivityAttributes: ActivityAttributes {
     nonisolated struct ContentState: Codable, Hashable, Sendable {
         var deskID: String
         var floor: String?
-        var zone: String?
         /// Already formatted — `17:00`. Formatting happens app-side so the one
         /// `TimeDisplay` implementation stays the only one.
         var heldUntil: String?
         var dayNumber: Int
         var target: Int
 
-        /// `3 / C`, or as much of it as was read. Never a guess: a floor the
-        /// capture could not read is absent here rather than filled in.
-        var floorZone: String? {
-            let parts = [floor.map(Abbreviate.floorFigure), zone?.uppercased()]
-                .compactMap { $0 }
-            return parts.isEmpty ? nil : parts.joined(separator: " / ")
+        /// `3`. Never a guess: a floor the capture could not read is absent
+        /// here rather than filled in.
+        var level: String? {
+            floor.map(Abbreviate.floorFigure)
         }
 
         /// `DAY 03/07`.

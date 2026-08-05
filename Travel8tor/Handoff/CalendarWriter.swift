@@ -52,7 +52,6 @@ enum CalendarWriter {
         var address: String?
         var postcode: String?
         var floor: String?
-        var zone: String?
         var startsAt: Date
         var endsAt: Date
         var timeZone: TimeZone
@@ -76,7 +75,6 @@ enum CalendarWriter {
     static func notes(_ entry: Entry) -> String? {
         var lines: [String] = []
         if let floor = entry.floor { lines.append("Floor: \(Abbreviate.level(floor).capitalized)") }
-        if let zone = entry.zone { lines.append("Zone: \(zone.uppercased())") }
         lines.append("Added by Travel8tor.")
         return lines.joined(separator: "\n")
     }

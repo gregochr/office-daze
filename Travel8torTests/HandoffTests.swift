@@ -10,7 +10,7 @@ struct CalendarWriterTests {
 
     let london = TimeZone(identifier: "Europe/London")!
 
-    func entry(floor: String? = "L3", zone: String? = "C") -> CalendarWriter.Entry {
+    func entry(floor: String? = "L3") -> CalendarWriter.Entry {
         let day = Day(2026, 9, 11)
         return CalendarWriter.Entry(
             deskID: "3c-118",
@@ -18,7 +18,6 @@ struct CalendarWriterTests {
             address: "25 Ropemaker St",
             postcode: "EC2Y 9LY",
             floor: floor,
-            zone: zone,
             startsAt: day.at(9, 0, in: london),
             endsAt: day.at(17, 0, in: london),
             timeZone: london
@@ -43,11 +42,9 @@ struct CalendarWriterTests {
     func notesOmitUnread() throws {
         let full = try #require(CalendarWriter.notes(entry()))
         #expect(full.contains("Floor: Level 3"))
-        #expect(full.contains("Zone: C"))
 
-        let partial = try #require(CalendarWriter.notes(entry(floor: nil, zone: nil)))
+        let partial = try #require(CalendarWriter.notes(entry(floor: nil)))
         #expect(!partial.contains("Floor"))
-        #expect(!partial.contains("Zone"))
         #expect(partial.contains("Travel8tor"))
     }
 

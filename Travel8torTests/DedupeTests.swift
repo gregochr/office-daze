@@ -102,7 +102,7 @@ struct DedupeTests {
                 id: UUID(),
                 detail: .desk(DeskDetail(
                     placeID: UUID(), placeName: "Ropemaker Place", city: "London",
-                    floor: "L3", zone: "C", deskID: id, hours: nil, countsToQuota: true
+                    floor: "L3", deskID: id, hours: nil, countsToQuota: true
                 )),
                 startsAt: Day(2026, 9, 11).at(9, 0, in: london),
                 startZoneID: "Europe/London",
@@ -223,7 +223,7 @@ struct CaptureCoordinatorTests {
         let parsed = ParsedBooking(
             detail: .desk(DeskDetail(
                 placeID: SeedData.ropemakerPlaceID, placeName: "Ropemaker Place",
-                city: "London", floor: "L3", zone: "C", deskID: "3C-140",
+                city: "London", floor: "L3", deskID: "3C-140",
                 hours: "09–17", countsToQuota: true
             )),
             startsAt: Day(2026, 9, 8).at(9, 0, in: SeedData.london),
@@ -315,7 +315,7 @@ struct CaptureCoordinatorTests {
         let zip = makeZip(named: "pass.json", contents: Data(eurostarPassJSON.utf8))
         await coordinator.receive(data: zip, filename: "eurostar.pkpass", type: nil)
 
-        guard case .review(let parsed, _, _) = coordinator.phase else {
+        guard case .review(let parsed, _, _, _) = coordinator.phase else {
             Issue.record("expected a review phase, got \(coordinator.phase)")
             return
         }
@@ -342,5 +342,129 @@ struct CaptureCoordinatorTests {
             return
         }
         #expect(error == .unsupportedFile("numbers"))
+    }
+}
+
+/// One screenshot of a desk system holds a week of bookings. They are reviewed
+/// one at a time, because the point of the review screen is that every field of
+/// every booking is seen before it is written.
+@Suite("The review queue")
+@MainActor
+struct ReviewQueueTests {
+
+    let container: ModelContainer
+
+    init() throws {
+        container = try Store.makeInMemoryContainer(seeded: true)
+    }
+
+    func desk(_ day: Int, _ id: String) -> ParsedBooking {
+        ParsedBooking(
+            detail: .desk(DeskDetail(
+                placeID: UUID(), placeName: "Coleman", city: "London",
+                floor: "03", deskID: id, hours: "08:00–17:00", countsToQuota: true
+            )),
+            startsAt: Day(2026, 8, day).at(8, 0, in: TimeDisplay.uk),
+            startZoneID: "Europe/London",
+            endsAt: Day(2026, 8, day).at(17, 0, in: TimeDisplay.uk),
+            endZoneID: "Europe/London",
+            unsureFields: [], provenance: .screengrab, confidence: .high
+        )
+    }
+
+    func coordinator(_ batch: CaptureBatch) async -> CaptureCoordinator {
+        let made = CaptureCoordinator(context: container.mainContext)
+        made.extractor = { _ in (batch, .init(inputTokens: 1640, outputTokens: 520)) }
+        await made.receive(data: Data("screengrab".utf8), filename: "week.png", type: .png)
+        return made
+    }
+
+    func position(_ coordinator: CaptureCoordinator) -> CaptureCoordinator.Position? {
+        guard case .review(_, _, _, let at) = coordinator.phase else { return nil }
+        return at
+    }
+
+    func deskID(_ coordinator: CaptureCoordinator) -> String? {
+        guard case .review(let parsed, _, _, _) = coordinator.phase else { return nil }
+        return parsed.detail.deskDetail?.deskID
+    }
+
+    @Test("Three bookings are reviewed one at a time, counted as they go")
+    func walksTheQueue() async throws {
+        let coordinator = await coordinator(CaptureBatch(bookings: [
+            desk(4, "CO03A424"), desk(5, "CO03C407"), desk(6, "CO03D211"),
+        ]))
+
+        #expect(position(coordinator) == .init(number: 1, total: 3))
+        #expect(deskID(coordinator) == "CO03A424")
+
+        coordinator.advance()
+        #expect(position(coordinator) == .init(number: 2, total: 3))
+        #expect(deskID(coordinator) == "CO03C407")
+
+        coordinator.advance()
+        #expect(position(coordinator) == .init(number: 3, total: 3))
+
+        coordinator.advance()
+        #expect(coordinator.phase == .idle, "nothing left to review")
+    }
+
+    @Test("A single booking still reports its position, so the screen can hide the counter")
+    func singleBooking() async throws {
+        let coordinator = await coordinator(CaptureBatch(desk(5, "CO03C407")))
+        let at = try #require(position(coordinator))
+        #expect(at == .init(number: 1, total: 1))
+        #expect(at.isOnlyOne)
+    }
+
+    @Test("Committing each booking in turn writes all of them")
+    func commitsEveryBooking() async throws {
+        let coordinator = await coordinator(CaptureBatch(bookings: [
+            desk(4, "CO03A424"), desk(5, "CO03C407"), desk(6, "CO03D211"),
+        ]))
+
+        while case .review(let parsed, _, let captureID, _) = coordinator.phase {
+            try coordinator.commit(parsed, captureID: captureID)
+            coordinator.advance()
+        }
+
+        let stored = try container.mainContext.fetch(FetchDescriptor<Booking>())
+            .compactMap { $0.detail?.deskDetail?.deskID }
+        #expect(Set(stored).isSuperset(of: ["CO03A424", "CO03C407", "CO03D211"]))
+    }
+
+    @Test("A row that could not be read is reported once the readable ones are through")
+    func unreadableRowSurfacesAtTheEnd() async throws {
+        // Not at the start: the good bookings are committed first, so ENTER
+        // MANUALLY covers only what is actually missing.
+        let coordinator = await coordinator(CaptureBatch(
+            bookings: [desk(6, "CO03D211")],
+            unreadable: [.modelReturnedNothingUsable("no readable date")]
+        ))
+
+        #expect(position(coordinator) == .init(number: 1, total: 1))
+        coordinator.advance()
+
+        guard case .failed(let error, let filename) = coordinator.phase else {
+            Issue.record("expected the unreadable row to surface, got \(coordinator.phase)")
+            return
+        }
+        #expect(error == .modelReturnedNothingUsable("no readable date"))
+        #expect(filename == "week.png")
+        #expect(error.offersManualEntry)
+    }
+
+    @Test("Abort drops the rest of the table, not just the booking on screen")
+    func abortDropsTheQueue() async throws {
+        let coordinator = await coordinator(CaptureBatch(bookings: [
+            desk(4, "CO03A424"), desk(5, "CO03C407"),
+        ]))
+
+        coordinator.abort()
+        #expect(coordinator.phase == .idle)
+
+        // And advancing afterwards does not resurrect the second booking.
+        coordinator.advance()
+        #expect(coordinator.phase == .idle)
     }
 }

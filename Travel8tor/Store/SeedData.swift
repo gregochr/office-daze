@@ -88,7 +88,6 @@ nonisolated enum SeedData {
                     placeName: "Ropemaker Place",
                     city: "London",
                     floor: "L3",
-                    zone: "C",
                     deskID: "3C-114",
                     hours: "10:00–16:00",
                     countsToQuota: true
@@ -206,7 +205,6 @@ nonisolated enum SeedData {
                     placeName: "Ropemaker Place",
                     city: "London",
                     floor: "L3",
-                    zone: "C",
                     deskID: "3C-118",
                     hours: "09–17",
                     countsToQuota: true
@@ -286,7 +284,6 @@ nonisolated enum SeedData {
                     placeName: "Ropemaker Place",
                     city: "London",
                     floor: "L3",
-                    zone: "C",
                     deskID: "3C-114",
                     hours: "09–17",
                     countsToQuota: true
@@ -305,7 +302,6 @@ nonisolated enum SeedData {
                     placeName: "Ropemaker Place",
                     city: "London",
                     floor: "L3",
-                    zone: "C",
                     deskID: "3C-116",
                     hours: "09–17",
                     countsToQuota: true

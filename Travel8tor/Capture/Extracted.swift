@@ -7,6 +7,44 @@ import Foundation
 /// rather than merely requested: any field the model left null is added to
 /// `unsureFields` here even if the model forgot to name it, and any field the
 /// model named as unsure is discarded even if it also supplied a value.
+/// The wire root: a list, because a document can hold more than one booking.
+///
+/// A desk system prints a week as a table — 2026-08-05 CO03C407, 2026-08-06
+/// CO03D211 — and a screenshot of it is one image with three bookings in it.
+/// Asking for one and taking the first would silently drop the rest, which is
+/// the same class of failure as guessing a field: the app would look like it
+/// had read the document when it had read a third of it.
+nonisolated struct ExtractedBatch: Decodable {
+    var bookings: [Extracted]
+
+    /// Rows that read become bookings; rows that don't are collected rather
+    /// than thrown. Only a document with nothing readable in it is a failure.
+    func parsed(today: Day) throws -> CaptureBatch {
+        guard !bookings.isEmpty else {
+            throw CaptureError.modelReturnedNothingUsable("no bookings in the document")
+        }
+
+        var readable: [ParsedBooking] = []
+        var unreadable: [CaptureError] = []
+        for booking in bookings {
+            do {
+                readable.append(try booking.parsed(today: today))
+            } catch let error as CaptureError {
+                unreadable.append(error)
+            }
+        }
+
+        // Nothing usable at all is a failed capture, and it fails with the
+        // first row's own reason rather than a summary — the reason is what
+        // tells the user whether typing it in will do any better.
+        guard !readable.isEmpty else {
+            throw unreadable.first
+                ?? CaptureError.modelReturnedNothingUsable("no readable booking")
+        }
+        return CaptureBatch(bookings: readable, unreadable: unreadable)
+    }
+}
+
 nonisolated struct Extracted: Decodable {
     var kind: BookingKind
     var confidence: Confidence
@@ -39,7 +77,6 @@ nonisolated struct Extracted: Decodable {
         var date: String?
         var zone: String?
         var floor: String?
-        var deskZone: String?
         var deskID: String?
         var hours: String?
     }
@@ -179,11 +216,9 @@ nonisolated struct Extracted: Decodable {
         let city = honouring("city", desk.city) ?? ""
         let timeZone = zone(desk.zone, city: city, iso: dateText)
         let floor = honouring("floor", desk.floor)
-        let deskZone = honouring("deskZone", desk.deskZone)
         let hours = honouring("hours", desk.hours)
 
         Self.naming(&unsure, "floor", isNil: floor == nil)
-        Self.naming(&unsure, "zone", isNil: deskZone == nil)
         Self.naming(&unsure, "hours", isNil: hours == nil)
 
         let detail = DeskDetail(
@@ -191,7 +226,6 @@ nonisolated struct Extracted: Decodable {
             placeName: honouring("placeName", desk.placeName) ?? "OFFICE",
             city: city,
             floor: floor,
-            zone: deskZone,
             deskID: deskID,
             hours: hours,
             countsToQuota: true

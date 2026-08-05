@@ -23,8 +23,8 @@ struct ConfirmScreen: View {
                     Color.clear
                 case .parsing(let filename):
                     parsing(filename)
-                case .review(let parsed, let elapsed, let captureID):
-                    review(parsed, elapsed: elapsed, captureID: captureID)
+                case .review(let parsed, let elapsed, let captureID, let position):
+                    review(parsed, elapsed: elapsed, captureID: captureID, at: position)
                 case .failed(let error, let filename):
                     failure(error, filename: filename)
                 }
@@ -76,7 +76,10 @@ struct ConfirmScreen: View {
 
     // MARK: Review
 
-    private func review(_ parsed: ParsedBooking, elapsed: TimeInterval, captureID: UUID) -> some View {
+    private func review(
+        _ parsed: ParsedBooking, elapsed: TimeInterval, captureID: UUID,
+        at position: CaptureCoordinator.Position
+    ) -> some View {
         VStack(spacing: 0) {
             header(
                 title: "REVIEW ▪ \(parsed.kind.rawValue.uppercased())",
@@ -86,7 +89,7 @@ struct ConfirmScreen: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    intakeStrip(parsed, elapsed: elapsed)
+                    intakeStrip(parsed, elapsed: elapsed, at: position)
                     unreadableBanner(parsed)
 
                     VStack(spacing: 8) {
@@ -109,6 +112,14 @@ struct ConfirmScreen: View {
                             )
                         }
                         .padding(.top, 14)
+
+                    // Only when there is something to move on to. A single
+                    // booking has nothing behind it, and SKIP would then be a
+                    // second, quieter ABORT.
+                    if !position.isOnlyOne {
+                        OutlinedAction(title: "SKIP THIS ONE") { advance() }
+                            .padding(.top, 11)
+                    }
                 }
                 .padding(.horizontal, Metrics.screenPadding)
                 .padding(.top, 16)
@@ -120,19 +131,33 @@ struct ConfirmScreen: View {
     /// `INTAKE ▪ PARSED 1.2s` with the cost chip — `1 CALL` on desk amber for a
     /// model call, `FREE` on stay cyan for a pass file. The distinction is the
     /// point: one path costs money and one doesn't.
-    private func intakeStrip(_ parsed: ParsedBooking, elapsed: TimeInterval) -> some View {
-        HStack(spacing: 9) {
+    ///
+    /// A capture holding several bookings adds `▪ 01 OF 03`, and shows the chip
+    /// only on the first: one document was read once, however many bookings
+    /// came out of it, and a chip on every one would read as three calls.
+    private func intakeStrip(
+        _ parsed: ParsedBooking, elapsed: TimeInterval, at position: CaptureCoordinator.Position
+    ) -> some View {
+        let counted = String(
+            format: "%02d OF %02d", position.number, position.total
+        )
+        return HStack(spacing: 9) {
             Rectangle().fill(Palette.rail).frame(width: 7, height: 7)
-            Text(String(format: "INTAKE ▪ PARSED %.1fs", elapsed))
-                .t8(.panelLabel)
-                .foregroundStyle(Palette.rail)
+            Text(
+                String(format: "INTAKE ▪ PARSED %.1fs", elapsed)
+                    + (position.isOnlyOne ? "" : " ▪ \(counted)")
+            )
+            .t8(.panelLabel)
+            .foregroundStyle(Palette.rail)
             Spacer(minLength: 8)
-            Text(parsed.costedCall ? "1 CALL" : "FREE")
-                .t8(.typeCode)
-                .foregroundStyle(Palette.ground)
-                .padding(.vertical, 4)
-                .padding(.horizontal, 7)
-                .background(parsed.costedCall ? Palette.desk : Palette.stay)
+            if position.number == 1 {
+                Text(parsed.costedCall ? "1 CALL" : "FREE")
+                    .t8(.typeCode)
+                    .foregroundStyle(Palette.ground)
+                    .padding(.vertical, 4)
+                    .padding(.horizontal, 7)
+                    .background(parsed.costedCall ? Palette.desk : Palette.stay)
+            }
         }
     }
 
@@ -303,11 +328,19 @@ struct ConfirmScreen: View {
 
     private func commit(_ parsed: ParsedBooking, captureID: UUID) {
         try? coordinator.commit(parsed, captureID: captureID)
-        coordinator.abort()
-        dismiss()
+        advance()
         // A new building's perimeter is a network round trip away. The booking
         // is already written, so the screen goes first and the geocode follows.
         Task { await coordinator.locateNewPlaces() }
+    }
+
+    /// This booking is done with, committed or skipped. A capture with more
+    /// rows in it redraws with the next one; one with none left has nothing to
+    /// show, unless a row failed to read — that failure is what the screen
+    /// stays open for.
+    private func advance() {
+        coordinator.advance()
+        if case .idle = coordinator.phase { dismiss() }
     }
 }
 
@@ -357,7 +390,6 @@ nonisolated enum ConfirmFields {
             field("DESK", desk.deskID.uppercased(), parsed, "deskID"),
             field("DATE", TimeDisplay.dayStamp(Day(of: parsed.startsAt, in: parsed.startZone)), parsed, "date"),
             field("FLOOR", desk.floor, parsed, "floor"),
-            field("ZONE", desk.zone, parsed, "zone"),
             field("HOURS", desk.hours, parsed, "hours"),
         ]
     }

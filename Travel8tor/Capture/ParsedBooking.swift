@@ -30,6 +30,30 @@ nonisolated struct ParsedBooking: Hashable, Sendable {
     var costedCall: Bool { provenance != .pass && provenance != .manual }
 }
 
+/// What one file yielded. One image is one capture and one model call, but not
+/// necessarily one booking: a desk system's screenshot is a table, and three
+/// rows of it are three bookings.
+///
+/// `unreadable` is the rows the mapping could not turn into a booking — a line
+/// with no legible date, say. They are carried rather than thrown because a
+/// table with one bad line still has the other lines in it, and dropping those
+/// to punish the bad one helps nobody. The review screen commits what read and
+/// reports what did not.
+nonisolated struct CaptureBatch: Equatable, Sendable {
+    var bookings: [ParsedBooking]
+    var unreadable: [CaptureError] = []
+
+    init(bookings: [ParsedBooking], unreadable: [CaptureError] = []) {
+        self.bookings = bookings
+        self.unreadable = unreadable
+    }
+
+    /// The pass path, and anything else that is a booking on its own.
+    init(_ booking: ParsedBooking) {
+        self.init(bookings: [booking])
+    }
+}
+
 nonisolated enum CaptureError: LocalizedError, Equatable {
     case unsupportedFile(String)
     case notAZip

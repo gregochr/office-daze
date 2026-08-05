@@ -135,7 +135,6 @@ struct RootView: View {
             day: booking.anchorDay,
             deskID: desk.deskID,
             floor: desk.floor,
-            zone: desk.zone,
             heldUntil: booking.endsAt.map {
                 TimeDisplay.inline($0, in: booking.endZone ?? booking.startZone)
             },
@@ -148,7 +147,7 @@ struct RootView: View {
         )
     }
 
-    /// `-capture pass|stay|failed` drives the real pipeline: the pass path
+    /// `-capture pass|stay|table|failed` drives the real pipeline: the pass path
     /// parses an actual .pkpass, the others skip the network and hand the
     /// coordinator a response shaped like the model's.
     private func runCapture(named which: String) {
@@ -165,10 +164,20 @@ struct RootView: View {
                     )
                 case "stay":
                     capture.extractor = { _ in
-                        (CaptureSamples.incompleteStay, .init(inputTokens: 1180, outputTokens: 194))
+                        (
+                            CaptureBatch(CaptureSamples.incompleteStay),
+                            .init(inputTokens: 1180, outputTokens: 194)
+                        )
                     }
                     await capture.receive(
                         data: Data("screengrab".utf8), filename: "ropewalk.png", type: .png
+                    )
+                case "table":
+                    capture.extractor = { _ in
+                        (CaptureSamples.colemanWeek, .init(inputTokens: 1640, outputTokens: 520))
+                    }
+                    await capture.receive(
+                        data: Data("screengrab".utf8), filename: "coleman-week.png", type: .png
                     )
                 case "failed":
                     capture.extractor = { _ in throw CaptureError.noAPIKey }

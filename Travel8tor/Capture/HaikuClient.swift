@@ -55,7 +55,7 @@ nonisolated struct HaikuClient {
     /// Swapped in tests, which must not spend real seconds asleep.
     var pause: @Sendable (Duration) async -> Void = { try? await Task.sleep(for: $0) }
 
-    func extract(_ input: CaptureInput) async throws -> (ParsedBooking, Usage) {
+    func extract(_ input: CaptureInput) async throws -> (CaptureBatch, Usage) {
         var request = URLRequest(url: HaikuClient.endpoint)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -176,8 +176,17 @@ nonisolated struct HaikuClient {
     of the event, not from where the reader might be. If you cannot determine \
     the location, leave the zone empty and name it.
 
-    Only one of rail, desk and stay is filled in — the one matching kind. The \
-    other two are null.
+    Within each booking, only one of rail, desk and stay is filled in — the one \
+    matching kind. The other two are null. kind, confidence and unsureFields \
+    are per booking, not per document: one unreadable row does not make the \
+    others uncertain.
+
+    Documents often hold more than one booking. A desk or room system prints a \
+    week as a table, one row per day, and every row is its own booking even \
+    when the building and the hours repeat. Return one entry per row, in the \
+    order printed, and do not merge rows that share a desk or collapse a date \
+    range into a single entry. A document with one booking returns a list of \
+    one.
 
     Set confidence to "low" if the image is cropped, blurred, partially \
     obscured, or you are unsure of the booking kind. Otherwise "high".
@@ -185,7 +194,7 @@ nonisolated struct HaikuClient {
 
     static func userPrompt(today: Day) -> String {
         """
-        Extract the booking from this document. Today's date is \(today) — use \
+        Extract every booking in this document. Today's date is \(today) — use \
         it only to resolve a year that is genuinely absent from a date that is \
         otherwise legible, never to invent a date. Return only the structured \
         object.
@@ -254,7 +263,6 @@ nonisolated struct HaikuClient {
             "date": unreadableAsBlank("ISO 8601 date of the booking."),
             "zone": unreadableAsBlank("IANA zone of the building."),
             "floor": unreadableAsBlank("Floor or level, or null."),
-            "deskZone": unreadableAsBlank("Zone within the floor, or null."),
             "deskID": unreadableAsBlank("Desk identifier, e.g. 3C-114."),
             "hours": unreadableAsBlank("Booked hours as printed, or null."),
         ])
@@ -270,7 +278,7 @@ nonisolated struct HaikuClient {
             "bookingRef": unreadableAsBlank("Booking reference, or null."),
         ])
 
-        return object([
+        let booking = object([
             "kind": [
                 "type": "string", "enum": ["rail", "desk", "stay"],
                 "description": "Which kind of booking this is.",
@@ -287,6 +295,18 @@ nonisolated struct HaikuClient {
             "desk": nullable(desk),
             "stay": nullable(stay),
         ])
+
+        // An array rather than a single booking, because a desk system prints a
+        // week as a table. Nesting adds no union types — the three nullable
+        // details are the same three — so this stays clear of the API's limit.
+        return object([
+            "bookings": [
+                "type": "array", "items": booking,
+                "description":
+                    "Every distinct booking in the document, in the order printed. "
+                    + "One booking for a single confirmation; one per row for a table.",
+            ]
+        ])
     }
 
     // MARK: Response
@@ -296,7 +316,7 @@ nonisolated struct HaikuClient {
         var outputTokens: Int
     }
 
-    static func decode(_ data: Data, today: Day) throws -> (ParsedBooking, Usage) {
+    static func decode(_ data: Data, today: Day) throws -> (CaptureBatch, Usage) {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw CaptureError.modelReturnedNothingUsable("response was not JSON")
         }
@@ -321,9 +341,9 @@ nonisolated struct HaikuClient {
             throw CaptureError.modelReturnedNothingUsable("no text block in the response")
         }
 
-        let extracted: Extracted
+        let extracted: ExtractedBatch
         do {
-            extracted = try JSONDecoder().decode(Extracted.self, from: Data(text.utf8))
+            extracted = try JSONDecoder().decode(ExtractedBatch.self, from: Data(text.utf8))
         } catch {
             throw CaptureError.modelReturnedNothingUsable("could not decode the extraction")
         }

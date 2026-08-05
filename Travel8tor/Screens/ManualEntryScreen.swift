@@ -21,6 +21,10 @@ struct ManualEntryScreen: View {
 
     @State private var draft = ManualEntry.Draft()
     @State private var problem: ManualEntry.Problem?
+    /// Whether the floor has been typed in by hand. Once it has, the desk id
+    /// stops writing to it — a derived value that overwrites what somebody
+    /// deliberately typed is a bug, however good the derivation.
+    @State private var floorTyped = false
 
     private let copy = Copy.shared
 
@@ -107,12 +111,11 @@ struct ManualEntryScreen: View {
         Group {
             FieldRow(label: "BUILDING", value: $draft.placeName, placeholder: "ROPEMAKER PLACE", required: true)
             FieldRow(label: "CITY", value: $draft.deskCity, placeholder: "LONDON")
-            FieldRow(label: "DESK", value: $draft.deskID, placeholder: "3C-114", required: true)
+            FieldRow(label: "DESK", value: deskID, placeholder: "CO03A424", required: true)
             DateRow(label: "FROM", value: $draft.startsAt, components: [.date, .hourAndMinute])
             DateRow(label: "UNTIL", value: $draft.endsAt, components: [.date, .hourAndMinute])
-            FieldRow(label: "FLOOR", value: $draft.floor, placeholder: "L3")
-            FieldRow(label: "ZONE", value: $draft.deskZone, placeholder: "C")
-            FieldRow(label: "HOURS", value: $draft.hours, placeholder: "09–17")
+            FieldRow(label: "FLOOR", value: floor, placeholder: "FROM THE DESK ID")
+            FieldRow(label: "HOURS", value: $draft.hours, placeholder: "08–17")
         }
     }
 
@@ -127,6 +130,32 @@ struct ManualEntryScreen: View {
             FieldRow(label: "NIGHTS", value: $draft.nights, keyboard: .numberPad)
             FieldRow(label: "REF", value: $draft.stayRef)
         }
+    }
+
+    /// The desk id carries the floor — `CO03A424` is Coleman, level 03, desk
+    /// A424 — so typing the id fills the floor in as you go. It stays a real
+    /// field rather than a computed line because a desk id that doesn't follow
+    /// the pattern still has a floor, and that floor has to be typeable.
+    private var deskID: Binding<String> {
+        Binding(
+            get: { draft.deskID },
+            set: { typed in
+                draft.deskID = typed
+                if !floorTyped {
+                    draft.floor = ManualEntry.floor(inDeskID: typed) ?? ""
+                }
+            }
+        )
+    }
+
+    private var floor: Binding<String> {
+        Binding(
+            get: { draft.floor },
+            set: { typed in
+                floorTyped = true
+                draft.floor = typed
+            }
+        )
     }
 
     /// Only two zones are ever needed in practice, and offering a list of four

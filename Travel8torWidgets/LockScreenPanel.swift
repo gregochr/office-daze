@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The panel from screen 5d, exactly: amber hairline on a 0.05 fill, the desk
-/// id as the hero, level and zone right-aligned beside it, and a ruled footer
+/// id as the hero, the level right-aligned beside it, and a ruled footer
 /// carrying the hold time and the day count.
 struct LockScreenPanel: View {
     let attributes: DeskActivityAttributes
@@ -32,12 +32,12 @@ struct LockScreenPanel: View {
                         .foregroundStyle(Palette.bone)
                 }
                 Spacer(minLength: 0)
-                if let floorZone = state.floorZone {
+                if let level = state.level {
                     VStack(alignment: .trailing, spacing: 6) {
-                        Text("L / Z")
+                        Text("LEVEL")
                             .t8(.activityLabel)
                             .foregroundStyle(Palette.bone.opacity(0.4))
-                        Text(floorZone)
+                        Text(level)
                             .font(.custom(T8Fonts.bold, size: 22))
                             .foregroundStyle(Palette.bone.opacity(0.75))
                     }

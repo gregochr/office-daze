@@ -137,7 +137,6 @@ nonisolated enum Dedupe {
 
         case (.desk(var a), .desk(let b)):
             a.floor = a.floor ?? b.floor
-            a.zone = a.zone ?? b.zone
             a.hours = a.hours ?? b.hours
             return .desk(a)
 
@@ -169,7 +168,6 @@ nonisolated enum Dedupe {
         case .desk(let desk):
             switch name {
             case "floor": desk.floor != nil
-            case "zone": desk.zone != nil
             case "hours": desk.hours != nil
             default: false
             }

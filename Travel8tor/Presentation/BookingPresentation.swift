@@ -99,7 +99,6 @@ enum BookingPresenter {
         var metadata: [String] = []
         if !compact {
             if let floor = desk.floor { metadata.append(floor) }
-            if let zone = desk.zone { metadata.append("ZONE \(zone)") }
             if let hours = desk.hours { metadata.append(hours) }
         }
 

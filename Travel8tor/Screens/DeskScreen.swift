@@ -97,7 +97,6 @@ struct DeskScreen: View {
                 CellGrid(
                     cells: [
                         .init(label: "FLOOR", value: desk.floor ?? BookingPresentation.unread),
-                        .init(label: "ZONE", value: desk.zone ?? BookingPresentation.unread),
                         .init(label: "HOURS", value: desk.hours ?? BookingPresentation.unread),
                     ],
                     border: Palette.desk.opacity(0.3)
@@ -161,7 +160,6 @@ struct DeskScreen: View {
                 address: place?.address,
                 postcode: place?.postcode,
                 floor: desk.floor,
-                zone: desk.zone,
                 startsAt: booking.startsAt,
                 endsAt: endsAt,
                 timeZone: booking.endZone ?? booking.startZone

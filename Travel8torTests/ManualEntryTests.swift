@@ -24,13 +24,48 @@ struct ManualEntryTests {
         // as a fault would make the flag mean two things at once.
         var draft = deskDraft()
         draft.floor = ""
-        draft.deskZone = ""
+        draft.hours = ""
 
         let parsed = try #require(ManualEntry.booking(from: draft))
         #expect(parsed.unsureFields.isEmpty)
         let desk = try #require(parsed.detail.deskDetail)
         #expect(desk.floor == nil, "absent, not an empty string")
-        #expect(desk.zone == nil)
+        #expect(desk.hours == nil)
+    }
+
+    @Test("The floor falls out of a site-coded desk id")
+    func floorFromDeskID() {
+        // CO03A424 is Coleman, level 03, desk A424. Typing the id and then
+        // typing the floor again is asking for the same fact twice.
+        #expect(ManualEntry.floor(inDeskID: "CO03A424") == "03")
+        #expect(ManualEntry.floor(inDeskID: "CO03C407") == "03")
+        #expect(ManualEntry.floor(inDeskID: "co03d211") == "03")
+        #expect(ManualEntry.floor(inDeskID: " CO12B100 ") == "12")
+        #expect(ManualEntry.floor(inDeskID: "LDN07A424") == "07", "a three-letter site too")
+    }
+
+    @Test("A desk id that isn't site-coded derives nothing rather than guessing")
+    func floorOnlyWhenLegible() {
+        // A wrong floor is worse than a blank one: nobody downstream can tell a
+        // derived mistake from a reading.
+        #expect(ManualEntry.floor(inDeskID: "3C-114") == nil, "no site prefix")
+        #expect(ManualEntry.floor(inDeskID: "CO3A424") == nil, "one floor digit, not two")
+        #expect(ManualEntry.floor(inDeskID: "CO03") == nil, "a site and a floor, but no desk")
+        #expect(ManualEntry.floor(inDeskID: "CO03-A424") == nil, "punctuation is a different shape")
+        #expect(ManualEntry.floor(inDeskID: "") == nil)
+    }
+
+    @Test("Deriving the floor never rewrites the desk id itself")
+    func deskIDIsStoredAsPrinted() throws {
+        // What the booking system prints is what is on the confirmation and on
+        // the desk, so it is what gets stored.
+        var draft = deskDraft()
+        draft.deskID = "CO03A424"
+        draft.floor = ManualEntry.floor(inDeskID: draft.deskID) ?? ""
+
+        let desk = try #require(ManualEntry.booking(from: draft)?.detail.deskDetail)
+        #expect(desk.deskID == "CO03A424")
+        #expect(desk.floor == "03")
     }
 
     @Test("Manual provenance outranks everything, so typing over a capture wins")
@@ -109,7 +144,7 @@ struct PlaceResolverTests {
     func desk(_ name: String, city: String = "London") -> DeskDetail {
         DeskDetail(
             placeID: UUID(), placeName: name, city: city,
-            floor: nil, zone: nil, deskID: "4A-002", hours: nil
+            floor: nil, deskID: "4A-002", hours: nil
         )
     }
 

@@ -66,7 +66,6 @@ nonisolated enum ArrivalNotifications {
         var lines = ["\(place.name.uppercased()) ▪ \(booking.deskID.uppercased())"]
         var where_ : [String] = []
         if let floor = booking.floor { where_.append(Abbreviate.level(floor)) }
-        if let zone = booking.zone { where_.append("ZONE \(zone.uppercased())") }
         if !where_.isEmpty { lines.append(where_.joined(separator: "  ")) }
         lines.append(
             "DAY \(String(format: "%02d", dayNumber)) OF \(String(format: "%02d", target))"

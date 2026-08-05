@@ -124,7 +124,6 @@ struct ArrivalScreen: View {
     private var whereabouts: [String] {
         var items: [String] = []
         if let floor = desk?.floor { items.append(Abbreviate.level(floor)) }
-        if let zone = desk?.zone { items.append("ZONE \(zone.uppercased())") }
         return items
     }
 

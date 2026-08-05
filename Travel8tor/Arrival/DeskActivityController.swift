@@ -35,7 +35,6 @@ enum DeskActivityController {
         day: Day,
         deskID: String,
         floor: String?,
-        zone: String?,
         heldUntil: String?,
         dayNumber: Int,
         target: Int,
@@ -51,7 +50,7 @@ enum DeskActivityController {
             placeName: placeName, day: day.description
         )
         let state = DeskActivityAttributes.ContentState(
-            deskID: deskID, floor: floor, zone: zone,
+            deskID: deskID, floor: floor,
             heldUntil: heldUntil, dayNumber: dayNumber, target: target
         )
 
