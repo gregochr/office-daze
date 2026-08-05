@@ -1,6 +1,10 @@
-# Xcode
-DerivedData/
+# Xcode. DerivedData* rather than DerivedData/ because the device build goes
+# somewhere of its own — the exact trap this catches is a build directory named
+# a step away from the ignored one, which is untracked and therefore invisible
+# until it is committed.
+DerivedData*/
 build/
+build-device/
 *.xcuserstate
 xcuserdata/
 
