@@ -30,6 +30,31 @@ nonisolated struct HaikuClient {
 
     // MARK: Request
 
+    /// How many times a transient failure is tried before giving up.
+    ///
+    /// Overload and rate-limiting are the API asking you to come back, not
+    /// telling you the request was wrong — and giving up on the first 529
+    /// throws away a screenshot the user has already gone to the trouble of
+    /// sharing. At under fifteen calls a month, retrying costs nothing.
+    static let maxAttempts = 3
+
+    /// Retried. Everything else — 400 for a bad schema, 401 for a bad key — is
+    /// a fact about the request that will be just as true the second time.
+    static func isTransient(_ status: Int) -> Bool {
+        status == 429 || status == 529 || (500...599).contains(status)
+    }
+
+    /// The API says when to come back if it knows; otherwise 1s, then 2s.
+    static func backoff(attempt: Int, retryAfter: String?) -> Duration {
+        if let retryAfter, let seconds = Double(retryAfter), seconds > 0 {
+            return .seconds(min(seconds, 30))
+        }
+        return .seconds(pow(2.0, Double(attempt - 1)))
+    }
+
+    /// Swapped in tests, which must not spend real seconds asleep.
+    var pause: @Sendable (Duration) async -> Void = { try? await Task.sleep(for: $0) }
+
     func extract(_ input: CaptureInput) async throws -> (ParsedBooking, Usage) {
         var request = URLRequest(url: HaikuClient.endpoint)
         request.httpMethod = "POST"
@@ -39,22 +64,50 @@ nonisolated struct HaikuClient {
         request.timeoutInterval = 60
         request.httpBody = try body(for: input)
 
-        let data: Data
-        let response: URLResponse
-        do {
-            (data, response) = try await session.data(for: request)
-        } catch {
-            throw CaptureError.network(error.localizedDescription)
+        var lastTransient: CaptureError?
+
+        for attempt in 1...HaikuClient.maxAttempts {
+            let data: Data
+            let response: URLResponse
+            do {
+                (data, response) = try await session.data(for: request)
+            } catch {
+                // A dropped connection is worth another go for the same reason
+                // a 529 is: the request was never judged.
+                let failure = CaptureError.network(error.localizedDescription)
+                guard attempt < HaikuClient.maxAttempts else { throw failure }
+                lastTransient = failure
+                await pause(HaikuClient.backoff(attempt: attempt, retryAfter: nil))
+                continue
+            }
+
+            guard let http = response as? HTTPURLResponse else {
+                throw CaptureError.network("no HTTP response")
+            }
+            if http.statusCode == 200 {
+                return try HaikuClient.decode(data, today: input.today)
+            }
+
+            let message = HaikuClient.errorMessage(data)
+            guard HaikuClient.isTransient(http.statusCode) else {
+                throw CaptureError.httpStatus(http.statusCode, message)
+            }
+            guard attempt < HaikuClient.maxAttempts else {
+                // Say that it was tried, so a failure after three goes reads as
+                // "the API is busy" rather than "this screenshot is unreadable".
+                throw CaptureError.httpStatus(
+                    http.statusCode,
+                    "\(message) — tried \(HaikuClient.maxAttempts) times, try again shortly"
+                )
+            }
+            lastTransient = CaptureError.httpStatus(http.statusCode, message)
+            await pause(HaikuClient.backoff(
+                attempt: attempt,
+                retryAfter: http.value(forHTTPHeaderField: "retry-after")
+            ))
         }
 
-        guard let http = response as? HTTPURLResponse else {
-            throw CaptureError.network("no HTTP response")
-        }
-        guard http.statusCode == 200 else {
-            throw CaptureError.httpStatus(http.statusCode, HaikuClient.errorMessage(data))
-        }
-
-        return try HaikuClient.decode(data, today: input.today)
+        throw lastTransient ?? CaptureError.network("no attempt was made")
     }
 
     private func body(for input: CaptureInput) throws -> Data {

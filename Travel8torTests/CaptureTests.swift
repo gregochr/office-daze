@@ -586,3 +586,47 @@ struct SchemaLimitTests {
         #expect(Set(parsed.unsureFields).isSuperset(of: ["floor", "zone", "hours"]))
     }
 }
+
+@Suite("Transient failures")
+struct RetryTests {
+
+    @Test("Overload and rate-limiting are retried")
+    func retriesTransient() {
+        // 529 is the API asking you to come back. Giving up on the first one
+        // throws away a screenshot the user has already gone to the trouble
+        // of sharing.
+        #expect(HaikuClient.isTransient(529))
+        #expect(HaikuClient.isTransient(429))
+        #expect(HaikuClient.isTransient(500))
+        #expect(HaikuClient.isTransient(503))
+    }
+
+    @Test("A fact about the request is not retried")
+    func doesNotRetryTerminal() {
+        // A bad schema or a bad key will be just as bad the second time, and
+        // retrying only makes the user wait to hear it.
+        #expect(!HaikuClient.isTransient(400))
+        #expect(!HaikuClient.isTransient(401))
+        #expect(!HaikuClient.isTransient(403))
+        #expect(!HaikuClient.isTransient(404))
+        #expect(!HaikuClient.isTransient(200))
+    }
+
+    @Test("The API's own retry-after wins over the backoff")
+    func honoursRetryAfter() {
+        #expect(HaikuClient.backoff(attempt: 1, retryAfter: "5") == .seconds(5))
+        // Capped, so a wild value cannot hang the capture screen.
+        #expect(HaikuClient.backoff(attempt: 1, retryAfter: "9999") == .seconds(30))
+        // Nonsense is ignored rather than treated as zero.
+        #expect(HaikuClient.backoff(attempt: 1, retryAfter: "soon") == .seconds(1))
+        #expect(HaikuClient.backoff(attempt: 1, retryAfter: "0") == .seconds(1))
+    }
+
+    @Test("Without a retry-after it backs off exponentially")
+    func exponentialBackoff() {
+        #expect(HaikuClient.backoff(attempt: 1, retryAfter: nil) == .seconds(1))
+        #expect(HaikuClient.backoff(attempt: 2, retryAfter: nil) == .seconds(2))
+        // Three attempts total, so the waits are 1s and 2s and no more.
+        #expect(HaikuClient.maxAttempts == 3)
+    }
+}
