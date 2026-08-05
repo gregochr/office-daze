@@ -6,12 +6,22 @@ import SwiftUI
 struct MissionScreen: View {
     @Environment(\.modelContext) private var context
     @State private var month = Day.today.month_
+    /// The grid doubles as the leave editor rather than pushing a date picker.
+    /// The month is already on screen with its leave marked; a second screen
+    /// would be showing the same thing again, worse.
+    @State private var loggingLeave = false
+
+    @Query private var leaveRows: [LeaveDay]
 
     private let copy = Copy.shared
     private let today = Day.today
 
     private var snapshot: QuotaService.Snapshot? {
-        try? QuotaService.snapshot(for: month, today: today, in: context)
+        // `leaveRows` is read here purely so SwiftUI re-runs this when a leave
+        // row is written. `QuotaService` fetches its own; without the read the
+        // grid would not redraw on a tap.
+        _ = leaveRows.count
+        return try? QuotaService.snapshot(for: month, today: today, in: context)
     }
 
     var body: some View {
@@ -24,12 +34,18 @@ struct MissionScreen: View {
                 VStack(alignment: .leading, spacing: 0) {
                     grid(snapshot)
                     legend.padding(.top, 14)
+                    if loggingLeave {
+                        leaveModePanel.padding(.top, 12)
+                    }
                     derivation(snapshot).padding(.top, 20)
                     logLeaveRow.padding(.top, 11)
                     shortfallPanel(snapshot).padding(.top, 11)
                 }
             }
         }
+        #if DEBUG
+        .task { runDebugLeave() }
+        #endif
     }
 
     private var monthStepper: some View {
@@ -60,7 +76,7 @@ struct MissionScreen: View {
             month: month,
             attended: snapshot.attendedDays,
             deskBookingDays: snapshot.deskBookingDays,
-            leave: Set(snapshot.leaveDays),
+            leave: snapshot.leaveFractions,
             today: today
         ))
 
@@ -74,13 +90,72 @@ struct MissionScreen: View {
             }
             ForEach(Array(cells.enumerated()), id: \.offset) { _, cell in
                 if let cell {
-                    dayCell(cell)
+                    if loggingLeave && LeaveCycle.editable(cell.state) {
+                        Button { cycleLeave(cell.day) } label: { dayCell(cell) }
+                            .buttonStyle(.plain)
+                    } else {
+                        dayCell(cell)
+                            // In leave mode, the cells that cannot be edited say
+                            // so by dimming rather than by doing nothing when
+                            // tapped.
+                            .opacity(loggingLeave ? 0.35 : 1)
+                    }
                 } else {
                     Color.clear.aspectRatio(1, contentMode: .fit)
                 }
             }
         }
     }
+
+    /// One control, three states, and the derivation panel below updates as it
+    /// goes — which is the row's promise: "LOWERS THE MONTH'S TARGET". The
+    /// cycle itself is `LeaveCycle`, so it can be tested without a store.
+    private func cycleLeave(_ day: Day) {
+        let existing = leaveRows.filter { $0.day == day && $0.kind != .bankHoliday }
+        let current = existing.isEmpty ? nil : existing.reduce(0) { $0 + $1.fraction }
+
+        for row in existing { context.delete(row) }
+        if let next = LeaveCycle.next(after: current) {
+            context.insert(LeaveDay(day: day, fraction: next, kind: .annual))
+        }
+        try? context.save()
+    }
+
+    private var leaveModePanel: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Text("LOGGING LEAVE")
+                .t8(.incompleteHeader)
+                .foregroundStyle(Palette.stay)
+            Text("TAP A DAY TO CYCLE IT: FULL DAY, HALF DAY, NONE. ATTENDED DAYS AND BANK HOLIDAYS ARE ALREADY ACCOUNTED FOR AND CANNOT BE SET.")
+                .t8(.panelBody)
+                .foregroundStyle(Palette.bone.opacity(0.55))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.vertical, 13)
+        .padding(.horizontal, 15)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Palette.stay.opacity(0.07))
+        .overlay { Rectangle().strokeBorder(Palette.stay.opacity(0.45), lineWidth: Metrics.hairline) }
+    }
+
+    #if DEBUG
+    /// `-screen mission -leave 06,07` puts the grid in leave mode and cycles
+    /// those days, because a tap cannot be driven from the command line.
+    private func runDebugLeave() {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard let index = arguments.firstIndex(of: "-leave"), index + 1 < arguments.count
+        else { return }
+        loggingLeave = true
+        for figure in arguments[index + 1].split(separator: ",") {
+            guard let number = Int(figure) else { continue }
+            cycleLeave(Day(month.year, month.month, number))
+        }
+        // A second cycle of the last day, so the half-day state is on screen.
+        if let last = arguments[index + 1].split(separator: ",").last, let number = Int(last) {
+            cycleLeave(Day(month.year, month.month, number))
+        }
+    }
+    #endif
 
     private func dayCell(_ cell: MissionGrid.Cell) -> some View {
         // `Color.clear` is flexible, so it takes the full column width and
@@ -118,7 +193,7 @@ struct MissionScreen: View {
         switch state {
         case .attended: Palette.desk
         case .booked: Palette.desk.opacity(0.55)
-        case .leave: Palette.stay.opacity(0.45)
+        case .leave, .halfLeave: Palette.stay.opacity(0.45)
         case .bankHoliday: Palette.rail.opacity(0.3)
         case .ordinary: Palette.rail.opacity(0.2)
         }
@@ -128,7 +203,9 @@ struct MissionScreen: View {
         switch state {
         case .attended: Palette.ground
         case .booked: Palette.desk
+        // Brightness carries status: a half day is half committed.
         case .leave: Palette.stay
+        case .halfLeave: Palette.stay.opacity(0.6)
         case .bankHoliday: Palette.rail.opacity(0.55)
         case .ordinary: Palette.bone.opacity(0.4)
         }
@@ -139,6 +216,7 @@ struct MissionScreen: View {
         case .attended: copy(.attendedTag)
         case .booked: copy(.bookedTag)
         case .leave: "LEAVE"
+        case .halfLeave: "HALF"
         case .bankHoliday: "BANK"
         case .ordinary: nil
         }
@@ -197,24 +275,33 @@ struct MissionScreen: View {
     }
 
     private var logLeaveRow: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 5) {
-                Text("LOG ANNUAL LEAVE")
-                    .t8(.rowAction)
-                    .foregroundStyle(Palette.bone)
-                Text("LOWERS THE MONTH'S TARGET")
-                    .t8(.rowActionNote)
-                    .foregroundStyle(Palette.bone.opacity(0.4))
+        Button { loggingLeave.toggle() } label: {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(loggingLeave ? "DONE LOGGING LEAVE" : "LOG ANNUAL LEAVE")
+                        .t8(.rowAction)
+                        .foregroundStyle(Palette.bone)
+                    Text("LOWERS THE MONTH'S TARGET")
+                        .t8(.rowActionNote)
+                        .foregroundStyle(Palette.bone.opacity(0.4))
+                }
+                Spacer(minLength: 0)
+                Text(loggingLeave ? "×" : "+")
+                    .font(.custom(T8Fonts.regular, size: 18))
+                    .foregroundStyle(loggingLeave ? Palette.stay : Palette.bone.opacity(0.4))
             }
-            Spacer(minLength: 0)
-            // Writing leave lands in stage 6 with settings.
-            Text("+")
-                .font(.custom(T8Fonts.regular, size: 18))
-                .foregroundStyle(Palette.bone.opacity(0.4))
+            .padding(.vertical, 14)
+            .padding(.horizontal, 15)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(loggingLeave ? Palette.stay.opacity(0.06) : .clear)
+            .overlay {
+                Rectangle().strokeBorder(
+                    loggingLeave ? Palette.stay.opacity(0.45) : Palette.rail.opacity(0.25),
+                    lineWidth: Metrics.hairline
+                )
+            }
         }
-        .padding(.vertical, 14)
-        .padding(.horizontal, 15)
-        .overlay { Rectangle().strokeBorder(Palette.rail.opacity(0.25), lineWidth: Metrics.hairline) }
+        .buttonStyle(.plain)
     }
 
     private func shortfallPanel(_ snapshot: QuotaService.Snapshot) -> some View {

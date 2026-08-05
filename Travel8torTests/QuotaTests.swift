@@ -163,3 +163,61 @@ struct QuotaTests {
         #expect(result.target == 8)
     }
 }
+
+@Suite("Leave logging")
+struct LeaveCycleTests {
+
+    @Test("A day cycles none → full → half → none")
+    func cycle() {
+        // Whole days are the common case, so they are one tap and the half is
+        // two — not the other way round.
+        #expect(LeaveCycle.next(after: nil) == 1.0)
+        #expect(LeaveCycle.next(after: 1.0) == 0.5)
+        #expect(LeaveCycle.next(after: 0.5) == nil)
+    }
+
+    @Test("Attended days and bank holidays cannot be given leave")
+    func notEditable() {
+        // Both would deduct the same day twice: an attended day is history,
+        // and a bank holiday is already out of working days.
+        #expect(!LeaveCycle.editable(.attended))
+        #expect(!LeaveCycle.editable(.bankHoliday))
+        #expect(LeaveCycle.editable(.ordinary))
+        #expect(LeaveCycle.editable(.booked))
+        #expect(LeaveCycle.editable(.leave))
+        #expect(LeaveCycle.editable(.halfLeave))
+    }
+
+    @Test("The grid distinguishes a half day from a whole one")
+    func halfDayShows() throws {
+        let cells = MissionGrid.cells(.init(
+            month: Month(year: 2026, month: 8),
+            attended: [],
+            deskBookingDays: [],
+            leave: [Day(2026, 8, 17): 1.0, Day(2026, 8, 18): 0.5],
+            today: Day(2026, 8, 4)
+        ))
+        let whole = try #require(cells.compactMap { $0 }.first { $0.day == Day(2026, 8, 17) })
+        let half = try #require(cells.compactMap { $0 }.first { $0.day == Day(2026, 8, 18) })
+        #expect(whole.state == .leave)
+        #expect(half.state == .halfLeave)
+        #expect(whole.state.isLeave && half.state.isLeave)
+    }
+
+    @Test("Half days move the target by a half")
+    func halfDayArithmetic() {
+        // August's worked example is three whole days off: 8 × 17 ÷ 20 = 6.8,
+        // rounding to 7. Make one of them a half and eligible becomes 17.5.
+        let result = Quota.calculate(.init(
+            month: Month(year: 2026, month: 8),
+            leave: [
+                .init(Day(2026, 8, 17), 1.0),
+                .init(Day(2026, 8, 18), 1.0),
+                .init(Day(2026, 8, 19), 0.5),
+            ],
+            today: Day(2026, 8, 4)
+        ))
+        #expect(result.leaveTaken == 2.5)
+        #expect(result.eligible == 17.5)
+    }
+}

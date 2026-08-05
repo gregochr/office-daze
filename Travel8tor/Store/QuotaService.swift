@@ -10,6 +10,8 @@ enum QuotaService {
         let month: Month
         let result: Quota.Result
         let leaveDays: [Day]
+        /// Day to fraction, for the grid — a half-day reads differently there.
+        let leaveFractions: [Day: Double]
         let attendedDays: Set<Day>
         let deskBookingDays: Set<Day>
     }
@@ -41,6 +43,9 @@ enum QuotaService {
             month: month,
             result: result,
             leaveDays: leave.map(\.day).sorted(),
+            // Two rows for one day would be a bug elsewhere, but summing rather
+            // than overwriting keeps a half plus a half reading as a full day.
+            leaveFractions: leave.reduce(into: [:]) { $0[$1.day, default: 0] += $1.fraction },
             attendedDays: Set(attendance.map(\.day)),
             deskBookingDays: Set(deskDays)
         )

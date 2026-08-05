@@ -11,8 +11,13 @@ nonisolated enum MissionGrid {
         /// A desk booked for a future day. Shows as forecast, converts on the day.
         case booked
         case leave
+        /// A half-day off is still a day you could be on prem, so it deducts a
+        /// half and the grid says which kind of leave it is.
+        case halfLeave
         case bankHoliday
         case ordinary
+
+        var isLeave: Bool { self == .leave || self == .halfLeave }
     }
 
     struct Cell: Identifiable, Sendable {
@@ -27,7 +32,9 @@ nonisolated enum MissionGrid {
         let month: Month
         let attended: Set<Day>
         let deskBookingDays: Set<Day>
-        let leave: Set<Day>
+        /// Day to fraction, not a set: the half-day is the whole reason
+        /// `LeaveDay.fraction` exists and a set could not carry it.
+        let leave: [Day: Double]
         let today: Day
     }
 
@@ -49,8 +56,8 @@ nonisolated enum MissionGrid {
                 state = .attended
             } else if bankHolidays.contains(day) {
                 state = .bankHoliday
-            } else if input.leave.contains(day) {
-                state = .leave
+            } else if let fraction = input.leave[day] {
+                state = fraction < 1 ? .halfLeave : .leave
             } else if input.deskBookingDays.contains(day), day > input.today {
                 state = .booked
             } else {

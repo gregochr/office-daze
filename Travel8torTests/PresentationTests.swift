@@ -249,7 +249,7 @@ struct MissionGridTests {
     func layout() {
         let cells = MissionGrid.cells(.init(
             month: Month(year: 2026, month: 8),
-            attended: [], deskBookingDays: [], leave: [], today: Day(2026, 8, 4)
+            attended: [], deskBookingDays: [], leave: [:], today: Day(2026, 8, 4)
         ))
         // 1 August is a Saturday, so the first weekday is Monday the 3rd —
         // column 0, no padding.
@@ -262,7 +262,7 @@ struct MissionGridTests {
         // 1 September 2026 is a Tuesday: one blank before it.
         let cells = MissionGrid.cells(.init(
             month: Month(year: 2026, month: 9),
-            attended: [], deskBookingDays: [], leave: [], today: Day(2026, 9, 1)
+            attended: [], deskBookingDays: [], leave: [:], today: Day(2026, 9, 1)
         ))
         #expect(cells[0] == nil)
         #expect(cells[1]?.day == Day(2026, 9, 1))
@@ -274,7 +274,7 @@ struct MissionGridTests {
             month: Month(year: 2026, month: 8),
             attended: [Day(2026, 8, 3), Day(2026, 8, 4)],
             deskBookingDays: [Day(2026, 8, 5), Day(2026, 8, 6), Day(2026, 8, 3)],
-            leave: [Day(2026, 8, 17), Day(2026, 8, 18), Day(2026, 8, 19)],
+            leave: [Day(2026, 8, 17): 1.0, Day(2026, 8, 18): 1.0, Day(2026, 8, 19): 1.0],
             today: Day(2026, 8, 4)
         ))
         func state(_ day: Day) -> MissionGrid.State? {
@@ -293,7 +293,7 @@ struct MissionGridTests {
     func pastBooking() {
         let cells = MissionGrid.cells(.init(
             month: Month(year: 2026, month: 8),
-            attended: [], deskBookingDays: [Day(2026, 8, 3)], leave: [],
+            attended: [], deskBookingDays: [Day(2026, 8, 3)], leave: [:],
             today: Day(2026, 8, 10)
         ))
         let state = cells.compactMap { $0 }.first { $0.day == Day(2026, 8, 3) }?.state
