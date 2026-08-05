@@ -249,6 +249,15 @@ struct ScreenScaffold<Header: View, Content: View>: View {
                         .padding(.top, 18)
                         .padding(.bottom, 26)
                 }
+                #if DEBUG
+                // `-scroll bottom` opens a screen at its foot. A screenshot can
+                // only capture what is on screen, and there is no way to drive
+                // a scroll from the command line any more than a tap.
+                .defaultScrollAnchor(
+                    ProcessInfo.processInfo.arguments.contains("-scroll-bottom")
+                        ? .bottom : .top
+                )
+                #endif
             }
         }
         .toolbar(.hidden, for: .navigationBar)

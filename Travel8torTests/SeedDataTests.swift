@@ -207,3 +207,44 @@ struct SeedDataTests {
         #expect(ropemaker.id == SeedData.ropemakerPlaceID)
     }
 }
+
+@Suite("Erase")
+@MainActor
+struct WipeTests {
+
+    @Test("The wipe leaves nothing behind, in any entity")
+    func wipesEverything() throws {
+        let container = try Store.makeInMemoryContainer(seeded: true)
+        let context = container.mainContext
+
+        #expect(try context.fetchCount(FetchDescriptor<Booking>()) > 0)
+        #expect(try context.fetchCount(FetchDescriptor<Trip>()) > 0)
+        #expect(try context.fetchCount(FetchDescriptor<Place>()) > 0)
+
+        try Store.wipe(context)
+
+        #expect(try context.fetchCount(FetchDescriptor<Booking>()) == 0)
+        #expect(try context.fetchCount(FetchDescriptor<Trip>()) == 0)
+        #expect(try context.fetchCount(FetchDescriptor<Place>()) == 0)
+        #expect(try context.fetchCount(FetchDescriptor<LeaveDay>()) == 0)
+        #expect(try context.fetchCount(FetchDescriptor<AttendanceDay>()) == 0)
+        #expect(try context.fetchCount(FetchDescriptor<ArrivalAlert>()) == 0)
+        #expect(try context.fetchCount(FetchDescriptor<Capture>()) == 0)
+    }
+
+    @Test("An erased store does not re-seed itself on the next launch")
+    func doesNotReseed() throws {
+        // The whole reason the seed is gated on a flag rather than on "is the
+        // store empty": an emptied store is empty on purpose.
+        let container = try Store.makeInMemoryContainer(seeded: true)
+        let context = container.mainContext
+        let wasSeeded = Store.hasSeeded
+        defer { Store.hasSeeded = wasSeeded }
+
+        try Store.wipe(context)
+        #expect(Store.hasSeeded, "the wipe records that seeding is spent")
+
+        try Store.seedIfNeeded(context)
+        #expect(try context.fetchCount(FetchDescriptor<Booking>()) == 0, "still empty")
+    }
+}

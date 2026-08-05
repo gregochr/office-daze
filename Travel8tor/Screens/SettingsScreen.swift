@@ -4,9 +4,15 @@ import SwiftUI
 /// straight to the Keychain — it is never held in `@AppStorage`, never written
 /// to UserDefaults, and never logged.
 struct SettingsScreen: View {
+    @Environment(\.modelContext) private var context
+
     @State private var key: String = ""
     @State private var stored: Bool = Keychain.has(.anthropicAPIKey)
     @State private var message: String?
+
+    /// The erase is two taps. `armed` is the first one.
+    @State private var armed = false
+    @State private var wiped: String?
 
     private let copy = Copy.shared
 
@@ -89,7 +95,119 @@ struct SettingsScreen: View {
                     .padding(.top, 20)
                     .padding(.bottom, 10)
                 copyModeRow
+
+                SectionKicker(text: "DATA")
+                    .padding(.top, 20)
+                    .padding(.bottom, 10)
+                wipeRow
+                    #if DEBUG
+                    // `-screen settings -tap wipe` arms it without erasing, so
+                    // the warning state can be looked at.
+                    .task {
+                        let arguments = ProcessInfo.processInfo.arguments
+                        if let index = arguments.firstIndex(of: "-tap"),
+                           index + 1 < arguments.count, arguments[index + 1] == "wipe" {
+                            armed = true
+                        }
+                    }
+                    #endif
             }
+        }
+    }
+
+    /// Arm, then confirm. Two taps rather than a system alert: a confirmation
+    /// dialog is a rounded card, and the brief calls the hard rectangle
+    /// load-bearing. The armed state is also its own warning, which a dialog
+    /// that appears and vanishes is not.
+    private var wipeRow: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                if armed { wipe() } else { armed = true }
+            } label: {
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(armed ? "TAP AGAIN TO ERASE" : "ERASE EVERYTHING")
+                            .t8(.rowAction)
+                            .foregroundStyle(armed ? Palette.rail : Palette.bone)
+                        Text(
+                            armed
+                                ? "THIS CANNOT BE UNDONE"
+                                : "THE SAMPLE MONTH, AND EVERYTHING CAPTURED SINCE"
+                        )
+                        .t8(.rowActionNote)
+                        .foregroundStyle(Palette.bone.opacity(0.4))
+                        .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 0)
+                    Rectangle()
+                        .fill(armed ? Palette.rail : .clear)
+                        .frame(width: 14, height: 14)
+                        .overlay {
+                            Rectangle().strokeBorder(
+                                Palette.rail.opacity(0.5), lineWidth: Metrics.hairline
+                            )
+                        }
+                }
+                .padding(.vertical, 14)
+                .padding(.horizontal, 15)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(armed ? Palette.rail.opacity(0.08) : .clear)
+                .overlay {
+                    Rectangle().strokeBorder(
+                        armed ? Palette.rail : Palette.rail.opacity(0.25),
+                        lineWidth: Metrics.hairline
+                    )
+                }
+            }
+            .buttonStyle(.plain)
+
+            if armed {
+                Text(wipeWarning)
+                    .t8(.panelBody)
+                    .foregroundStyle(Palette.bone.opacity(0.5))
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 10)
+                Button { armed = false } label: {
+                    Text("CANCEL")
+                        .t8(.rowAction)
+                        .foregroundStyle(Palette.boneSecondary)
+                        .padding(.vertical, 12)
+                }
+                .buttonStyle(.plain)
+            }
+
+            if let wiped {
+                Text(wiped)
+                    .t8(.offline)
+                    .foregroundStyle(Palette.stay)
+                    .padding(.top, 10)
+            }
+        }
+    }
+
+    /// Says what the wipe cannot reach. Both are things the app has no right to
+    /// undo rather than oversights.
+    private var wipeWarning: String {
+        """
+        CALENDAR EVENTS ALREADY WRITTEN STAY IN YOUR CALENDAR — WRITE-ONLY \
+        ACCESS CANNOT DELETE THEM. ATTENDANCE RECORDS ARE THE ONLY COPY OF \
+        WHICH DAYS YOU WERE ON PREM; THERE IS NO OTHER.
+        """
+    }
+
+    private func wipe() {
+        do {
+            try Store.wipe(context)
+            // The perimeters were learned from buildings that no longer exist,
+            // and the panel on the lock screen describes a booking that has
+            // just been deleted.
+            ArrivalMonitor(ledger: ArrivalLedger(context: context)).refreshRegions()
+            Task { await DeskActivityController.endEverything() }
+            armed = false
+            wiped = "ERASED. THE STORE IS EMPTY."
+        } catch {
+            armed = false
+            wiped = "COULD NOT ERASE: \(error.localizedDescription.uppercased())"
         }
     }
 

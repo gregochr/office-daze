@@ -82,12 +82,22 @@ enum DeskActivityController {
         }
     }
 
-    /// Ends everything immediately. Called at launch so an activity left over
-    /// from a previous day — the app killed before its stale date — does not
-    /// outlive the booking it describes.
+    /// Ends anything left over from another day. Called at launch so an
+    /// activity the app was killed before it could retire — its stale date
+    /// having passed while nothing was running — does not outlive the booking
+    /// it describes.
     static func endAll(olderThan day: Day = .today) async {
         for activity in Activity<DeskActivityAttributes>.activities
         where activity.attributes.day != day.description {
+            await activity.end(nil, dismissalPolicy: .immediate)
+        }
+    }
+
+    /// Ends every activity, today's included. For the erase: a panel on the
+    /// lock screen naming a desk in a building that has just been deleted is
+    /// the app contradicting itself.
+    static func endEverything() async {
+        for activity in Activity<DeskActivityAttributes>.activities {
             await activity.end(nil, dismissalPolicy: .immediate)
         }
     }
