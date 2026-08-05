@@ -7,17 +7,17 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		AA000000000000000000005B /* Travel8torWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000057 /* Travel8torWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		AA0000000000000000000070 /* DeskLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000060 /* DeskLiveActivity.swift */; };
-		AA0000000000000000000077 /* LockScreenPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000068 /* LockScreenPanel.swift */; };
-		AA0000000000000000000078 /* LockScreenPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000068 /* LockScreenPanel.swift */; };
 		AA0000000000000000000071 /* DeskActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000062 /* DeskActivity.swift */; };
 		AA0000000000000000000072 /* Palette.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000063 /* Palette.swift */; };
 		AA0000000000000000000073 /* Typography.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000064 /* Typography.swift */; };
 		AA0000000000000000000074 /* BookingTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000065 /* BookingTypes.swift */; };
-		AA0000000000000000000079 /* Abbreviate.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000069 /* Abbreviate.swift */; };
 		AA0000000000000000000075 /* SpaceMono-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000066 /* SpaceMono-Regular.ttf */; };
 		AA0000000000000000000076 /* SpaceMono-Bold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000067 /* SpaceMono-Bold.ttf */; };
-		AA000000000000000000005B /* Travel8torWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000057 /* Travel8torWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		AA0000000000000000000077 /* LockScreenPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000068 /* LockScreenPanel.swift */; };
+		AA0000000000000000000078 /* LockScreenPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000068 /* LockScreenPanel.swift */; };
+		AA0000000000000000000079 /* Abbreviate.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000069 /* Abbreviate.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -57,14 +57,14 @@
 		AA0000000000000000000057 /* Travel8torWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = Travel8torWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA0000000000000000000060 /* DeskLiveActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeskLiveActivity.swift; sourceTree = "<group>"; };
 		AA0000000000000000000061 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		AA0000000000000000000068 /* LockScreenPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LockScreenPanel.swift; sourceTree = "<group>"; };
-		AA0000000000000000000069 /* Abbreviate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = Abbreviate.swift; path = Travel8tor/Presentation/Abbreviate.swift; sourceTree = SOURCE_ROOT; };
 		AA0000000000000000000062 /* DeskActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = DeskActivity.swift; path = Travel8tor/Arrival/DeskActivity.swift; sourceTree = SOURCE_ROOT; };
 		AA0000000000000000000063 /* Palette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = Palette.swift; path = Travel8tor/DesignSystem/Palette.swift; sourceTree = SOURCE_ROOT; };
 		AA0000000000000000000064 /* Typography.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = Typography.swift; path = Travel8tor/DesignSystem/Typography.swift; sourceTree = SOURCE_ROOT; };
 		AA0000000000000000000065 /* BookingTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = BookingTypes.swift; path = Travel8tor/Domain/BookingTypes.swift; sourceTree = SOURCE_ROOT; };
 		AA0000000000000000000066 /* SpaceMono-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; name = "SpaceMono-Regular.ttf"; path = "Travel8tor/Resources/Fonts/SpaceMono-Regular.ttf"; sourceTree = SOURCE_ROOT; };
 		AA0000000000000000000067 /* SpaceMono-Bold.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; name = "SpaceMono-Bold.ttf"; path = "Travel8tor/Resources/Fonts/SpaceMono-Bold.ttf"; sourceTree = SOURCE_ROOT; };
+		AA0000000000000000000068 /* LockScreenPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LockScreenPanel.swift; sourceTree = "<group>"; };
+		AA0000000000000000000069 /* Abbreviate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = Abbreviate.swift; path = Travel8tor/Presentation/Abbreviate.swift; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -88,8 +88,6 @@
 		};
 		AA0000000000000000000038 /* Travel8torTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = Travel8torTests;
 			sourceTree = "<group>";
 		};
@@ -213,7 +211,6 @@
 			buildConfigurationList = AA0000000000000000000051 /* Build configuration list for PBXNativeTarget "Travel8torWidgets" */;
 			buildPhases = (
 				AA0000000000000000000054 /* Sources */,
-				AA0000000000000000000055 /* Frameworks */,
 				AA0000000000000000000056 /* Resources */,
 			);
 			buildRules = (
@@ -436,6 +433,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 98355YQ22M;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Travel8tor/Info.plist;
@@ -462,6 +460,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 98355YQ22M;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Travel8tor/Info.plist;
@@ -518,6 +517,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 98355YQ22M;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Travel8torWidgets/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Travel8tor;
@@ -541,6 +541,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 98355YQ22M;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Travel8torWidgets/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Travel8tor;
