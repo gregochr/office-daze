@@ -30,6 +30,18 @@ struct ConfirmScreen: View {
                 }
             }
         }
+        #if DEBUG
+        // `-capture failed -tap manual`. The transition out of a failure is the
+        // one thing on this screen a launch argument could not otherwise reach.
+        .task {
+            let arguments = ProcessInfo.processInfo.arguments
+            if let index = arguments.firstIndex(of: "-tap"), index + 1 < arguments.count,
+               arguments[index + 1] == "manual",
+               case .failed = coordinator.phase {
+                manual = true
+            }
+        }
+        #endif
         .fullScreenCover(isPresented: $manual) {
             ManualEntryScreen(coordinator: coordinator) {
                 // The typed booking is written; the failed parse underneath has

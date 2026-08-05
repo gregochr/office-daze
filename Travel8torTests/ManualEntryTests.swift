@@ -236,3 +236,81 @@ struct CityMatchTests {
         #expect(PlaceResolver.sameCity("London", ""))
     }
 }
+
+@Suite("Manual entry, committed")
+@MainActor
+struct ManualCommitTests {
+
+    let container: ModelContainer
+    let coordinator: CaptureCoordinator
+
+    init() throws {
+        container = try Store.makeInMemoryContainer(seeded: true)
+        coordinator = CaptureCoordinator(context: container.mainContext)
+        // Nothing in this suite reaches Apple's geocoder.
+        coordinator.geocoder = { _ in .init(latitude: 51.5, longitude: -0.08, address: nil, postcode: "EC2A 2EW") }
+    }
+
+    func draft(building: String, desk: String, on day: Day) -> ManualEntry.Draft {
+        var draft = ManualEntry.Draft()
+        draft.kind = .desk
+        draft.placeName = building
+        draft.deskCity = "London"
+        draft.deskID = desk
+        draft.startsAt = day.at(9, 0, in: TimeDisplay.uk)
+        draft.endsAt = day.at(17, 0, in: TimeDisplay.uk)
+        return draft
+    }
+
+    @Test("A typed desk at a known building joins it rather than making a twin")
+    func joinsKnownBuilding() throws {
+        let parsed = try #require(
+            ManualEntry.booking(from: draft(building: "Ropemaker Place", desk: "9Z-001", on: Day(2026, 9, 14)))
+        )
+        let id = try coordinator.commit(parsed, captureID: nil)
+
+        let booking = try #require(
+            try container.mainContext.fetch(FetchDescriptor<Booking>()).first { $0.id == id }
+        )
+        #expect(booking.detail?.deskDetail?.placeID == SeedData.ropemakerPlaceID)
+        #expect(try container.mainContext.fetchCount(FetchDescriptor<Place>()) == 1)
+    }
+
+    @Test("Typing over a bad capture corrects it instead of duplicating it")
+    func manualBeatsCapture() throws {
+        // Desks match on place and date — one desk per day, so a second
+        // capture is a change rather than a duplicate.
+        let day = Day(2026, 9, 11)
+        let existing = try container.mainContext.fetch(FetchDescriptor<Booking>())
+            .filter { $0.kind == .desk && $0.anchorDay == day }
+        #expect(existing.count == 1, "the seed's Friday desk")
+
+        let parsed = try #require(
+            ManualEntry.booking(from: draft(building: "Ropemaker Place", desk: "7B-200", on: day))
+        )
+        let id = try coordinator.commit(parsed, captureID: nil)
+
+        #expect(id == existing[0].id, "merged into the booking already there")
+        let after = try container.mainContext.fetch(FetchDescriptor<Booking>())
+            .filter { $0.kind == .desk && $0.anchorDay == day }
+        #expect(after.count == 1)
+        #expect(after[0].detail?.deskDetail?.deskID == "7B-200", "the typed value wins")
+        #expect(after[0].provenance == .manual)
+    }
+
+    @Test("A typed desk at a new building creates it and then locates it")
+    func createsAndLocatesBuilding() async throws {
+        let parsed = try #require(
+            ManualEntry.booking(from: draft(building: "Broadgate Tower", desk: "1A-001", on: Day(2026, 9, 14)))
+        )
+        try coordinator.commit(parsed, captureID: nil)
+
+        let places = try container.mainContext.fetch(FetchDescriptor<Place>())
+        let created = try #require(places.first { $0.name == "Broadgate Tower" })
+        #expect(!created.isLocated, "the commit does not wait on the network")
+
+        await coordinator.locateNewPlaces()
+        #expect(created.isLocated)
+        #expect(created.postcode == "EC2A 2EW")
+    }
+}

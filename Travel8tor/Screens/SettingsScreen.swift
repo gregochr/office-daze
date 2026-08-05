@@ -11,7 +11,9 @@ struct SettingsScreen: View {
     private let copy = Copy.shared
 
     var body: some View {
-        ScreenScaffold(backTitle: "CONFIG") {
+        // The back label names where it goes, not where it is — which is why
+        // the arrival screen's says CONFIG and this one says TARGETS.
+        ScreenScaffold(backTitle: copy(.targets)) {
             ScreenTitleBlock(title: "CONFIG")
         } content: {
             VStack(alignment: .leading, spacing: 0) {

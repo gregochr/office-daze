@@ -110,6 +110,8 @@ struct RootView: View {
                     day: $0.anchorDay
                 )
             }
+        case "settings":
+            .settings
         case "arrival-settings":
             .arrivalSettings
         case "manual":
