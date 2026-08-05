@@ -14,3 +14,9 @@ xcuserdata/
 # Secrets — the Anthropic key lives in the Keychain, never on disk.
 # This line is here so a stray file can't be committed by accident.
 *.secret
+
+# The design bundle stays on disk and out of the repo. It is the reference
+# the app was built from — the mockups, the handoff, the data-model spec —
+# and it is not source. Anyone picking this up needs it handed to them
+# separately.
+design/
