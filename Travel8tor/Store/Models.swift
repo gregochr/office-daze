@@ -80,6 +80,11 @@ final class Booking {
     /// flag. A field named here has no stored value — that is the invariant.
     var unsureFields: [String] = []
     var captureID: UUID?
+    /// The EventKit identifier of the calendar entry this booking was written
+    /// to, if it has been. Held because write-only calendar access cannot read
+    /// events back — without recording it here, a second tap of CALENDAR would
+    /// write a second event and the app would have no way to know.
+    var calendarEventID: String?
 
     init(
         id: UUID = UUID(),

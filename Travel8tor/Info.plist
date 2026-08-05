@@ -42,6 +42,13 @@
 	<string>Travel8tor watches a 50m perimeter around the offices you have booked a desk at, so it can show you your desk number the moment you arrive.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>Always is what lets the arrival alert fire when Travel8tor is closed — which is every time, since you will be walking in with the phone in your pocket. Your location is never sent anywhere; it never leaves the device.</string>
+	<!--
+	  Write-only, not full access. The desk screen adds an event and never
+	  reads one, and iOS shows a lighter prompt for the smaller permission.
+	-->
+	<key>NSCalendarsWriteOnlyAccessUsageDescription</key>
+	<string>Adding a desk booking to your calendar puts the building, the floor and the hours where the rest of your day already is. Travel8tor only ever writes events; it cannot read your calendar.</string>
+
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>location</string>

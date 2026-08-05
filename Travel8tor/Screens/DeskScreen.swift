@@ -14,6 +14,11 @@ struct DeskScreen: View {
     private let copy = Copy.shared
     private let today = Day.today
 
+    /// Whatever the last handoff said. Nil until one is tapped — the design
+    /// shows two bare buttons and this only appears when there is something to
+    /// report.
+    @State private var handoff: (text: String, problem: Bool)?
+
     private var booking: Booking? { bookings.first { $0.id == bookingID } }
 
     var body: some View {
@@ -21,12 +26,42 @@ struct DeskScreen: View {
             if let booking, let desk = booking.detail?.deskDetail {
                 VStack(alignment: .leading, spacing: 0) {
                     panel(booking, desk)
-                    actions.padding(.top, 11)
+                    actions(booking, desk).padding(.top, 11)
+                    if let handoff {
+                        handoffStrip(handoff).padding(.top, 9)
+                    }
                     effectOnCount(booking, desk).padding(.top, 20)
                 }
+                #if DEBUG
+                // `-screen desk -tap calendar` runs the action a finger would.
+                // There is no way to drive a tap from the command line, and an
+                // action that has only ever been read is an action untested.
+                .task { await runDebugTap(booking, desk) }
+                #endif
             }
         }
     }
+
+    #if DEBUG
+    private func runDebugTap(_ booking: Booking, _ desk: DeskDetail) async {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard let index = arguments.firstIndex(of: "-tap"), index + 1 < arguments.count
+        else { return }
+        let place = places.first { $0.id == desk.placeID }
+        switch arguments[index + 1] {
+        case "calendar": await addToCalendar(booking, desk, place)
+        case "directions":
+            guard let place else { return }
+            handoff = Directions.open(
+                name: place.name, latitude: place.latitude, longitude: place.longitude,
+                // Not the real opener: launching Maps would replace the screen
+                // being screenshotted.
+                opener: { _ in }
+            ).message.map { ($0, true) }
+        default: break
+        }
+    }
+    #endif
 
     private func panel(_ booking: Booking, _ desk: DeskDetail) -> some View {
         let place = places.first { $0.id == desk.placeID }
@@ -85,12 +120,77 @@ struct DeskScreen: View {
         return "[DESK] \(copy(.counts)) 1\(suffix)"
     }
 
-    private var actions: some View {
-        HStack(spacing: 9) {
-            // Both land in stage 6 — Maps handoff and the calendar write.
-            OutlinedAction(title: "DIRECTIONS")
-            OutlinedAction(title: "CALENDAR")
+    private func actions(_ booking: Booking, _ desk: DeskDetail) -> some View {
+        let place = places.first { $0.id == desk.placeID }
+        let written = booking.calendarEventID != nil
+
+        return HStack(spacing: 9) {
+            OutlinedAction(title: "DIRECTIONS") {
+                guard let place else {
+                    handoff = ("NO BUILDING RECORD FOR THIS DESK.", true)
+                    return
+                }
+                let outcome = Directions.open(
+                    name: place.name, latitude: place.latitude, longitude: place.longitude
+                )
+                handoff = outcome.message.map { ($0, true) }
+            }
+            OutlinedAction(
+                title: written ? "IN CALENDAR" : "CALENDAR",
+                // Brightness carries status here as it does everywhere: an
+                // action already taken reads at a lower strength.
+                border: written ? Palette.rail.opacity(0.18) : Palette.railBorder
+            ) {
+                Task { await addToCalendar(booking, desk, place) }
+            }
         }
+    }
+
+    private func addToCalendar(_ booking: Booking, _ desk: DeskDetail, _ place: Place?) async {
+        // A desk with no end time is not an event. The never-guess rule again:
+        // rather than inventing a finish, say what is missing.
+        guard let endsAt = booking.endsAt else {
+            handoff = ("NO FINISH TIME READ FOR THIS DESK.", true)
+            return
+        }
+
+        let (outcome, eventID) = await CalendarWriter.add(
+            .init(
+                deskID: desk.deskID,
+                placeName: desk.placeName,
+                address: place?.address,
+                postcode: place?.postcode,
+                floor: desk.floor,
+                zone: desk.zone,
+                startsAt: booking.startsAt,
+                endsAt: endsAt,
+                timeZone: booking.endZone ?? booking.startZone
+            ),
+            existingEventID: booking.calendarEventID
+        )
+
+        if let eventID, outcome == .added {
+            booking.calendarEventID = eventID
+            try? context.save()
+        }
+        handoff = (outcome.message, outcome.isProblem)
+    }
+
+    private func handoffStrip(_ handoff: (text: String, problem: Bool)) -> some View {
+        let colour = handoff.problem ? Palette.desk : Palette.stay
+        return HStack(spacing: 9) {
+            Rectangle().fill(colour).frame(width: 6, height: 6)
+            Text(handoff.text)
+                .t8(.offline)
+                .foregroundStyle(colour)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 11)
+        .padding(.horizontal, 13)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(colour.opacity(0.06))
+        .overlay { Rectangle().strokeBorder(colour.opacity(0.35), lineWidth: Metrics.hairline) }
     }
 
     @ViewBuilder
