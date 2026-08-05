@@ -105,23 +105,26 @@ nonisolated struct HaikuClient {
     or other overnight accommodation).
 
     The single most important rule: NEVER INFER A VALUE. If a field is not \
-    legibly present in the image, set it to null and add its name to \
-    unsureFields. Do not calculate it, do not deduce it from context, do not \
-    supply a plausible default, and do not repeat a value from a different \
-    field. A named unreadable field is a correct answer; a guessed value is a \
-    wrong one, and it is worse than a blank because nobody downstream can tell \
-    it apart from a real reading.
+    legibly present in the image, return an empty string for it (or null, for \
+    the numeric field) and add its name to unsureFields. Do not calculate it, \
+    do not deduce it from context, do not supply a plausible default, and do \
+    not repeat a value from a different field. A named unreadable field is a \
+    correct answer; a guessed value is a wrong one, and it is worse than a \
+    blank because nobody downstream can tell it apart from a real reading.
 
     Times are the common failure. If a booking shows a check-out time but not a \
-    check-in time, checkIn is null and "checkIn" goes in unsureFields — do not \
+    check-in time, checkIn is empty and "checkIn" goes in unsureFields — do not \
     assume a standard hotel check-in hour. If a departure time is legible but \
-    the arrival is cut off, arrival is null.
+    the arrival is cut off, arrivesAt is empty.
 
     Time zones: give every instant as an ISO 8601 string with an explicit UTC \
     offset, and give the IANA zone identifier separately (for example \
     "Europe/London", "Europe/Brussels"). Determine the zone from the location \
     of the event, not from where the reader might be. If you cannot determine \
-    the location, set the zone to null and name it.
+    the location, leave the zone empty and name it.
+
+    Only one of rail, desk and stay is filled in — the one matching kind. The \
+    other two are null.
 
     Set confidence to "low" if the image is cropped, blurred, partially \
     obscured, or you are unsure of the booking kind. Otherwise "high".
@@ -143,8 +146,21 @@ nonisolated struct HaikuClient {
     /// Computed rather than a stored global: `[String: Any]` is not Sendable,
     /// and this is built once per capture — a handful of dictionary literals.
     static var schema: [String: Any] {
-        func nullableString(_ description: String) -> [String: Any] {
-            ["anyOf": [["type": "string"], ["type": "null"]], "description": description]
+        /// A plain string, *not* a nullable one, and the empty string is how a
+        /// field says it could not be read.
+        ///
+        /// The obvious encoding — `anyOf: [string, null]` on every optional
+        /// field — is what the API rejects: 34 union-typed parameters against a
+        /// limit of 16, because each one multiplies the work of compiling the
+        /// grammar. Reading `""` as absence costs one union per field and buys
+        /// back thirty-one.
+        ///
+        /// The never-guess rule is untouched by this. `unsureFields` is still
+        /// the authority, `Extracted` still discards any value named there, and
+        /// it still names any field that arrives empty — so an unread field has
+        /// no stored value, which is the whole invariant.
+        func unreadableAsBlank(_ description: String) -> [String: Any] {
+            ["type": "string", "description": "\(description) Empty string if not legibly present."]
         }
         func nullableInt(_ description: String) -> [String: Any] {
             ["anyOf": [["type": "integer"], ["type": "null"]], "description": description]
@@ -162,43 +178,43 @@ nonisolated struct HaikuClient {
         }
 
         let rail = object([
-            "operatorName": nullableString("The train operator, e.g. LNER, Eurostar."),
-            "originStation": nullableString("Departure station name as printed."),
-            "destStation": nullableString("Arrival station name as printed."),
-            "originCity": nullableString("City of the departure station."),
-            "destCity": nullableString("City of the arrival station."),
-            "departsAt": nullableString("ISO 8601 departure instant with UTC offset."),
-            "departZone": nullableString("IANA zone at the departure station."),
-            "arrivesAt": nullableString("ISO 8601 arrival instant with UTC offset, or null."),
-            "arriveZone": nullableString("IANA zone at the arrival station."),
-            "platform": nullableString("Platform number, or null if not printed."),
-            "coach": nullableString("Coach or carriage, or null."),
-            "seat": nullableString("Seat number, or null."),
-            "bookingRef": nullableString("Booking reference or PNR, or null."),
-            "checkInBy": nullableString("ISO 8601 gate-closing instant, or null."),
+            "operatorName": unreadableAsBlank("The train operator, e.g. LNER, Eurostar."),
+            "originStation": unreadableAsBlank("Departure station name as printed."),
+            "destStation": unreadableAsBlank("Arrival station name as printed."),
+            "originCity": unreadableAsBlank("City of the departure station."),
+            "destCity": unreadableAsBlank("City of the arrival station."),
+            "departsAt": unreadableAsBlank("ISO 8601 departure instant with UTC offset."),
+            "departZone": unreadableAsBlank("IANA zone at the departure station."),
+            "arrivesAt": unreadableAsBlank("ISO 8601 arrival instant with UTC offset, or null."),
+            "arriveZone": unreadableAsBlank("IANA zone at the arrival station."),
+            "platform": unreadableAsBlank("Platform number, or null if not printed."),
+            "coach": unreadableAsBlank("Coach or carriage, or null."),
+            "seat": unreadableAsBlank("Seat number, or null."),
+            "bookingRef": unreadableAsBlank("Booking reference or PNR, or null."),
+            "checkInBy": unreadableAsBlank("ISO 8601 gate-closing instant, or null."),
         ])
 
         let desk = object([
-            "placeName": nullableString("Building name, e.g. Ropemaker Place."),
-            "address": nullableString("Street address, or null."),
-            "city": nullableString("City the building is in."),
-            "date": nullableString("ISO 8601 date of the booking."),
-            "zone": nullableString("IANA zone of the building."),
-            "floor": nullableString("Floor or level, or null."),
-            "deskZone": nullableString("Zone within the floor, or null."),
-            "deskID": nullableString("Desk identifier, e.g. 3C-114."),
-            "hours": nullableString("Booked hours as printed, or null."),
+            "placeName": unreadableAsBlank("Building name, e.g. Ropemaker Place."),
+            "address": unreadableAsBlank("Street address, or null."),
+            "city": unreadableAsBlank("City the building is in."),
+            "date": unreadableAsBlank("ISO 8601 date of the booking."),
+            "zone": unreadableAsBlank("IANA zone of the building."),
+            "floor": unreadableAsBlank("Floor or level, or null."),
+            "deskZone": unreadableAsBlank("Zone within the floor, or null."),
+            "deskID": unreadableAsBlank("Desk identifier, e.g. 3C-114."),
+            "hours": unreadableAsBlank("Booked hours as printed, or null."),
         ])
 
         let stay = object([
-            "hotelName": nullableString("Hotel or property name."),
-            "address": nullableString("Street address, or null."),
-            "city": nullableString("City the property is in."),
-            "checkIn": nullableString("ISO 8601 check-in instant, or null if not printed."),
-            "checkOut": nullableString("ISO 8601 check-out instant, or null."),
-            "zone": nullableString("IANA zone of the property."),
+            "hotelName": unreadableAsBlank("Hotel or property name."),
+            "address": unreadableAsBlank("Street address, or null."),
+            "city": unreadableAsBlank("City the property is in."),
+            "checkIn": unreadableAsBlank("ISO 8601 check-in instant, or null if not printed."),
+            "checkOut": unreadableAsBlank("ISO 8601 check-out instant, or null."),
+            "zone": unreadableAsBlank("IANA zone of the property."),
             "nights": nullableInt("Number of nights, or null."),
-            "bookingRef": nullableString("Booking reference, or null."),
+            "bookingRef": unreadableAsBlank("Booking reference, or null."),
         ])
 
         return object([

@@ -73,6 +73,24 @@ nonisolated struct Extracted: Decodable {
         unsureFields.contains(name) ? nil : value
     }
 
+    /// The same rule for strings, plus: an empty string *is* an absence.
+    ///
+    /// The schema asks for `""` rather than `null` on unreadable text fields,
+    /// because thirty-one nullable strings exceeded the API's limit on
+    /// union-typed parameters. That decision stops here — nothing downstream
+    /// ever sees a blank, and `""` and `null` mean exactly the same thing to
+    /// every caller.
+    ///
+    /// An overload rather than a differently-named function so no call site has
+    /// to remember which one to use: Swift picks this for `String?` and the
+    /// generic one for everything else.
+    private func honouring(_ name: String, _ value: String?) -> String? {
+        guard !unsureFields.contains(name) else { return nil }
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else { return nil }
+        return trimmed
+    }
+
     /// The mirror of the above: a field the model left null is named here even
     /// if the model forgot to name it, so the amber count is always the truth.
     private static func naming(_ unsure: inout [String], _ name: String, isNil: Bool) {

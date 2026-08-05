@@ -519,3 +519,70 @@ struct APIKeyCheckTests {
         }
     }
 }
+
+@Suite("Schema limits")
+struct SchemaLimitTests {
+
+    /// The API's ceiling on union-typed parameters. Exceeding it is a 400 at
+    /// call time, not a compile error, so only a test catches it before a
+    /// capture does.
+    static let unionLimit = 16
+
+    /// Counts properties whose type is a union — either `anyOf` or a type
+    /// array — the way the API's own error message counts them.
+    static func unionCount(_ schema: [String: Any]) -> Int {
+        var found = 0
+
+        func walk(_ node: Any) {
+            guard let object = node as? [String: Any] else { return }
+            if object["anyOf"] != nil { found += 1 }
+            if object["type"] is [Any] { found += 1 }
+            if let properties = object["properties"] as? [String: Any] {
+                for value in properties.values { walk(value) }
+            }
+            if let items = object["items"] { walk(items) }
+            for case let nested as [[String: Any]] in [object["anyOf"] as Any] {
+                for branch in nested { walk(branch) }
+            }
+        }
+
+        walk(schema)
+        return found
+    }
+
+    @Test("The schema stays under the API's union limit")
+    func underTheUnionLimit() {
+        // This is a real failure, found on a phone: thirty-one nullable strings
+        // plus three nullable detail objects came to 34 against a limit of 16,
+        // and every capture died with a 400. Nullable strings became plain
+        // strings where the empty string means "could not read".
+        let count = Self.unionCount(HaikuClient.schema)
+        #expect(
+            count <= Self.unionLimit,
+            "\(count) union-typed parameters; the API refuses more than \(Self.unionLimit)"
+        )
+    }
+
+    @Test("An empty string from the model is an absence, not a value")
+    func blankIsAbsence() throws {
+        // The schema asks for "" rather than null on unreadable text. That
+        // decision must not escape the mapping: nothing downstream should ever
+        // see a blank where it expects a missing value.
+        let json = """
+        {"kind":"desk","confidence":"high","unsureFields":[],
+         "desk":{"placeName":"Ropemaker Place","address":"","city":"London",
+                 "date":"2026-09-11T09:00:00+01:00","zone":"Europe/London",
+                 "floor":"","deskZone":"  ","deskID":"3C-118","hours":""}}
+        """
+        let extracted = try JSONDecoder().decode(Extracted.self, from: Data(json.utf8))
+        let parsed = try extracted.parsed(today: Day(2026, 9, 1))
+        let desk = try #require(parsed.detail.deskDetail)
+
+        #expect(desk.floor == nil, "an empty string is an absence")
+        #expect(desk.zone == nil, "whitespace only is an absence too")
+        #expect(desk.hours == nil)
+        #expect(desk.deskID == "3C-118")
+        // And the blanks are named, so the amber flag still counts them.
+        #expect(Set(parsed.unsureFields).isSuperset(of: ["floor", "zone", "hours"]))
+    }
+}
