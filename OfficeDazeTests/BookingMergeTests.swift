@@ -55,6 +55,21 @@ struct BookingMergeTests {
         #expect(merged.source == .manual)
     }
 
+    /// The heuristic is for when nobody is there to answer. Once the sheet has
+    /// shown both desks and the user has picked, a rule that overruled the
+    /// answer would make the question a lie — the tap would appear to do
+    /// nothing at all.
+    @Test("A confirmed replacement outranks the manual booking it replaces")
+    func chosenOutranksManual() {
+        let stored = booking(london, Day(2026, 8, 5), desk: "3C-999", source: .manual)
+        let merged = BookingMerge.merge(
+            incoming: booking(london, Day(2026, 8, 5), desk: "3C-114"),
+            into: stored,
+            chosen: true
+        )
+        #expect(merged.deskID == "3C-114")
+    }
+
     @Test("A manual booking overwrites a captured one")
     func manualOverwritesCapture() {
         let merged = BookingMerge.merge(

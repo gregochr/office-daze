@@ -100,6 +100,33 @@ struct StoreTests {
         #expect(fullAddress(coleman) == "63 Coleman Street, London EC2R 5BB")
     }
 
+    /// Re-importing a day cannot double the month — one desk per office per
+    /// day — but it can move the desk id, which is what the sheet now asks
+    /// about before it happens.
+    @Test("A re-import replaces the day's desk rather than adding one")
+    func reimportReplaces() throws {
+        let context = container.mainContext
+        let before = try context.fetchCount(FetchDescriptor<DeskBooking>())
+
+        try BookingStore.upsert(
+            .init(
+                officeID: SeedData.colemanID, day: Day(2026, 8, 5),
+                deskID: "CO03C117", source: .capture
+            ),
+            chosen: true,
+            in: context
+        )
+
+        #expect(try context.fetchCount(FetchDescriptor<DeskBooking>()) == before)
+        let booking = try #require(
+            try context.fetch(FetchDescriptor<DeskBooking>())
+                .first { $0.officeID == SeedData.colemanID && $0.day == Day(2026, 8, 5) }
+        )
+        #expect(booking.deskID == "CO03C117")
+        // The gaps the new read did not carry are kept rather than blanked.
+        #expect(booking.floor == "Level 3", "a replacement is not an erasure")
+    }
+
     /// The two come apart in both directions, which is why they are separate
     /// entities. Deleting the desk you reserved does not undo having been
     /// there, and attendance is the only record that you were.

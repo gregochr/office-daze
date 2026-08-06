@@ -59,8 +59,15 @@ nonisolated enum BookingMerge {
     /// correction. Where the winner has nothing, the loser's value fills the
     /// gap — which is how a re-share of a clearer screenshot completes a
     /// half-read booking instead of replacing it with another half-read one.
-    static func merge(incoming: Candidate, into stored: Candidate) -> Candidate {
-        let incomingWins = incoming.source == .manual || stored.source != .manual
+    ///
+    /// `chosen` is the capture sheet having asked. That heuristic exists for
+    /// when nobody is there to answer; once the user has been shown both desks
+    /// and picked this one, it is an answer and not a guess, and a rule that
+    /// overruled it would make the question a lie.
+    static func merge(
+        incoming: Candidate, into stored: Candidate, chosen: Bool = false
+    ) -> Candidate {
+        let incomingWins = chosen || incoming.source == .manual || stored.source != .manual
         var winner = incomingWins ? incoming : stored
         let loser = incomingWins ? stored : incoming
 

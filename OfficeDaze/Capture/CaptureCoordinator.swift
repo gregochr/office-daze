@@ -186,10 +186,24 @@ final class CaptureCoordinator {
         return offices.first { $0.id == match.id }
     }
 
+    /// The booking already held for this office and day, if there is one.
+    ///
+    /// A second capture of the same day is a change rather than a duplicate, so
+    /// nothing here is at risk of doubling the month — but the desk id would
+    /// move without being asked about, and that is what the sheet uses this to
+    /// name before it happens.
+    func existingBooking(day: Day, officeID: UUID) -> DeskBooking? {
+        (try? context.fetch(FetchDescriptor<DeskBooking>()))?
+            .first { $0.officeID == officeID && $0.day == day }
+    }
+
     /// Commits this booking and moves on. Each save writes immediately rather
     /// than batching, so abandoning the sheet halfway keeps what is already
     /// saved.
-    func save(_ booking: ParsedBooking, to officeID: UUID) {
+    ///
+    /// `chosen` says the sheet asked about a clash and this is the answer, so
+    /// the incoming booking wins whatever the stored one's source was.
+    func save(_ booking: ParsedBooking, to officeID: UUID, chosen: Bool = false) {
         guard case .review(let bookings, let index, var saved) = phase else { return }
         try? BookingStore.upsert(
             BookingMerge.Candidate(
@@ -204,6 +218,7 @@ final class CaptureCoordinator {
                 unsureFields: booking.unsureFields
             ),
             captureID: captureID,
+            chosen: chosen,
             in: context
         )
         saved.insert(booking.id)

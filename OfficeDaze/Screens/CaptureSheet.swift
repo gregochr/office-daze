@@ -13,6 +13,7 @@ struct CaptureSheet: View {
 
     @State private var chosenOffice: UUID?
     @State private var manualEntry = false
+    @State private var confirmingReplace = false
 
     var body: some View {
         NavigationStack {
@@ -130,11 +131,18 @@ struct CaptureSheet: View {
     private func review(_ booking: ParsedBooking) -> some View {
         let matched = coordinator.matchedOffice(for: booking)
         let officeID = matched?.id ?? chosenOffice
+        // Only a clash worth asking about. Re-importing the same desk changes
+        // nothing but gaps being filled, and a confirmation for that is a
+        // question with one answer.
+        let clash = officeID
+            .flatMap { coordinator.existingBooking(day: booking.day, officeID: $0) }
+            .flatMap { $0.deskID == booking.deskID ? nil : $0 }
         return VStack(spacing: Metrics.cardGap) {
             header
             if matched == nil { officePicker(booking) }
+            if let clash { clashStrip(clash) }
             fields(booking, office: matched)
-            actions(booking, officeID: officeID)
+            actions(booking, officeID: officeID, replacing: clash)
             Text("Saved one at a time, so you can skip any you don't want.")
                 .font(.system(size: 13))
                 .foregroundStyle(Palette.secondary)
@@ -239,7 +247,20 @@ struct CaptureSheet: View {
         }
     }
 
-    private func actions(_ booking: ParsedBooking, officeID: UUID?) -> some View {
+    /// One desk per office per day, so a re-import is a change rather than a
+    /// duplicate — the month cannot double. What it can do is move the desk id
+    /// without being asked, which is what this says out loud.
+    private func clashStrip(_ existing: DeskBooking) -> some View {
+        StatusStrip(
+            tone: .warning,
+            leading: "Already booked: \(existing.deskID)",
+            trailing: existing.source == .manual ? "entered by hand" : nil
+        )
+    }
+
+    private func actions(
+        _ booking: ParsedBooking, officeID: UUID?, replacing existing: DeskBooking?
+    ) -> some View {
         HStack(spacing: 10) {
             Button("Skip") {
                 chosenOffice = nil
@@ -248,10 +269,15 @@ struct CaptureSheet: View {
             .buttonStyle(.bordered)
             .tint(Palette.secondary)
 
-            Button(coordinator.isLast ? "Save and finish" : "Save and next") {
-                guard let officeID else { return }
-                chosenOffice = nil
-                coordinator.save(booking, to: officeID)
+            Button(existing == nil
+                   ? (coordinator.isLast ? "Save and finish" : "Save and next")
+                   : "Replace…") {
+                guard officeID != nil else { return }
+                if existing == nil {
+                    save(booking, to: officeID, chosen: false)
+                } else {
+                    confirmingReplace = true
+                }
             }
             .buttonStyle(.borderedProminent)
             .tint(Palette.tint)
@@ -259,6 +285,30 @@ struct CaptureSheet: View {
         }
         .controlSize(.large)
         .frame(maxWidth: .infinity)
+        .confirmationDialog(
+            "\(booking.day.mediumText) is already booked",
+            isPresented: $confirmingReplace,
+            titleVisibility: .visible
+        ) {
+            Button("Replace with \(booking.deskID)", role: .destructive) {
+                // `chosen` so the answer stands. Without it a booking entered
+                // by hand would win the merge and the tap would do nothing.
+                save(booking, to: officeID, chosen: true)
+            }
+            Button("Keep \(existing?.deskID ?? "")", role: .cancel) {
+                chosenOffice = nil
+                coordinator.advance()
+            }
+        } message: {
+            Text("This day already has desk \(existing?.deskID ?? "") at this office. "
+                 + "Only one desk is kept per office per day.")
+        }
+    }
+
+    private func save(_ booking: ParsedBooking, to officeID: UUID?, chosen: Bool) {
+        guard let officeID else { return }
+        chosenOffice = nil
+        coordinator.save(booking, to: officeID, chosen: chosen)
     }
 
     // MARK: Failure

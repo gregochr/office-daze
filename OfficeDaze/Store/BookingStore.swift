@@ -16,6 +16,7 @@ enum BookingStore {
     static func upsert(
         _ incoming: BookingMerge.Candidate,
         captureID: UUID? = nil,
+        chosen: Bool = false,
         in context: ModelContext
     ) throws -> DeskBooking {
         let existing = try context.fetch(FetchDescriptor<DeskBooking>())
@@ -39,7 +40,9 @@ enum BookingStore {
             return booking
         }
 
-        let merged = BookingMerge.merge(incoming: incoming, into: candidate(existing))
+        let merged = BookingMerge.merge(
+            incoming: incoming, into: candidate(existing), chosen: chosen
+        )
         existing.deskID = merged.deskID
         existing.floor = merged.floor
         existing.zone = merged.zone
