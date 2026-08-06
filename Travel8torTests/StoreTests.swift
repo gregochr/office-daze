@@ -89,6 +89,17 @@ struct StoreTests {
         #expect(snapshot.attendedByOffice[SeedData.brusselsID] == 1)
     }
 
+    /// The postcode is its own field, but people type it into the address as
+    /// well. Appending it regardless gave "… 1040 Brussels 1040".
+    @Test("A postcode already in the address is not appended twice")
+    func addressFormatting() throws {
+        let offices = try container.mainContext.fetch(FetchDescriptor<Office>())
+        let brussels = try #require(offices.first { $0.name == "Brussels" })
+        let ropemaker = try #require(offices.first { $0.name == "Ropemaker Place" })
+        #expect(fullAddress(brussels) == "Rue de la Loi 42, 1040 Brussels")
+        #expect(fullAddress(ropemaker) == "25 Ropemaker St, London EC2Y 9LY")
+    }
+
     @Test("Wiping leaves nothing behind")
     func wipe() throws {
         let context = container.mainContext
