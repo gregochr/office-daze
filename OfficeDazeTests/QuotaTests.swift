@@ -7,7 +7,9 @@ struct QuotaTests {
     let august = Month(year: 2026, month: 8)
 
     /// The handoff's worked example: 21 weekdays less the bank holiday is 20,
-    /// minus three days' leave is 17, and 8 × 17 ÷ 20 = 6.8 rounds to 7.
+    /// minus three days' leave is 17. Three days is not a whole block of five,
+    /// so the target stays at 8 — the mock was drawn against the pro-rate it
+    /// replaced, which put it at 7.
     @Test("August 2026, as the mock shows it")
     func augustWorkedExample() {
         let result = Quota.calculate(.init(
@@ -33,16 +35,17 @@ struct QuotaTests {
         #expect(result.leaveTaken == 3)
         #expect(result.eligible == 17)
 
-        // 8 × 17 ÷ 20 = 6.8 → target 7.
-        #expect(result.target == 7)
+        // Three days is short of a block, so nothing comes off.
+        #expect(result.relief == 0)
+        #expect(result.target == 8)
 
         // The gauge: 2 attended, 2 forecast, centre reads 4.
         #expect(result.attended == 2)
         #expect(result.forecast == 2)
         #expect(result.attended + result.forecast == 4)
 
-        // The footer: 3 days to go, 18 working days left.
-        #expect(result.shortfall == 3)
+        // The footer: 4 days to go, 18 working days left.
+        #expect(result.shortfall == 4)
         #expect(result.daysToRun == 18)
     }
 
@@ -64,7 +67,7 @@ struct QuotaTests {
         ))
         #expect(result.leaveTaken == 0.5)
         #expect(result.eligible == 19.5)
-        #expect(result.target == 8)      // 8 × 19.5 ÷ 20 = 7.8, rounds to 8
+        #expect(result.target == 8)      // half a day is nowhere near a block
         #expect(result.attended == 0.5)
         #expect(result.shortfall == 7.5)
     }
@@ -286,10 +289,10 @@ struct QuotaTests {
         #expect(result.target == 8)
     }
 
-    @Test("Half a day off moves the target by half a day")
+    @Test("Half days still add up to eligible days")
     func halfDayArithmetic() {
-        // August's worked example is three whole days off: 8 × 17 ÷ 20 = 6.8,
-        // rounding to 7. Make one of them a half and eligible becomes 17.5.
+        // Three days off with one of them a half: eligible becomes 17.5, and
+        // 2.5 days is still short of the first block.
         let result = Quota.calculate(.init(
             month: august,
             leave: [
@@ -301,5 +304,92 @@ struct QuotaTests {
         ))
         #expect(result.leaveTaken == 2.5)
         #expect(result.eligible == 17.5)
+        #expect(result.target == 8)
+    }
+
+    // MARK: Blocks of five
+
+    /// The rule, one row at a time. August has 20 working days, so nothing here
+    /// runs into the clamp — this is the block arithmetic on its own.
+    @Test(
+        "Every whole five days' leave takes two days off the target",
+        arguments: [
+            (0.0, 0.0, 8), (1.0, 0.0, 8), (4.0, 0.0, 8), (4.5, 0.0, 8),
+            (5.0, 2.0, 6), (5.5, 2.0, 6), (9.5, 2.0, 6),
+            (10.0, 4.0, 4), (14.0, 4.0, 4),
+            (15.0, 6.0, 2), (20.0, 8.0, 0),
+        ]
+    )
+    func blocksOfFive(leave: Double, relief: Double, target: Int) {
+        // Laid down as whole and half days from the 3rd, which is a Monday, so
+        // the run never lands on a weekend or the bank holiday on the 31st.
+        let wholeDays = Int(leave)
+        var fractions = august.weekdays.prefix(wholeDays).map { Quota.DayFraction($0) }
+        if leave > Double(wholeDays) {
+            fractions.append(.init(august.weekdays[wholeDays], 0.5))
+        }
+
+        let result = Quota.calculate(.init(
+            month: august, leave: fractions, today: Day(2026, 8, 1)
+        ))
+
+        #expect(result.leaveTaken == leave)
+        #expect(result.relief == relief)
+        #expect(result.target == target, "\(leave) days' leave")
+    }
+
+    /// Four days off used to shave a day under the pro-rate; now it is the
+    /// fifth that does the work, and it does two days' worth at once. The step
+    /// is the whole point of the rule, so it is worth a test of its own.
+    @Test("The fifth day is where the target moves, and it moves by two")
+    func theStep() {
+        func target(_ days: Int) -> Int {
+            Quota.calculate(.init(
+                month: august,
+                leave: august.weekdays.prefix(days).map { .init($0) },
+                today: Day(2026, 8, 1)
+            )).target
+        }
+        #expect(target(4) == 8)
+        #expect(target(5) == 6, "not 7 — a block is worth two days")
+    }
+
+    /// A month almost entirely on leave has three whole blocks and so a target
+    /// of two, against nothing like two days to spend. The days that are left
+    /// are the real ceiling.
+    @Test("The target never exceeds the days actually left")
+    func clampedToEligible() {
+        // 19 of August's 20 working days off: 3 blocks, 6 off, target 2 by the
+        // block rule — but only one working day remains.
+        let result = Quota.calculate(.init(
+            month: august,
+            leave: august.weekdays.filter { !BankHolidays.englandAndWales(in: august).contains($0) }
+                .prefix(19).map { .init($0) },
+            today: Day(2026, 8, 1)
+        ))
+        #expect(result.relief == 6)
+        #expect(result.eligible == 1)
+        #expect(result.target == 1, "two days cannot be asked of one day")
+    }
+
+    /// The explanation under the gauge is the only place the rule is stated, so
+    /// it has to hold in all three shapes — including leave that has not moved
+    /// anything, which the pro-rate never produced.
+    @Test("The target line explains itself in all three states")
+    func explanationCopy() {
+        func line(_ days: Int) -> String {
+            HomeScreen.targetExplanation(Quota.calculate(.init(
+                month: august,
+                leave: august.weekdays.prefix(days).map { .init($0) },
+                today: Day(2026, 8, 1)
+            )))
+        }
+        #expect(line(0) == "Target 8 — 8 days a month")
+        #expect(
+            line(3) == "Target 8 — 3 days' leave; 5 days takes 2 off",
+            "leave that has moved nothing still has to be visible"
+        )
+        #expect(line(5) == "Target 6 — 8 days less 2 for 5 days' leave")
+        #expect(line(1).contains("1 day's leave"), "one day is singular")
     }
 }

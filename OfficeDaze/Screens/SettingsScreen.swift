@@ -12,6 +12,7 @@ struct SettingsScreen: View {
     @Environment(ArrivalMonitor.self) private var arrival
     @Query(sort: \Office.name) private var offices: [Office]
     @Query private var captures: [Capture]
+    @Query private var leave: [LeaveDay]
 
     @State private var apiKey = ""
     @State private var loaded = false
@@ -22,6 +23,20 @@ struct SettingsScreen: View {
     private var thisMonth: [Capture] {
         let month = Day.today.month_
         return captures.filter { month.contains(Day(of: $0.receivedAt)) }
+    }
+
+    /// The row opens on this month, so this is the month it counts. Bank
+    /// holidays are excluded for the reason they are everywhere else: they are
+    /// derived from the calendar rather than booked, and they are already
+    /// outside the working days the target is built from.
+    private var leaveSummary: String {
+        let month = Day.today.month_
+        let days = leave
+            .filter { $0.kind != .bankHoliday && month.contains($0.day) }
+            .reduce(0) { $0 + $1.fraction }
+        guard days > 0 else { return "None this month" }
+        let count = days.formatted(.number.precision(.fractionLength(0...1)))
+        return "\(count) \(days == 1 ? "day" : "days") this month"
     }
 
     var body: some View {
@@ -41,6 +56,18 @@ struct SettingsScreen: View {
                 Text("Offices")
             } footer: {
                 Text(ArrivalCopy.officesSection)
+            }
+
+            Section {
+                NavigationLink {
+                    LeaveScreen()
+                } label: {
+                    LabeledContent("Holiday calendar", value: leaveSummary)
+                }
+            } header: {
+                Text("Leave")
+            } footer: {
+                Text("Every whole five days off takes two days off the month's target: four days change nothing, the fifth drops eight to six, and ten days drop it to four. Weekends and bank holidays are outside the count already, so booking one off costs nothing and gains nothing.")
             }
 
             Section {

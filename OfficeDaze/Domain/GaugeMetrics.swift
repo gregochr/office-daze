@@ -39,8 +39,8 @@ nonisolated enum GaugeMetrics {
     /// Note this is *not* simply the band the needle happens to sit in. The
     /// bands change to green at 85% of target, but the value arc only goes
     /// green once the target is actually met — 6 of 7 is 86% of the way round
-    /// and still amber in the design, because six days is not eight days
-    /// pro-rated to seven. Green means done.
+    /// and still amber in the design, because six days is not seven days.
+    /// Green means done.
     enum Level: Sendable {
         case behind, close, met
     }
