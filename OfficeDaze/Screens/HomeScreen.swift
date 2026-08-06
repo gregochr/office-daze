@@ -1,4 +1,3 @@
-import PhotosUI
 import SwiftData
 import SwiftUI
 
@@ -17,10 +16,7 @@ struct HomeScreen: View {
     /// state the screen needs.
     @State private var month = Day.today.month_
 
-    /// Cleared as soon as it is read. The picker only reports a *change*, so
-    /// leaving the last choice in place would make picking the same photo twice
-    /// in a row do nothing the second time.
-    @State private var photo: PhotosPickerItem?
+    @State private var camera = false
 
     /// The booking row currently swiped open, if any. One at a time, which is
     /// why it lives here rather than in each row.
@@ -147,8 +143,6 @@ struct HomeScreen: View {
                 .accessibilityLabel("Settings")
             }
         }
-        // The library hands back bytes, not a file, so this is the one intake
-        // that has to convert before the coordinator can use it.
         // Sheets rather than pushes: a NavigationLink inside a Menu does not
         // reliably push, and the capture flow already presents the booking
         // editor this way.
@@ -160,16 +154,13 @@ struct HomeScreen: View {
                 }
             }
         }
-        .onChange(of: photo) { _, chosen in
-            guard let chosen else { return }
-            photo = nil
-            Task {
-                guard let data = try? await chosen.loadTransferable(type: Data.self) else {
-                    capture.failed(.unreadableImage)
-                    return
-                }
-                await capture.receive(photo: data)
+        .fullScreenCover(isPresented: $camera) {
+            // Full screen, because a camera in a card with the app showing
+            // round the edges is a viewfinder you have to aim through.
+            CameraPicker { data in
+                Task { await capture.receive(photo: data) }
             }
+            .ignoresSafeArea()
         }
     }
 
@@ -323,19 +314,31 @@ struct HomeScreen: View {
             // Two ways in, named for what they are rather than for one "Add"
             // that hides the interesting half. The picker is the only route to
             // capture that does not go through the share sheet.
+            // Two icons rather than two labels: the pencil writes one down, the
+            // camera reads one off a screen. Both are one tap from the list
+            // they add to, which is worth more here than the words were —
+            // "+ Manually" and "+ From image" together took most of the row.
             SectionHeader(title: "This month") {
-                HStack(spacing: 16) {
+                HStack(spacing: 6) {
                     Menu {
                         Button("Desk booking") { adding = .booking }
                         Button("Day in the office") { adding = .attendance }
                     } label: {
-                        Text("+ Manually")
+                        headerIcon("square.and.pencil")
                     }
-                    PhotosPicker(selection: $photo, matching: .images) {
-                        Text("+ From image")
+                    .accessibilityLabel("Add a booking or a day by hand")
+
+                    // The confirmation is nearly always on a monitor in front
+                    // of you, so photographing it is the shortest way in. A
+                    // screenshot already in the library still arrives through
+                    // the iOS share sheet.
+                    Button {
+                        camera = true
+                    } label: {
+                        headerIcon("camera")
                     }
+                    .accessibilityLabel("Photograph a booking")
                 }
-                .font(.system(size: 15))
                 .foregroundStyle(Palette.tint)
             }
             if monthEntries.isEmpty {
@@ -421,6 +424,15 @@ struct HomeScreen: View {
         .padding(.horizontal, 16)
         .frame(minHeight: Metrics.minimumRow)
         .contentShape(Rectangle())
+    }
+
+    /// An icon on its own is a small target, so it carries a tappable frame
+    /// around it rather than only its own glyph.
+    private func headerIcon(_ symbol: String) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 17))
+            .frame(width: 36, height: 30)
+            .contentShape(Rectangle())
     }
 
     /// A day on prem with no desk behind it, worked or intended. Says so where
