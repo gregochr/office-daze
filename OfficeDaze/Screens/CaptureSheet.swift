@@ -75,7 +75,10 @@ struct CaptureSheet: View {
                     .controlSize(.large)
                     .tint(Palette.tint)
                     .frame(width: 38, height: 38)
-                Text("Reading your screenshot")
+                // Named, because the image leaves the phone to be read. Who is
+                // doing the reading is the user's business, and a screen that
+                // only says "Reading" implies the app is doing it here.
+                Text("Reading with Claude AI")
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(Palette.text)
                     .padding(.top, 16)
@@ -85,7 +88,9 @@ struct CaptureSheet: View {
                     .padding(.top, 4)
 
                 VStack(alignment: .leading, spacing: 14) {
-                    checklistRow("Screenshot received", .received, step)
+                    // "Image", not "Screenshot" — a photo of a screen arrives
+                    // here too, and now has its own button on the home screen.
+                    checklistRow("Image received", .received, step)
                     checklistRow("Finding the desk details", .finding, step)
                     checklistRow("Matching to an office", .matching, step)
                 }

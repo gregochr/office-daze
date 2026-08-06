@@ -55,7 +55,7 @@ struct SettingsScreen: View {
             } header: {
                 Text("Anthropic API key")
             } footer: {
-                Text("Stored in the iOS Keychain — never in the app's settings, and never in a backup. Reading a screenshot costs about a penny; everything else in the app works without a key.")
+                Text("Stored in the iOS Keychain — never in the app's settings, and never in a backup. Reading an image sends it to Anthropic to be read by Claude, and costs about a penny; everything else in the app works without a key.")
             }
 
             Section {
