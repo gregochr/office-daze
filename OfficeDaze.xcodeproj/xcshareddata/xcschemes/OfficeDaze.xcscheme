@@ -15,9 +15,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "AA0000000000000000000010"
-               BuildableName = "Travel8tor.app"
-               BlueprintName = "Travel8tor"
-               ReferencedContainer = "container:Travel8tor.xcodeproj">
+               BuildableName = "OfficeDaze.app"
+               BlueprintName = "OfficeDaze"
+               ReferencedContainer = "container:OfficeDaze.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
       </BuildActionEntries>
@@ -33,9 +33,9 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "AA0000000000000000000030"
-               BuildableName = "Travel8torTests.xctest"
-               BlueprintName = "Travel8torTests"
-               ReferencedContainer = "container:Travel8tor.xcodeproj">
+               BuildableName = "OfficeDazeTests.xctest"
+               BlueprintName = "OfficeDazeTests"
+               ReferencedContainer = "container:OfficeDaze.xcodeproj">
             </BuildableReference>
          </TestableReference>
       </Testables>
@@ -55,9 +55,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "AA0000000000000000000010"
-            BuildableName = "Travel8tor.app"
-            BlueprintName = "Travel8tor"
-            ReferencedContainer = "container:Travel8tor.xcodeproj">
+            BuildableName = "OfficeDaze.app"
+            BlueprintName = "OfficeDaze"
+            ReferencedContainer = "container:OfficeDaze.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </LaunchAction>
@@ -72,9 +72,9 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "AA0000000000000000000010"
-            BuildableName = "Travel8tor.app"
-            BlueprintName = "Travel8tor"
-            ReferencedContainer = "container:Travel8tor.xcodeproj">
+            BuildableName = "OfficeDaze.app"
+            BlueprintName = "OfficeDaze"
+            ReferencedContainer = "container:OfficeDaze.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
    </ProfileAction>

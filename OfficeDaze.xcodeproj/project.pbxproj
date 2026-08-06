@@ -15,7 +15,7 @@
 			containerPortal = AA0000000000000000000001 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = AA0000000000000000000010;
-			remoteInfo = Travel8tor;
+			remoteInfo = OfficeDaze;
 		};
 /* End PBXContainerItemProxy section */
 
@@ -23,32 +23,32 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		AA0000000000000000000018 /* Travel8tor.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Travel8tor.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		AA0000000000000000000037 /* Travel8torTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = Travel8torTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		AA0000000000000000000018 /* OfficeDaze.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = OfficeDaze.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		AA0000000000000000000037 /* OfficeDazeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = OfficeDazeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		AA000000000000000000001A /* Exceptions for "Travel8tor" folder in "Travel8tor" target */ = {
+		AA000000000000000000001A /* Exceptions for "OfficeDaze" folder in "OfficeDaze" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
 			);
-			target = AA0000000000000000000010 /* Travel8tor */;
+			target = AA0000000000000000000010 /* OfficeDaze */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		AA0000000000000000000019 /* Travel8tor */ = {
+		AA0000000000000000000019 /* OfficeDaze */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				AA000000000000000000001A /* Exceptions for "Travel8tor" folder in "Travel8tor" target */,
+				AA000000000000000000001A /* Exceptions for "OfficeDaze" folder in "OfficeDaze" target */,
 			);
-			path = Travel8tor;
+			path = OfficeDaze;
 			sourceTree = "<group>";
 		};
-		AA0000000000000000000038 /* Travel8torTests */ = {
+		AA0000000000000000000038 /* OfficeDazeTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			path = Travel8torTests;
+			path = OfficeDazeTests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -74,8 +74,8 @@
 		AA0000000000000000000002 = {
 			isa = PBXGroup;
 			children = (
-				AA0000000000000000000019 /* Travel8tor */,
-				AA0000000000000000000038 /* Travel8torTests */,
+				AA0000000000000000000019 /* OfficeDaze */,
+				AA0000000000000000000038 /* OfficeDazeTests */,
 				AA0000000000000000000003 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -83,8 +83,8 @@
 		AA0000000000000000000003 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				AA0000000000000000000018 /* Travel8tor.app */,
-				AA0000000000000000000037 /* Travel8torTests.xctest */,
+				AA0000000000000000000018 /* OfficeDaze.app */,
+				AA0000000000000000000037 /* OfficeDazeTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -92,9 +92,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		AA0000000000000000000010 /* Travel8tor */ = {
+		AA0000000000000000000010 /* OfficeDaze */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = AA0000000000000000000011 /* Build configuration list for PBXNativeTarget "Travel8tor" */;
+			buildConfigurationList = AA0000000000000000000011 /* Build configuration list for PBXNativeTarget "OfficeDaze" */;
 			buildPhases = (
 				AA0000000000000000000014 /* Sources */,
 				AA0000000000000000000015 /* Frameworks */,
@@ -105,18 +105,18 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				AA0000000000000000000019 /* Travel8tor */,
+				AA0000000000000000000019 /* OfficeDaze */,
 			);
-			name = Travel8tor;
+			name = OfficeDaze;
 			packageProductDependencies = (
 			);
-			productName = Travel8tor;
-			productReference = AA0000000000000000000018 /* Travel8tor.app */;
+			productName = OfficeDaze;
+			productReference = AA0000000000000000000018 /* OfficeDaze.app */;
 			productType = "com.apple.product-type.application";
 		};
-		AA0000000000000000000030 /* Travel8torTests */ = {
+		AA0000000000000000000030 /* OfficeDazeTests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = AA0000000000000000000031 /* Build configuration list for PBXNativeTarget "Travel8torTests" */;
+			buildConfigurationList = AA0000000000000000000031 /* Build configuration list for PBXNativeTarget "OfficeDazeTests" */;
 			buildPhases = (
 				AA0000000000000000000034 /* Sources */,
 				AA0000000000000000000035 /* Frameworks */,
@@ -128,13 +128,13 @@
 				AA0000000000000000000039 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
-				AA0000000000000000000038 /* Travel8torTests */,
+				AA0000000000000000000038 /* OfficeDazeTests */,
 			);
-			name = Travel8torTests;
+			name = OfficeDazeTests;
 			packageProductDependencies = (
 			);
-			productName = Travel8torTests;
-			productReference = AA0000000000000000000037 /* Travel8torTests.xctest */;
+			productName = OfficeDazeTests;
+			productReference = AA0000000000000000000037 /* OfficeDazeTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
 /* End PBXNativeTarget section */
@@ -156,7 +156,7 @@
 					};
 				};
 			};
-			buildConfigurationList = AA0000000000000000000004 /* Build configuration list for PBXProject "Travel8tor" */;
+			buildConfigurationList = AA0000000000000000000004 /* Build configuration list for PBXProject "OfficeDaze" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -170,8 +170,8 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				AA0000000000000000000010 /* Travel8tor */,
-				AA0000000000000000000030 /* Travel8torTests */,
+				AA0000000000000000000010 /* OfficeDaze */,
+				AA0000000000000000000030 /* OfficeDazeTests */,
 			);
 		};
 /* End PBXProject section */
@@ -213,7 +213,7 @@
 /* Begin PBXTargetDependency section */
 		AA0000000000000000000039 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = AA0000000000000000000010 /* Travel8tor */;
+			target = AA0000000000000000000010 /* OfficeDaze */;
 			targetProxy = AA000000000000000000003A /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
@@ -316,7 +316,7 @@
 				DEVELOPMENT_TEAM = 98355YQ22M;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = Travel8tor/Info.plist;
+				INFOPLIST_FILE = OfficeDaze/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Office Daze";
 				INFOPLIST_KEY_UIUserInterfaceStyle = Light;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -344,7 +344,7 @@
 				DEVELOPMENT_TEAM = 98355YQ22M;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = Travel8tor/Info.plist;
+				INFOPLIST_FILE = OfficeDaze/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Office Daze";
 				INFOPLIST_KEY_UIUserInterfaceStyle = Light;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -374,7 +374,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				TARGETED_DEVICE_FAMILY = 1;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Travel8tor.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Travel8tor";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/OfficeDaze.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/OfficeDaze";
 			};
 			name = Debug;
 		};
@@ -390,14 +390,14 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				TARGETED_DEVICE_FAMILY = 1;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Travel8tor.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Travel8tor";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/OfficeDaze.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/OfficeDaze";
 			};
 			name = Release;
 		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		AA0000000000000000000004 /* Build configuration list for PBXProject "Travel8tor" */ = {
+		AA0000000000000000000004 /* Build configuration list for PBXProject "OfficeDaze" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				AA0000000000000000000005 /* Debug */,
@@ -406,7 +406,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		AA0000000000000000000011 /* Build configuration list for PBXNativeTarget "Travel8tor" */ = {
+		AA0000000000000000000011 /* Build configuration list for PBXNativeTarget "OfficeDaze" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				AA0000000000000000000012 /* Debug */,
@@ -415,7 +415,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		AA0000000000000000000031 /* Build configuration list for PBXNativeTarget "Travel8torTests" */ = {
+		AA0000000000000000000031 /* Build configuration list for PBXNativeTarget "OfficeDazeTests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				AA0000000000000000000032 /* Debug */,

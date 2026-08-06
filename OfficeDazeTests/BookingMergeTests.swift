@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import Travel8tor
+@testable import OfficeDaze
 
 /// One desk per office per day. Re-sharing the same screenshot must not double
 /// the month, and typing a booking in by hand must not be undone by the next

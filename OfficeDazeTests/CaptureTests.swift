@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import Travel8tor
+@testable import OfficeDaze
 
 /// The wire shape and its mapping. The never-guess rule lives here — it is
 /// enforced in the mapping rather than merely requested in the prompt, so it

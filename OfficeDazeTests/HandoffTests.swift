@@ -2,7 +2,7 @@ import Foundation
 import SwiftData
 import Testing
 import UserNotifications
-@testable import Travel8tor
+@testable import OfficeDaze
 
 @Suite("Leave")
 struct LeaveTests {

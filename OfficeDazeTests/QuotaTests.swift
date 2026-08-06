@@ -1,5 +1,5 @@
 import Testing
-@testable import Travel8tor
+@testable import OfficeDaze
 
 @Suite("Quota")
 struct QuotaTests {

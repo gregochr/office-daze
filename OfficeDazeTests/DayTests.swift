@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import Travel8tor
+@testable import OfficeDaze
 
 @Suite("Day and Month")
 struct DayTests {

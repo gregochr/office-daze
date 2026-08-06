@@ -2,7 +2,7 @@ import Foundation
 import SwiftData
 import Testing
 import UserNotifications
-@testable import Travel8tor
+@testable import OfficeDaze
 
 /// The rule the whole feature turns on. Four outcomes, tested without a device
 /// walking through a door.

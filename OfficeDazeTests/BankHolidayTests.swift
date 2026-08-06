@@ -1,5 +1,5 @@
 import Testing
-@testable import Travel8tor
+@testable import OfficeDaze
 
 // Swift Testing, not XCTest — `#expect` instead of XCTAssertEqual, and it
 // reports the actual values on failure without being told to.

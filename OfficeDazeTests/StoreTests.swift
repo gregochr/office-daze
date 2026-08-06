@@ -1,7 +1,7 @@
 import Foundation
 import SwiftData
 import Testing
-@testable import Travel8tor
+@testable import OfficeDaze
 
 @Suite("Seed data and the store")
 @MainActor

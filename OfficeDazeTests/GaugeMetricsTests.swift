@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import Travel8tor
+@testable import OfficeDaze
 
 /// The dial is the centrepiece and the fiddliest thing in the app, so its
 /// angles are pinned here rather than judged by eye.
