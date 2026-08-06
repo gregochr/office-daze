@@ -2,16 +2,16 @@ import Foundation
 
 // Swift has no LocalDate. Foundation gives you `Date` (an instant, like
 // java.time.Instant) and `DateComponents` (a loose bag of optional fields), but
-// nothing in between. Trips start and end on *days* — no time, no zone — so we
+// nothing in between. A desk booking is for a *day* — no time, no zone — so we
 // build the type.
 //
 // `nonisolated` appears on every type in Domain/. The project sets
 // SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor, which makes types main-actor bound
 // unless they say otherwise. That's right for UI and for SwiftData, and wrong
-// for pure functions, which should be callable from anywhere — including a
-// background parse in stage 4.
+// for pure functions, which should be callable from anywhere.
 
-/// A calendar date with no time and no time zone.
+/// A calendar date. There is no timezone handling in this app: a desk on the
+/// 12th is a desk on the 12th, wherever the phone happens to be.
 nonisolated struct Day: Hashable, Comparable, Codable, Sendable, CustomStringConvertible {
     let year: Int
     let month: Int
@@ -23,9 +23,9 @@ nonisolated struct Day: Hashable, Comparable, Codable, Sendable, CustomStringCon
         self.day = day
     }
 
-    /// All day arithmetic runs through one fixed calendar. Not `Calendar.current`
-    /// — that follows the device's locale and zone, and would make the same
-    /// booking group differently depending on where the phone is.
+    /// All day arithmetic runs through one fixed calendar, not
+    /// `Calendar.current` — that follows the device's locale and zone, and
+    /// would make the same booking file under a different day abroad.
     static let calendar: Calendar = {
         var c = Calendar(identifier: .gregorian)
         c.timeZone = TimeZone(identifier: "UTC")!
@@ -33,13 +33,10 @@ nonisolated struct Day: Hashable, Comparable, Codable, Sendable, CustomStringCon
         return c
     }()
 
-    /// The day an instant falls on, as seen from a given zone. The zone matters:
-    /// the 20:05 arrival in Brussels is still Monday in London, but a 00:30
-    /// arrival would not be.
-    init(of instant: Date, in zone: TimeZone) {
-        var c = Day.calendar
-        c.timeZone = zone
-        let parts = c.dateComponents([.year, .month, .day], from: instant)
+    /// The day an instant falls on. Only used at the two edges — reading the
+    /// clock, and reading a `Date` back out of SwiftData.
+    init(of instant: Date) {
+        let parts = Day.calendar.dateComponents([.year, .month, .day], from: instant)
         self.init(parts.year!, parts.month!, parts.day!)
     }
 
@@ -48,15 +45,7 @@ nonisolated struct Day: Hashable, Comparable, Codable, Sendable, CustomStringCon
         Day.calendar.date(from: DateComponents(year: year, month: month, day: day))!
     }
 
-    /// An instant on this day at a wall-clock time in a given zone.
-    /// `Day(2026, 9, 7).at(17, 04, in: london)` is the Eurostar departure.
-    func at(_ hour: Int, _ minute: Int, in zone: TimeZone) -> Date {
-        var c = Day.calendar
-        c.timeZone = zone
-        return c.date(from: DateComponents(
-            year: year, month: month, day: day, hour: hour, minute: minute
-        ))!
-    }
+    nonisolated static var today: Day { Day(of: .now) }
 
     /// 1 = Sunday … 7 = Saturday, matching Foundation.
     var weekday: Int {
@@ -65,19 +54,10 @@ nonisolated struct Day: Hashable, Comparable, Codable, Sendable, CustomStringCon
 
     var isWeekend: Bool { weekday == 1 || weekday == 7 }
     var isWeekday: Bool { !isWeekend }
-
     var isMonday: Bool { weekday == 2 }
 
     func adding(days: Int) -> Day {
-        let moved = Day.calendar.date(byAdding: .day, value: days, to: startOfDayUTC)!
-        return Day(of: moved, in: Day.calendar.timeZone)
-    }
-
-    /// Days from this day to `other`, exclusive of this one.
-    func days(until other: Day) -> Int {
-        Day.calendar.dateComponents(
-            [.day], from: startOfDayUTC, to: other.startOfDayUTC
-        ).day!
+        Day(of: Day.calendar.date(byAdding: .day, value: days, to: startOfDayUTC)!)
     }
 
     var month_: Month { Month(year: year, month: month) }
@@ -91,6 +71,21 @@ nonisolated struct Day: Hashable, Comparable, Codable, Sendable, CustomStringCon
     /// ISO 8601, so debug output and test failures are readable.
     var description: String {
         String(format: "%04d-%02d-%02d", year, month, day)
+    }
+
+    /// `Wednesday 5 August`, the booking detail's date line.
+    var longText: String { formatted("EEEE d MMMM") }
+
+    /// `Wed 5 August`, the bookings list.
+    var mediumText: String { formatted("EEE d MMMM") }
+
+    private func formatted(_ template: String) -> String {
+        let f = DateFormatter()
+        f.calendar = Day.calendar
+        f.timeZone = Day.calendar.timeZone
+        f.locale = Locale(identifier: "en_GB")
+        f.dateFormat = template
+        return f.string(from: startOfDayUTC)
     }
 }
 
@@ -116,9 +111,27 @@ nonisolated struct Month: Hashable, Comparable, Codable, Sendable, CustomStringC
         day.year == year && day.month == month
     }
 
+    func adding(months: Int) -> Month {
+        let moved = Day.calendar.date(
+            byAdding: .month, value: months, to: Day(year, month, 1).startOfDayUTC
+        )!
+        let parts = Day.calendar.dateComponents([.year, .month], from: moved)
+        return Month(year: parts.year!, month: parts.month!)
+    }
+
     static func < (a: Month, b: Month) -> Bool {
         (a.year, a.month) < (b.year, b.month)
     }
 
     var description: String { String(format: "%04d-%02d", year, month) }
+
+    /// `August 2026`, the month stepper.
+    var text: String {
+        let f = DateFormatter()
+        f.calendar = Day.calendar
+        f.timeZone = Day.calendar.timeZone
+        f.locale = Locale(identifier: "en_GB")
+        f.dateFormat = "MMMM yyyy"
+        return f.string(from: Day(year, month, 1).startOfDayUTC)
+    }
 }

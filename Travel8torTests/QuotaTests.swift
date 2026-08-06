@@ -6,8 +6,8 @@ struct QuotaTests {
 
     let august = Month(year: 2026, month: 8)
 
-    /// The design's worked example, reproduced line for line from the
-    /// TARGET DERIVATION panel and the gauge.
+    /// The handoff's worked example: 21 weekdays less the bank holiday is 20,
+    /// minus three days' leave is 17, and 8 × 17 ÷ 20 = 6.8 rounds to 7.
     @Test("August 2026, as the mock shows it")
     func augustWorkedExample() {
         let result = Quota.calculate(.init(
@@ -25,23 +25,23 @@ struct QuotaTests {
             today: Day(2026, 8, 4)
         ))
 
-        // WORKING DAYS 20 — 21 weekdays less the 31st.
+        // 21 weekdays less the 31st.
         #expect(result.bankHolidays == [Day(2026, 8, 31)])
         #expect(result.workingDays == 20)
 
-        // LEAVE 17–19  −03
+        // Three days' leave, 17th to 19th.
         #expect(result.leaveTaken == 3)
         #expect(result.eligible == 17)
 
-        // 8 × 17 ÷ 20 = 6.8 → TARGET 07
+        // 8 × 17 ÷ 20 = 6.8 → target 7.
         #expect(result.target == 7)
 
-        // The gauge: TERMINATED 02, FORECAST 02, centre reads 04.
+        // The gauge: 2 attended, 2 forecast, centre reads 4.
         #expect(result.attended == 2)
         #expect(result.forecast == 2)
         #expect(result.attended + result.forecast == 4)
 
-        // The footer: 03 LEFT ALIVE, 18 DAYS TO RUN.
+        // The footer: 3 days to go, 18 working days left.
         #expect(result.shortfall == 3)
         #expect(result.daysToRun == 18)
     }
@@ -162,54 +162,13 @@ struct QuotaTests {
         #expect(result.workingDays == 22)
         #expect(result.target == 8)
     }
-}
 
-@Suite("Leave logging")
-struct LeaveCycleTests {
-
-    @Test("A day cycles none → full → half → none")
-    func cycle() {
-        // Whole days are the common case, so they are one tap and the half is
-        // two — not the other way round.
-        #expect(LeaveCycle.next(after: nil) == 1.0)
-        #expect(LeaveCycle.next(after: 1.0) == 0.5)
-        #expect(LeaveCycle.next(after: 0.5) == nil)
-    }
-
-    @Test("Attended days and bank holidays cannot be given leave")
-    func notEditable() {
-        // Both would deduct the same day twice: an attended day is history,
-        // and a bank holiday is already out of working days.
-        #expect(!LeaveCycle.editable(.attended))
-        #expect(!LeaveCycle.editable(.bankHoliday))
-        #expect(LeaveCycle.editable(.ordinary))
-        #expect(LeaveCycle.editable(.booked))
-        #expect(LeaveCycle.editable(.leave))
-        #expect(LeaveCycle.editable(.halfLeave))
-    }
-
-    @Test("The grid distinguishes a half day from a whole one")
-    func halfDayShows() throws {
-        let cells = MissionGrid.cells(.init(
-            month: Month(year: 2026, month: 8),
-            attended: [],
-            deskBookingDays: [],
-            leave: [Day(2026, 8, 17): 1.0, Day(2026, 8, 18): 0.5],
-            today: Day(2026, 8, 4)
-        ))
-        let whole = try #require(cells.compactMap { $0 }.first { $0.day == Day(2026, 8, 17) })
-        let half = try #require(cells.compactMap { $0 }.first { $0.day == Day(2026, 8, 18) })
-        #expect(whole.state == .leave)
-        #expect(half.state == .halfLeave)
-        #expect(whole.state.isLeave && half.state.isLeave)
-    }
-
-    @Test("Half days move the target by a half")
+    @Test("Half a day off moves the target by half a day")
     func halfDayArithmetic() {
         // August's worked example is three whole days off: 8 × 17 ÷ 20 = 6.8,
         // rounding to 7. Make one of them a half and eligible becomes 17.5.
         let result = Quota.calculate(.init(
-            month: Month(year: 2026, month: 8),
+            month: august,
             leave: [
                 .init(Day(2026, 8, 17), 1.0),
                 .init(Day(2026, 8, 18), 1.0),

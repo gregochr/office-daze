@@ -9,11 +9,11 @@ enum QuotaService {
     struct Snapshot {
         let month: Month
         let result: Quota.Result
-        let leaveDays: [Day]
-        /// Day to fraction, for the grid — a half-day reads differently there.
-        let leaveFractions: [Day: Double]
         let attendedDays: Set<Day>
-        let deskBookingDays: Set<Day>
+        /// Attended days per office, for the row of office cards. Counted as
+        /// fractions, so a half-day shows as a half.
+        let attendedByOffice: [UUID: Double]
+        let bookedDays: Set<Day>
     }
 
     static func snapshot(for month: Month, today: Day, in context: ModelContext) throws -> Snapshot {
@@ -26,39 +26,27 @@ enum QuotaService {
         let attendance = try context.fetch(FetchDescriptor<AttendanceDay>())
             .filter { month.contains($0.day) }
 
-        let deskDays = try context.fetch(FetchDescriptor<Booking>())
-            .filter { $0.kind == .desk && $0.detail?.deskDetail?.countsToQuota == true }
-            .map(\.anchorDay)
+        let bookedDays = try context.fetch(FetchDescriptor<DeskBooking>())
+            .map(\.day)
             .filter { month.contains($0) }
 
         let result = Quota.calculate(.init(
             month: month,
             leave: leave.map { Quota.DayFraction($0.day, $0.fraction) },
             attendance: attendance.map { Quota.DayFraction($0.day, $0.fraction) },
-            deskBookingDays: Set(deskDays),
+            deskBookingDays: Set(bookedDays),
             today: today
         ))
 
         return Snapshot(
             month: month,
             result: result,
-            leaveDays: leave.map(\.day).sorted(),
-            // Two rows for one day would be a bug elsewhere, but summing rather
-            // than overwriting keeps a half plus a half reading as a full day.
-            leaveFractions: leave.reduce(into: [:]) { $0[$1.day, default: 0] += $1.fraction },
             attendedDays: Set(attendance.map(\.day)),
-            deskBookingDays: Set(deskDays)
+            attendedByOffice: attendance.reduce(into: [:]) { totals, row in
+                guard let officeID = row.officeID else { return }
+                totals[officeID, default: 0] += row.fraction
+            },
+            bookedDays: Set(bookedDays)
         )
     }
-}
-
-extension Day {
-    /// The current day, in UK time. The quota is about UK working days, so the
-    /// day boundary is the UK one even when the phone is abroad — otherwise a
-    /// late Brussels evening would roll the count over early.
-    ///
-    /// `nonisolated` because it is a clock reading and nothing more — the
-    /// project defaults every declaration to the main actor, which would
-    /// otherwise stop a plain struct using it as a default value.
-    nonisolated static var today: Day { Day(of: .now, in: TimeDisplay.uk) }
 }

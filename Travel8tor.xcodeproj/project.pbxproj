@@ -7,17 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		AA000000000000000000005B /* Travel8torWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000057 /* Travel8torWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		AA0000000000000000000070 /* DeskLiveActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000060 /* DeskLiveActivity.swift */; };
-		AA0000000000000000000071 /* DeskActivity.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000062 /* DeskActivity.swift */; };
-		AA0000000000000000000072 /* Palette.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000063 /* Palette.swift */; };
-		AA0000000000000000000073 /* Typography.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000064 /* Typography.swift */; };
-		AA0000000000000000000074 /* BookingTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000065 /* BookingTypes.swift */; };
-		AA0000000000000000000075 /* SpaceMono-Regular.ttf in Resources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000066 /* SpaceMono-Regular.ttf */; };
-		AA0000000000000000000076 /* SpaceMono-Bold.ttf in Resources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000067 /* SpaceMono-Bold.ttf */; };
-		AA0000000000000000000077 /* LockScreenPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000068 /* LockScreenPanel.swift */; };
-		AA0000000000000000000078 /* LockScreenPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000068 /* LockScreenPanel.swift */; };
-		AA0000000000000000000079 /* Abbreviate.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000069 /* Abbreviate.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -28,43 +17,14 @@
 			remoteGlobalIDString = AA0000000000000000000010;
 			remoteInfo = Travel8tor;
 		};
-		AA000000000000000000005A /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = AA0000000000000000000001 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = AA0000000000000000000050;
-			remoteInfo = Travel8torWidgets;
-		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
-		AA0000000000000000000058 /* Embed Foundation Extensions */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "";
-			dstSubfolderSpec = 13;
-			files = (
-				AA000000000000000000005B /* Travel8torWidgets.appex in Embed Foundation Extensions */,
-			);
-			name = "Embed Foundation Extensions";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		AA0000000000000000000018 /* Travel8tor.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Travel8tor.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA0000000000000000000037 /* Travel8torTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = Travel8torTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		AA0000000000000000000057 /* Travel8torWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = Travel8torWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		AA0000000000000000000060 /* DeskLiveActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeskLiveActivity.swift; sourceTree = "<group>"; };
-		AA0000000000000000000061 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		AA0000000000000000000062 /* DeskActivity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = DeskActivity.swift; path = Travel8tor/Arrival/DeskActivity.swift; sourceTree = SOURCE_ROOT; };
-		AA0000000000000000000063 /* Palette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = Palette.swift; path = Travel8tor/DesignSystem/Palette.swift; sourceTree = SOURCE_ROOT; };
-		AA0000000000000000000064 /* Typography.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = Typography.swift; path = Travel8tor/DesignSystem/Typography.swift; sourceTree = SOURCE_ROOT; };
-		AA0000000000000000000065 /* BookingTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = BookingTypes.swift; path = Travel8tor/Domain/BookingTypes.swift; sourceTree = SOURCE_ROOT; };
-		AA0000000000000000000066 /* SpaceMono-Regular.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; name = "SpaceMono-Regular.ttf"; path = "Travel8tor/Resources/Fonts/SpaceMono-Regular.ttf"; sourceTree = SOURCE_ROOT; };
-		AA0000000000000000000067 /* SpaceMono-Bold.ttf */ = {isa = PBXFileReference; lastKnownFileType = file; name = "SpaceMono-Bold.ttf"; path = "Travel8tor/Resources/Fonts/SpaceMono-Bold.ttf"; sourceTree = SOURCE_ROOT; };
-		AA0000000000000000000068 /* LockScreenPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LockScreenPanel.swift; sourceTree = "<group>"; };
-		AA0000000000000000000069 /* Abbreviate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = Abbreviate.swift; path = Travel8tor/Presentation/Abbreviate.swift; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -115,7 +75,6 @@
 			isa = PBXGroup;
 			children = (
 				AA0000000000000000000019 /* Travel8tor */,
-				AA000000000000000000005C /* Travel8torWidgets */,
 				AA0000000000000000000038 /* Travel8torTests */,
 				AA0000000000000000000003 /* Products */,
 			);
@@ -126,34 +85,8 @@
 			children = (
 				AA0000000000000000000018 /* Travel8tor.app */,
 				AA0000000000000000000037 /* Travel8torTests.xctest */,
-				AA0000000000000000000057 /* Travel8torWidgets.appex */,
 			);
 			name = Products;
-			sourceTree = "<group>";
-		};
-		AA000000000000000000005C /* Travel8torWidgets */ = {
-			isa = PBXGroup;
-			children = (
-				AA0000000000000000000060 /* DeskLiveActivity.swift */,
-				AA0000000000000000000068 /* LockScreenPanel.swift */,
-				AA0000000000000000000061 /* Info.plist */,
-				AA000000000000000000005D /* Shared with the app */,
-			);
-			path = Travel8torWidgets;
-			sourceTree = "<group>";
-		};
-		AA000000000000000000005D /* Shared with the app */ = {
-			isa = PBXGroup;
-			children = (
-				AA0000000000000000000062 /* DeskActivity.swift */,
-				AA0000000000000000000063 /* Palette.swift */,
-				AA0000000000000000000064 /* Typography.swift */,
-				AA0000000000000000000065 /* BookingTypes.swift */,
-				AA0000000000000000000069 /* Abbreviate.swift */,
-				AA0000000000000000000066 /* SpaceMono-Regular.ttf */,
-				AA0000000000000000000067 /* SpaceMono-Bold.ttf */,
-			);
-			name = "Shared with the app";
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -166,12 +99,10 @@
 				AA0000000000000000000014 /* Sources */,
 				AA0000000000000000000015 /* Frameworks */,
 				AA0000000000000000000016 /* Resources */,
-				AA0000000000000000000058 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
-				AA0000000000000000000059 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				AA0000000000000000000019 /* Travel8tor */,
@@ -206,24 +137,6 @@
 			productReference = AA0000000000000000000037 /* Travel8torTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
-		AA0000000000000000000050 /* Travel8torWidgets */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = AA0000000000000000000051 /* Build configuration list for PBXNativeTarget "Travel8torWidgets" */;
-			buildPhases = (
-				AA0000000000000000000054 /* Sources */,
-				AA0000000000000000000056 /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			name = Travel8torWidgets;
-			packageProductDependencies = (
-			);
-			productName = Travel8torWidgets;
-			productReference = AA0000000000000000000057 /* Travel8torWidgets.appex */;
-			productType = "com.apple.product-type.app-extension";
-		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -240,9 +153,6 @@
 					AA0000000000000000000030 = {
 						CreatedOnToolsVersion = 26.3;
 						TestTargetID = AA0000000000000000000010;
-					};
-					AA0000000000000000000050 = {
-						CreatedOnToolsVersion = 26.3;
 					};
 				};
 			};
@@ -262,7 +172,6 @@
 			targets = (
 				AA0000000000000000000010 /* Travel8tor */,
 				AA0000000000000000000030 /* Travel8torTests */,
-				AA0000000000000000000050 /* Travel8torWidgets */,
 			);
 		};
 /* End PBXProject section */
@@ -282,15 +191,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		AA0000000000000000000056 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				AA0000000000000000000075 /* SpaceMono-Regular.ttf in Resources */,
-				AA0000000000000000000076 /* SpaceMono-Bold.ttf in Resources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -298,7 +198,6 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				AA0000000000000000000078 /* LockScreenPanel.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -309,20 +208,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		AA0000000000000000000054 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				AA0000000000000000000070 /* DeskLiveActivity.swift in Sources */,
-				AA0000000000000000000077 /* LockScreenPanel.swift in Sources */,
-				AA0000000000000000000071 /* DeskActivity.swift in Sources */,
-				AA0000000000000000000072 /* Palette.swift in Sources */,
-				AA0000000000000000000073 /* Typography.swift in Sources */,
-				AA0000000000000000000074 /* BookingTypes.swift in Sources */,
-				AA0000000000000000000079 /* Abbreviate.swift in Sources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -330,11 +215,6 @@
 			isa = PBXTargetDependency;
 			target = AA0000000000000000000010 /* Travel8tor */;
 			targetProxy = AA000000000000000000003A /* PBXContainerItemProxy */;
-		};
-		AA0000000000000000000059 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = AA0000000000000000000050 /* Travel8torWidgets */;
-			targetProxy = AA000000000000000000005A /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -437,16 +317,16 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Travel8tor/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Office Daze";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
-				INFOPLIST_KEY_UIUserInterfaceStyle = Dark;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.1;
-				PRODUCT_BUNDLE_IDENTIFIER = com.thegregorysonline.travel8tor;
+				PRODUCT_BUNDLE_IDENTIFIER = com.thegregorysonline.officedaze;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				TARGETED_DEVICE_FAMILY = 1;
@@ -464,16 +344,16 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Travel8tor/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Office Daze";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
-				INFOPLIST_KEY_UIUserInterfaceStyle = Dark;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.1;
-				PRODUCT_BUNDLE_IDENTIFIER = com.thegregorysonline.travel8tor;
+				PRODUCT_BUNDLE_IDENTIFIER = com.thegregorysonline.officedaze;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				TARGETED_DEVICE_FAMILY = 1;
@@ -488,7 +368,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 0.1;
-				PRODUCT_BUNDLE_IDENTIFIER = com.thegregorysonline.travel8tor.tests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.thegregorysonline.officedaze.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				TARGETED_DEVICE_FAMILY = 1;
@@ -504,59 +384,11 @@
 				CURRENT_PROJECT_VERSION = 1;
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 0.1;
-				PRODUCT_BUNDLE_IDENTIFIER = com.thegregorysonline.travel8tor.tests;
+				PRODUCT_BUNDLE_IDENTIFIER = com.thegregorysonline.officedaze.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				TARGETED_DEVICE_FAMILY = 1;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Travel8tor.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Travel8tor";
-			};
-			name = Release;
-		};
-		AA0000000000000000000052 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 98355YQ22M;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = Travel8torWidgets/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = Travel8tor;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@executable_path/../../Frameworks",
-				);
-				MARKETING_VERSION = 0.1;
-				PRODUCT_BUNDLE_IDENTIFIER = com.thegregorysonline.travel8tor.widgets;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SKIP_INSTALL = YES;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				TARGETED_DEVICE_FAMILY = 1;
-			};
-			name = Debug;
-		};
-		AA0000000000000000000053 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 98355YQ22M;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = Travel8torWidgets/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = Travel8tor;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@executable_path/../../Frameworks",
-				);
-				MARKETING_VERSION = 0.1;
-				PRODUCT_BUNDLE_IDENTIFIER = com.thegregorysonline.travel8tor.widgets;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SKIP_INSTALL = YES;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
 		};
@@ -586,15 +418,6 @@
 			buildConfigurations = (
 				AA0000000000000000000032 /* Debug */,
 				AA0000000000000000000033 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		AA0000000000000000000051 /* Build configuration list for PBXNativeTarget "Travel8torWidgets" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				AA0000000000000000000052 /* Debug */,
-				AA0000000000000000000053 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

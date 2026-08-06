@@ -25,35 +25,30 @@ struct DayTests {
         #expect(Day(2026, 8, 31).adding(days: 1) == Day(2026, 9, 1))
         #expect(Day(2026, 12, 31).adding(days: 1) == Day(2027, 1, 1))
         #expect(Day(2026, 3, 1).adding(days: -1) == Day(2026, 2, 28))
-        #expect(Day(2026, 9, 7).days(until: Day(2026, 9, 11)) == 4)
     }
 
-    @Test("The day of an instant depends on the zone you ask from")
-    func zoneSensitivity() {
-        let london = TimeZone(identifier: "Europe/London")!
-        let brussels = TimeZone(identifier: "Europe/Brussels")!
-
-        // The Eurostar arrives 20:05 Brussels time, which is 19:05 in London.
-        // Same day either way.
-        let arrival = Day(2026, 9, 7).at(20, 5, in: brussels)
-        #expect(Day(of: arrival, in: brussels) == Day(2026, 9, 7))
-        #expect(Day(of: arrival, in: london) == Day(2026, 9, 7))
-
-        // A half past midnight arrival is not.
-        let lateArrival = Day(2026, 9, 8).at(0, 30, in: brussels)
-        #expect(Day(of: lateArrival, in: brussels) == Day(2026, 9, 8))
-        #expect(Day(of: lateArrival, in: london) == Day(2026, 9, 7))
+    @Test("Month arithmetic steps the gauge's month picker")
+    func monthArithmetic() {
+        #expect(Month(year: 2026, month: 8).adding(months: 1) == Month(year: 2026, month: 9))
+        #expect(Month(year: 2026, month: 12).adding(months: 1) == Month(year: 2027, month: 1))
+        #expect(Month(year: 2026, month: 1).adding(months: -1) == Month(year: 2025, month: 12))
     }
 
-    @Test("Round-tripping a wall-clock time preserves it in its own zone")
-    func wallClockRoundTrip() {
-        let brussels = TimeZone(identifier: "Europe/Brussels")!
-        let instant = Day(2026, 9, 7).at(20, 5, in: brussels)
+    /// The day a booking files under does not move with the phone. There is no
+    /// timezone handling in this app, and a `Date` read back out of the store
+    /// must come back as the day it went in as — wherever the device is.
+    @Test("A day survives the round trip through storage")
+    func storageRoundTrip() {
+        for day in [Day(2026, 8, 5), Day(2026, 1, 1), Day(2026, 12, 31)] {
+            #expect(Day(of: day.startOfDayUTC) == day)
+        }
+    }
 
-        var calendar = Day.calendar
-        calendar.timeZone = brussels
-        let parts = calendar.dateComponents([.hour, .minute], from: instant)
-        #expect(parts.hour == 20)
-        #expect(parts.minute == 5)
+    @Test("Dates read the way the screens print them")
+    func formatting() {
+        #expect(Day(2026, 8, 5).longText == "Wednesday 5 August")
+        #expect(Day(2026, 8, 5).mediumText == "Wed 5 August")
+        #expect(Month(year: 2026, month: 8).text == "August 2026")
+        #expect(Day(2026, 8, 5).description == "2026-08-05")
     }
 }

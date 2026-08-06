@@ -8,10 +8,10 @@
 	  the nested structures that cannot be expressed as build settings.
 
 	  CFBundleDocumentTypes is what replaces the share extension. Declaring the
-	  types we accept puts Travel8tor in the iOS share sheet's app row; iOS
+	  types we accept puts Office Daze in the iOS share sheet's app row; iOS
 	  copies the shared file into the app's inbox and launches us, and the app
-	  handles it in onOpenURL. A share extension would have needed App Groups
-	  to hand data back to the app, and App Groups needs a paid account.
+	  handles it in onOpenURL. A share extension would have needed App Groups,
+	  and App Groups needs a paid account.
 
 	  NSLocation*UsageDescription are the strings iOS shows in the permission
 	  prompts. When In Use is requested first and Always only once that is
@@ -22,32 +22,16 @@
 	  a region crossing regardless. It is here so the capability matches the
 	  brief, not because the geofence would fail without it.
 	-->
-	<key>UIAppFonts</key>
-	<array>
-		<string>SpaceMono-Regular.ttf</string>
-		<string>SpaceMono-Bold.ttf</string>
-	</array>
-
-	<!--
-	  NSSupportsLiveActivities is what makes ActivityKit available to the app.
-	  It is an Info.plist key, not an entitlement — which is the whole reason
-	  the Live Activity is buildable on a free Apple ID. Push-updated Live
-	  Activities would need aps-environment and a paid account; this one is
-	  updated only from the app process, so it needs nothing.
-	-->
-	<key>NSSupportsLiveActivities</key>
-	<true/>
-
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Travel8tor watches a 50m perimeter around the offices you have booked a desk at, so it can show you your desk number the moment you arrive.</string>
+	<string>Office Daze watches a 50m perimeter around your offices, so it can show you your desk number the moment you arrive.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>Always is what lets the arrival alert fire when Travel8tor is closed — which is every time, since you will be walking in with the phone in your pocket. Your location is never sent anywhere; it never leaves the device.</string>
+	<string>Always is what lets the arrival alert fire when Office Daze is closed — which is every time, since you will be walking in with the phone in your pocket. Your location is never sent anywhere; it never leaves the device.</string>
 	<!--
-	  Write-only, not full access. The desk screen adds an event and never
+	  Write-only, not full access. The booking screen adds an event and never
 	  reads one, and iOS shows a lighter prompt for the smaller permission.
 	-->
 	<key>NSCalendarsWriteOnlyAccessUsageDescription</key>
-	<string>Adding a desk booking to your calendar puts the building, the floor and the hours where the rest of your day already is. Travel8tor only ever writes events; it cannot read your calendar.</string>
+	<string>Adding a desk booking to your calendar puts the office, the floor and the hours where the rest of your day already is. Office Daze only ever writes events; it cannot read your calendar.</string>
 
 	<key>UIBackgroundModes</key>
 	<array>
@@ -56,18 +40,6 @@
 
 	<key>CFBundleDocumentTypes</key>
 	<array>
-		<dict>
-			<key>CFBundleTypeName</key>
-			<string>Wallet Pass</string>
-			<key>LSItemContentTypes</key>
-			<array>
-				<string>com.apple.pkpass</string>
-			</array>
-			<key>CFBundleTypeRole</key>
-			<string>Viewer</string>
-			<key>LSHandlerRank</key>
-			<string>Alternate</string>
-		</dict>
 		<dict>
 			<key>CFBundleTypeName</key>
 			<string>Booking Screenshot</string>
