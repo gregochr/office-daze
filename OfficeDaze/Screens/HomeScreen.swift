@@ -25,6 +25,9 @@ struct HomeScreen: View {
     /// Which kind of manual entry the header's menu is adding, if any.
     @State private var adding: ManualEntry?
 
+    /// The booking a swipe sent to the editor, if any.
+    @State private var editing: DeskBooking?
+
     enum ManualEntry: String, Identifiable {
         case booking, attendance
         var id: String { rawValue }
@@ -54,6 +57,12 @@ struct HomeScreen: View {
             case .attended(let record): record.day
             case .planned(let record): record.day
             }
+        }
+
+        /// The booking behind this row, for the rows that have one.
+        var booking: DeskBooking? {
+            if case .booking(let booking) = self { return booking }
+            return nil
         }
     }
 
@@ -153,6 +162,11 @@ struct HomeScreen: View {
                 case .attendance: AttendanceEditorScreen()
                 }
             }
+        }
+        // The same editor the menu opens, handed the row that was swiped —
+        // a sheet rather than a push for the reason above.
+        .sheet(item: $editing) { booking in
+            NavigationStack { BookingEditorScreen(booking: booking) }
         }
         .fullScreenCover(isPresented: $camera) {
             // Full screen, because a camera in a card with the app showing
@@ -345,9 +359,15 @@ struct HomeScreen: View {
                 emptyBookings
             } else {
                 RowStack(items: monthEntries, inset: 38) { entry in
-                    SwipeToDelete(id: entry.id, open: $openRow) {
-                        delete(entry)
-                    } content: {
+                    SwipeActions(
+                        id: entry.id,
+                        open: $openRow,
+                        // Only a booking has anything to edit. An attendance
+                        // record is a day and an office, and the screen that
+                        // takes those can only add another one.
+                        edit: entry.booking.map { booking in { editing = booking } },
+                        delete: { delete(entry) }
+                    ) {
                         switch entry {
                         case .booking(let booking):
                             NavigationLink {
