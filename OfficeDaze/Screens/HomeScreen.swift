@@ -232,11 +232,8 @@ struct HomeScreen: View {
     private func shortfallStrip(_ result: Quota.Result) -> some View {
         switch result.standing {
         case .behind:
-            StatusStrip(
-                tone: .warning,
-                leading: "\(number(result.shortfall)) \(result.shortfall == 1 ? "day" : "days") to go",
-                trailing: "\(result.daysToRun) working \(result.daysToRun == 1 ? "day" : "days") left"
-            )
+            let text = Self.shortfallText(result)
+            StatusStrip(tone: .warning, leading: text.leading, trailing: text.trailing)
         case .met:
             StatusStrip(tone: .success, leading: "Target met", dot: true)
         case .onTrack:
@@ -265,9 +262,32 @@ struct HomeScreen: View {
         return "Target \(result.target) — 8 days pro-rated for \(days) \(noun) leave"
     }
 
-    private func number(_ value: Double) -> String {
+    /// The amber strip's two halves.
+    ///
+    /// "4 days to go" gave the size of the gap and said nothing about what was
+    /// already arranged, so a month with four days lined up and four still to
+    /// find read exactly like one with nothing at all. The leading half now
+    /// names the action that closes the gap, and the trailing half says what is
+    /// already counted toward it — and how much month is left to do it in,
+    /// which is the half that matters when the two numbers stop fitting.
+    ///
+    /// "Booked" covers planned days too. They are distinguished on their own
+    /// rows, where the difference is actionable; in a one-line summary of what
+    /// is lined up, it is not.
+    static func shortfallText(_ result: Quota.Result) -> (leading: String, trailing: String) {
+        let short = number(result.shortfall)
+        let leading = "\(short) more \(result.shortfall == 1 ? "day" : "days") to book"
+        let lined = result.forecast == 0
+            ? "none booked"
+            : "\(number(result.forecast)) booked"
+        return (leading, "\(lined) · \(result.daysToRun) days left")
+    }
+
+    static func number(_ value: Double) -> String {
         value.formatted(.number.precision(.fractionLength(0...1)))
     }
+
+    private func number(_ value: Double) -> String { Self.number(value) }
 
     // MARK: Offices
 

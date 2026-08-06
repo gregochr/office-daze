@@ -100,6 +100,36 @@ struct QuotaTests {
         #expect(result.forecast == 1)
     }
 
+    /// "4 days to go" was the gap and nothing else, so a month with four days
+    /// already lined up read exactly like a month with nothing arranged at all.
+    @Test("The amber strip says what is booked, not only what is missing")
+    func shortfallCopy() {
+        // September's shape: nothing attended, four days lined up, eight
+        // needed.
+        let behind = Quota.calculate(.init(
+            month: Month(year: 2026, month: 9),
+            deskBookingDays: [Day(2026, 9, 7)],
+            plannedDays: Set([8, 9, 10].map { Day(2026, 9, $0) }),
+            today: Day(2026, 8, 31)
+        ))
+        #expect(behind.standing == .behind)
+        let text = HomeScreen.shortfallText(behind)
+        #expect(text.leading == "4 more days to book", "names the action, not just the gap")
+        #expect(text.trailing == "4 booked · 22 days left")
+
+        // One day reads as a day.
+        let nearly = Quota.calculate(.init(
+            month: Month(year: 2026, month: 9),
+            attendance: (1...7).map { .init(Day(2026, 9, $0)) },
+            today: Day(2026, 9, 8)
+        ))
+        #expect(HomeScreen.shortfallText(nearly).leading == "1 more day to book")
+        #expect(
+            HomeScreen.shortfallText(nearly).trailing.hasPrefix("none booked"),
+            "nothing lined up says so rather than reading as zero of something"
+        )
+    }
+
     /// A workshop you have not been to yet is as good a reason to expect a day
     /// on prem as a desk you have reserved. The target counts days, not desks.
     @Test("A planned day forecasts exactly as a booking does")

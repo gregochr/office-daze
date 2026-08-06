@@ -181,6 +181,11 @@ struct StatusStrip: View {
                     .foregroundStyle(secondary)
             }
         }
+        // One line, shrinking a little rather than truncating. The strip now
+        // carries three numbers on a narrow phone, and half a sentence is
+        // worse than a slightly smaller whole one.
+        .lineLimit(1)
+        .minimumScaleFactor(0.8)
         .padding(.vertical, tone == .warning ? 11 : 14)
         .padding(.horizontal, tone == .warning ? 13 : 16)
         .frame(maxWidth: .infinity, alignment: .leading)
