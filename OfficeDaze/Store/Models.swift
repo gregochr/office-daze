@@ -30,6 +30,14 @@ final class Office {
     /// One of `OfficeColours.palette`.
     var colourHex: String = OfficeColours.palette[0]
     var alertEnabled: Bool = true
+    /// What the booking system calls this building, as printed, for every name
+    /// that is not the one the user typed — "Coleman, London" for an office
+    /// saved as "Euroclear London".
+    ///
+    /// Written by answering the capture sheet's question rather than by typing
+    /// here: the answer is already the thing worth remembering, and asking the
+    /// same question after it has been answered is the app failing to listen.
+    var aliases: [String] = []
 
     init(
         id: UUID = UUID(),
@@ -40,7 +48,8 @@ final class Office {
         longitude: Double = 0,
         radiusMetres: Double = 50,
         colourHex: String,
-        alertEnabled: Bool = true
+        alertEnabled: Bool = true,
+        aliases: [String] = []
     ) {
         self.id = id
         self.name = name
@@ -51,6 +60,7 @@ final class Office {
         self.radiusMetres = radiusMetres
         self.colourHex = colourHex
         self.alertEnabled = alertEnabled
+        self.aliases = aliases
     }
 
     /// Whether there is a point to draw a perimeter around. 0,0 is the

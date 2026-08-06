@@ -18,6 +18,7 @@ struct OfficeEditorScreen: View {
     @State private var colourHex = OfficeColours.palette[0]
     @State private var radius: Double = 50
     @State private var alertEnabled = true
+    @State private var aliases: [String] = []
     @State private var loaded = false
     @State private var saving = false
     @State private var confirmingDelete = false
@@ -52,6 +53,20 @@ struct OfficeEditorScreen: View {
                     .autocorrectionDisabled()
             } footer: {
                 Text("The address and postcode are looked up together, once, when you save — so the perimeter still works with no signal. The postcode is its own field because a UK one locates a building on its own; where it does not, leave it out and let the address do the work.")
+            }
+
+            // Only when there is something to show. An empty section inviting
+            // you to add a name by hand would be asking for the one thing the
+            // capture sheet already collects for itself.
+            if !aliases.isEmpty {
+                Section {
+                    ForEach(aliases, id: \.self) { Text($0) }
+                        .onDelete { aliases.remove(atOffsets: $0) }
+                } header: {
+                    Text("Also known as")
+                } footer: {
+                    Text("What the booking system calls this building. Remembered from the last time a capture asked which office it was, so it does not ask again — delete one to be asked afresh.")
+                }
             }
 
             Section("Colour") {
@@ -113,6 +128,7 @@ struct OfficeEditorScreen: View {
                 colourHex = office.colourHex
                 radius = office.radiusMetres
                 alertEnabled = office.alertEnabled
+                aliases = office.aliases
             } else {
                 // The next free colour, so two offices are never the same. All
                 // six taken falls back to the first rather than blocking a new
@@ -185,6 +201,9 @@ struct OfficeEditorScreen: View {
         target.colourHex = colourHex
         target.radiusMetres = radius
         target.alertEnabled = alertEnabled
+        // Written on save like every other field, so backing out of a deletion
+        // leaves the office as it was.
+        target.aliases = aliases
 
         // Only when the address has actually changed, or while there is still
         // nowhere to draw a perimeter. A geocode is a network round trip and

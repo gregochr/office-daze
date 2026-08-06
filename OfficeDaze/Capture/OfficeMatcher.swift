@@ -14,6 +14,9 @@ nonisolated enum OfficeMatcher {
         var name: String
         var postcode: String
         var address: String
+        /// Names this office has already been identified by, from the sheet
+        /// having asked once and been told.
+        var aliases: [String] = []
     }
 
     /// The office name as the booking system prints it — `Coleman, London` —
@@ -24,6 +27,16 @@ nonisolated enum OfficeMatcher {
     static func match(_ printed: String?, against offices: [Candidate]) -> Candidate? {
         guard let printed = printed?.trimmingCharacters(in: .whitespacesAndNewlines),
               !printed.isEmpty, !offices.isEmpty else { return nil }
+
+        // Before any rule, because an alias is not a heuristic that happened to
+        // fire — it is the user having been asked this exact question and
+        // having answered it. Two offices claiming the same name is the one
+        // case it does not settle, and that asks again.
+        let claiming = offices.filter { office in
+            office.aliases.contains { Self.matches(printed, $0) }
+        }
+        if claiming.count == 1 { return claiming.first }
+        if claiming.count > 1 { return nil }
 
         // A postcode is unambiguous when it appears, so it goes first.
         if let byPostcode = offices.first(where: {
@@ -45,6 +58,17 @@ nonisolated enum OfficeMatcher {
         // Exactly one, or nothing. Two offices that both look right is the case
         // where guessing does the most damage.
         return matches.count == 1 ? matches.first : nil
+    }
+
+    /// Whether two printed names are the same name.
+    ///
+    /// Compared as token sets rather than as strings, because the same building
+    /// is printed with a floor in front of it on some rows and not on others —
+    /// "03, Coleman, London" and "Coleman, London" are one answer, and an alias
+    /// that had to be taught twice would not feel taught at all.
+    static func matches(_ printed: String, _ alias: String) -> Bool {
+        let tokens = tokens(printed)
+        return !tokens.isEmpty && tokens == Self.tokens(alias)
     }
 
     /// Lower-cased words, punctuation dropped, and the noise words a booking

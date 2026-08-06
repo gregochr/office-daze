@@ -468,4 +468,58 @@ struct OfficeMatcherTests {
             OfficeMatcher.match("The Coleman Building", against: offices)?.id == london.id
         )
     }
+
+    // MARK: What the sheet was told
+
+    /// An office saved as "Euroclear London" shares only the city with a
+    /// printed "Coleman, London", so no rule here can match them and the sheet
+    /// asks. Once answered, it must stop asking.
+    let euroclear = OfficeMatcher.Candidate(
+        id: UUID(), name: "Euroclear London", postcode: "", address: "",
+        aliases: ["Coleman, London"]
+    )
+
+    @Test("A name the sheet was told about matches, where no rule could")
+    func matchesByAlias() {
+        #expect(OfficeMatcher.match("Coleman, London", against: [euroclear])?.id == euroclear.id)
+        #expect(
+            OfficeMatcher.match("Coleman, London", against: [brussels]) == nil,
+            "an office without the alias is still no match"
+        )
+    }
+
+    /// The same building prints with a floor in front of it on some rows and
+    /// not on others. An alias taught by one row has to hold for the next.
+    @Test("An alias is the same answer with the floor in front of it")
+    func aliasIgnoresTheFloor() {
+        #expect(
+            OfficeMatcher.match("03, Coleman, London", against: [euroclear])?.id == euroclear.id
+        )
+        #expect(
+            OfficeMatcher.match("coleman london", against: [euroclear])?.id == euroclear.id
+        )
+    }
+
+    /// An alias is an answer, not a heuristic — it outranks the name rule that
+    /// would otherwise have claimed this printed name for somebody else.
+    @Test("An alias beats a name that merely looks right")
+    func aliasWinsOverTheNameRule() {
+        let taught = OfficeMatcher.Candidate(
+            id: UUID(), name: "Euroclear London", postcode: "", address: "",
+            aliases: ["Coleman"]
+        )
+        let matched = OfficeMatcher.match("Coleman", against: [london, taught])
+        #expect(matched?.id == taught.id, "the answer wins over the resemblance")
+    }
+
+    /// Nothing should ever write this, since remembering strips the name off
+    /// every other office. If it happens anyway, asking beats picking one.
+    @Test("Two offices claiming one name is still a question")
+    func twoClaimsAskAgain() {
+        let rival = OfficeMatcher.Candidate(
+            id: UUID(), name: "Euroclear Leeds", postcode: "", address: "",
+            aliases: ["Coleman, London"]
+        )
+        #expect(OfficeMatcher.match("Coleman, London", against: [euroclear, rival]) == nil)
+    }
 }
