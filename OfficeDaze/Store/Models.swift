@@ -202,10 +202,14 @@ final class LeaveDay {
     }
 }
 
-/// One row per office per day. The entire implementation of "fires once": on a
-/// region entry, if a row exists for today and this office, do nothing. Cheap,
-/// testable, and it survives the app being killed — which a dwell timer would
-/// not.
+/// One row per delivered alert. Not a fire-once gate — that is an
+/// `AttendanceDay` now — but the record of when this office last alerted today,
+/// which is what the settle window measures and what says which notification to
+/// take off the lock screen before posting the next.
+///
+/// A stored row rather than anything in memory, because it survives the app
+/// being killed, which is the only thing that reliably happens between one
+/// region crossing and the next.
 @Model
 final class ArrivalAlert {
     var id: UUID = UUID()

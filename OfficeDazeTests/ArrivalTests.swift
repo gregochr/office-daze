@@ -29,34 +29,78 @@ struct ArrivalRuleTests {
         #expect(decision == .desk(desk))
     }
 
-    /// The whole fire-once rule: one row per office per day, checked first and
-    /// cheaply. Not a dwell timer and not an exit event — a ledger row survives
-    /// the app being killed, which is the only thing that reliably happens
-    /// between one crossing and the next.
-    @Test("A second crossing on the same day does nothing at all")
-    func firesOnce() {
+    /// The whole point of the repeat: having alerted once is not a reason to
+    /// stay quiet. The desk number is what the user came for, and one
+    /// notification missed on the walk in is gone.
+    @Test("A later arrival on an unacknowledged day alerts again")
+    func repeatsUntilAcknowledged() {
+        let arrived = Date(timeIntervalSince1970: 1_785_000_000)
+        let desk = booking(london, today)
         let decision = ArrivalRule.decide(.init(
             officeID: london, day: today,
-            ledger: [.init(day: today, officeID: london)],
-            bookings: [booking(london, today)]
+            lastAlert: arrived,
+            now: arrived.addingTimeInterval(ArrivalRule.settleWindow + 1),
+            bookings: [desk]
         ))
-        #expect(decision == .alreadyFired)
+        #expect(decision == .desk(desk))
     }
 
-    @Test("The ledger is per office and per day, not global")
-    func ledgerIsScoped() {
-        let fired = [ArrivalAlert.Row(day: today, officeID: london)]
+    /// The acknowledgement, and the only thing that stops the day.
+    @Test("A day already recorded at this office alerts no further")
+    func acknowledged() {
+        let decision = ArrivalRule.decide(.init(
+            officeID: london, day: today,
+            attendance: [.init(day: today, officeID: london)],
+            bookings: [booking(london, today)]
+        ))
+        #expect(decision == .acknowledged)
+    }
 
-        // A different office on the same day still fires.
+    @Test("The acknowledgement is per office and per day, not global")
+    func acknowledgementIsScoped() {
+        let recorded = [ArrivalRule.Attendance(day: today, officeID: london)]
+
+        // A different office on the same day still alerts.
         #expect(
-            ArrivalRule.decide(.init(officeID: brussels, day: today, ledger: fired))
+            ArrivalRule.decide(.init(officeID: brussels, day: today, attendance: recorded))
                 == .nothingBooked
         )
-        // The same office tomorrow still fires.
+        // The same office tomorrow still alerts.
         #expect(
             ArrivalRule.decide(
-                .init(officeID: london, day: today.adding(days: 1), ledger: fired)
+                .init(officeID: london, day: today.adding(days: 1), attendance: recorded)
             ) == .nothingBooked
+        )
+    }
+
+    /// Drift across the perimeter is not an arrival. Without this a boundary
+    /// flutter delivers a burst of identical alerts, which is how a
+    /// notification gets switched off for good.
+    @Test("A crossing moments after the last alert is drift, not a return")
+    func settles() {
+        let arrived = Date(timeIntervalSince1970: 1_785_000_000)
+        #expect(
+            ArrivalRule.decide(.init(
+                officeID: london, day: today,
+                lastAlert: arrived,
+                now: arrived.addingTimeInterval(ArrivalRule.settleWindow - 1),
+                bookings: [booking(london, today)]
+            )) == .settling
+        )
+    }
+
+    /// Order matters: an acknowledged day is silent whether or not the window
+    /// has passed, and the window never resurrects an acknowledged day.
+    @Test("Acknowledgement is checked before the settle window")
+    func acknowledgementOutranksTheWindow() {
+        let arrived = Date(timeIntervalSince1970: 1_785_000_000)
+        #expect(
+            ArrivalRule.decide(.init(
+                officeID: london, day: today,
+                attendance: [.init(day: today, officeID: london)],
+                lastAlert: arrived,
+                now: arrived.addingTimeInterval(ArrivalRule.settleWindow + 1)
+            )) == .acknowledged
         )
     }
 
@@ -197,15 +241,35 @@ struct ArrivalNotificationTests {
                 officeName: "Coleman", desk: desk,
                 attended: 4, target: 7, monthName: "August"
             ),
-            officeID: officeID, day: Day(2026, 8, 5), bookingID: desk.id
+            officeID: officeID, day: Day(2026, 8, 5), bookingID: desk.id,
+            at: Date(timeIntervalSince1970: 1_785_000_000)
         )
         let info = request.content.userInfo
         #expect(info[ArrivalNotifications.UserInfo.officeID] as? String == officeID.uuidString)
         #expect(info[ArrivalNotifications.UserInfo.day] as? String == "2026-08-05")
         #expect(info[ArrivalNotifications.UserInfo.bookingID] as? String == desk.id.uuidString)
-        // One notification per office per day, so a duplicate replaces rather
-        // than stacking.
-        #expect(request.identifier == "arrival.\(officeID.uuidString).2026-08-05")
+    }
+
+    /// iOS reads a repeated identifier as an edit of the notification already
+    /// on screen, not as a new one — so two arrivals sharing an identifier
+    /// would rewrite the first alert silently instead of alerting again.
+    @Test("Each delivery has its own identifier")
+    func identifierIsPerDelivery() {
+        let officeID = UUID()
+        let day = Day(2026, 8, 5)
+        let first = Date(timeIntervalSince1970: 1_785_000_000)
+        #expect(
+            ArrivalNotifications.identifier(officeID: officeID, day: day, at: first)
+                != ArrivalNotifications.identifier(
+                    officeID: officeID, day: day, at: first.addingTimeInterval(3600)
+                )
+        )
+        // Reconstructible: the ledger stores the time, and the identifier of
+        // the notification to withdraw is derived from it rather than kept.
+        #expect(
+            ArrivalNotifications.identifier(officeID: officeID, day: day, at: first)
+                == ArrivalNotifications.identifier(officeID: officeID, day: day, at: first)
+        )
     }
 }
 
@@ -233,49 +297,137 @@ struct ArrivalLedgerTests {
         return posted
     }
 
+    func withdrawals() -> Withdrawn {
+        let withdrawn = Withdrawn()
+        ledger.withdraw = { withdrawn.identifiers.append(contentsOf: $0) }
+        return withdrawn
+    }
+
+    final class Withdrawn: @unchecked Sendable {
+        var identifiers: [String] = []
+    }
+
+    /// The 12th is booked at Coleman and not attended. The 5th is both, and is
+    /// where the acknowledged path is exercised instead.
+    let unattended = Day(2026, 8, 12)
+
     @Test("Arriving on a booked day posts the desk and writes the ledger row")
     func booked() throws {
         let posted = recording()
-        let decision = ledger.handleEntry(
-            officeID: SeedData.colemanID, day: Day(2026, 8, 5)
-        )
+        let decision = ledger.handleEntry(officeID: SeedData.colemanID, day: unattended)
 
         guard case .desk(let booking) = decision else {
             Issue.record("expected a desk, got \(decision)")
             return
         }
-        #expect(booking.deskID == "3C-114")
+        #expect(booking.deskID == "3C-121")
         #expect(posted.requests.count == 1)
-        #expect(posted.requests.first?.content.title == "3C-114")
+        #expect(posted.requests.first?.content.title == "3C-121")
 
         let rows = try container.mainContext.fetch(FetchDescriptor<ArrivalAlert>())
         #expect(rows.count == 1)
         #expect(rows.first?.officeID == SeedData.colemanID)
     }
 
-    @Test("The second crossing of the day posts nothing and writes nothing")
-    func firesOnce() throws {
+    /// A day already recorded has nothing left to ask for, so the perimeter is
+    /// crossed and nothing happens. The 5th is seeded as attended at Coleman.
+    @Test("An acknowledged day is silent")
+    func acknowledgedIsSilent() throws {
         let posted = recording()
-        let day = Day(2026, 8, 5)
-        ledger.handleEntry(officeID: SeedData.colemanID, day: day)
-        let second = ledger.handleEntry(officeID: SeedData.colemanID, day: day)
+        let decision = ledger.handleEntry(officeID: SeedData.colemanID, day: Day(2026, 8, 5))
 
-        #expect(second == .alreadyFired)
+        #expect(decision == .acknowledged)
+        #expect(posted.requests.isEmpty)
+        #expect(try container.mainContext.fetchCount(FetchDescriptor<ArrivalAlert>()) == 0)
+    }
+
+    /// Walking out and back in is a second arrival, and the desk number is
+    /// wanted again. The first notification comes off the lock screen so the
+    /// two do not stack.
+    @Test("A later arrival alerts again and withdraws the one before it")
+    func repeatsAndReplaces() throws {
+        let posted = recording()
+        let withdrawn = withdrawals()
+        let arrived = Date(timeIntervalSince1970: 1_785_000_000)
+
+        ledger.handleEntry(officeID: SeedData.colemanID, day: unattended, now: arrived)
+        let second = ledger.handleEntry(
+            officeID: SeedData.colemanID, day: unattended,
+            now: arrived.addingTimeInterval(ArrivalRule.settleWindow + 1)
+        )
+
+        guard case .desk = second else {
+            Issue.record("expected a second desk alert, got \(second)")
+            return
+        }
+        #expect(posted.requests.count == 2)
+        #expect(
+            posted.requests[0].identifier != posted.requests[1].identifier,
+            "a shared identifier would edit the first alert instead of raising a second"
+        )
+        #expect(withdrawn.identifiers == [posted.requests[0].identifier])
+        #expect(try container.mainContext.fetchCount(FetchDescriptor<ArrivalAlert>()) == 2)
+    }
+
+    @Test("A crossing inside the settle window posts nothing and writes nothing")
+    func settlesInsideTheWindow() throws {
+        let posted = recording()
+        let arrived = Date(timeIntervalSince1970: 1_785_000_000)
+
+        ledger.handleEntry(officeID: SeedData.colemanID, day: unattended, now: arrived)
+        let second = ledger.handleEntry(
+            officeID: SeedData.colemanID, day: unattended,
+            now: arrived.addingTimeInterval(ArrivalRule.settleWindow - 1)
+        )
+
+        #expect(second == .settling)
         #expect(posted.requests.count == 1, "not a second notification")
         #expect(try container.mainContext.fetchCount(FetchDescriptor<ArrivalAlert>()) == 1)
     }
 
-    /// The ledger row is written for both outcomes, so turning up with nothing
-    /// booked also prompts only once.
-    @Test("Arriving with nothing booked still writes the row")
-    func unbookedStillFiresOnce() throws {
+    /// Turning up with nothing booked repeats on the same terms — the day still
+    /// counts if the user says it does, and until they do the prompt is worth
+    /// making again.
+    @Test("Arriving with nothing booked also repeats")
+    func unbookedRepeats() throws {
         let posted = recording()
+        _ = withdrawals()
         let day = Day(2026, 8, 20) // a working day with no seeded booking
+        let arrived = Date(timeIntervalSince1970: 1_785_000_000)
 
-        #expect(ledger.handleEntry(officeID: SeedData.colemanID, day: day) == .nothingBooked)
-        #expect(ledger.handleEntry(officeID: SeedData.colemanID, day: day) == .alreadyFired)
-        #expect(posted.requests.count == 1)
+        #expect(
+            ledger.handleEntry(officeID: SeedData.colemanID, day: day, now: arrived)
+                == .nothingBooked
+        )
+        #expect(
+            ledger.handleEntry(
+                officeID: SeedData.colemanID, day: day,
+                now: arrived.addingTimeInterval(ArrivalRule.settleWindow + 1)
+            ) == .nothingBooked
+        )
+        #expect(posted.requests.count == 2)
         #expect(posted.requests.first?.content.body.contains("No desk booked today.") == true)
+    }
+
+    /// The whole rule, end to end: it keeps asking until the button is tapped,
+    /// and then it stops.
+    @Test("Confirming is what ends the day's alerts")
+    func confirmingStopsIt() throws {
+        let posted = recording()
+        _ = withdrawals()
+        let arrived = Date(timeIntervalSince1970: 1_785_000_000)
+
+        ledger.handleEntry(officeID: SeedData.colemanID, day: unattended, now: arrived)
+        ledger.confirmAttendance(
+            officeID: SeedData.colemanID, day: unattended, bookingID: nil
+        )
+        let after = ledger.handleEntry(
+            officeID: SeedData.colemanID, day: unattended,
+            now: arrived.addingTimeInterval(ArrivalRule.settleWindow + 1)
+        )
+
+        #expect(after == .acknowledged)
+        #expect(posted.requests.count == 1, "the tap is what stopped it, not the window")
     }
 
     /// The geofence offers; the user confirms. Nothing else writes attendance.

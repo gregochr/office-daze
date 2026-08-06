@@ -19,6 +19,13 @@ final class ArrivalLedger {
         UNUserNotificationCenter.current().add(request)
     }
 
+    /// Takes the previous alert off the lock screen before the next one goes
+    /// on. Swapped in tests for the same reason as `post`.
+    var withdraw: ([String]) -> Void = { identifiers in
+        UNUserNotificationCenter.current()
+            .removeDeliveredNotifications(withIdentifiers: identifiers)
+    }
+
     init(context: ModelContext) {
         self.context = context
     }
@@ -26,36 +33,53 @@ final class ArrivalLedger {
     /// Called on a region entry. Returns the decision so the caller — and the
     /// tests — can see what happened.
     @discardableResult
-    func handleEntry(officeID: UUID, day: Day = .today) -> ArrivalRule.Decision {
+    func handleEntry(
+        officeID: UUID, day: Day = .today, now: Date = .now
+    ) -> ArrivalRule.Decision {
         guard let office = office(officeID) else { return .disabled }
 
+        let previous = lastAlert(officeID: officeID, day: day)
         let decision = ArrivalRule.decide(.init(
             officeID: officeID,
             day: day,
-            ledger: rows(),
+            attendance: attendance(),
+            lastAlert: previous,
+            now: now,
             bookings: bookings(),
             alertEnabled: office.alertEnabled
         ))
 
         switch decision {
-        case .alreadyFired, .disabled:
-            // Nothing. Not a second notification, and not a second ledger row.
+        case .acknowledged, .settling, .disabled:
+            // Nothing. No notification, and no ledger row.
             return decision
 
         case .desk(let booking):
-            deliver(office: office, day: day, desk: booking)
+            deliver(office: office, day: day, desk: booking, at: now, replacing: previous)
         case .nothingBooked:
-            deliver(office: office, day: day, desk: nil)
+            deliver(office: office, day: day, desk: nil, at: now, replacing: previous)
         }
 
-        // Written for both outcomes, so turning up with nothing booked also
-        // prompts only once.
-        context.insert(ArrivalAlert(day: day, officeID: officeID, deliveredAt: .now))
+        // Appended, not updated: the ledger is every delivery, and its latest
+        // row is what the settle window and the withdrawal both read.
+        context.insert(ArrivalAlert(day: day, officeID: officeID, deliveredAt: now))
         try? context.save()
         return decision
     }
 
-    private func deliver(office: Office, day: Day, desk: ArrivalRule.Booking?) {
+    private func deliver(
+        office: Office, day: Day, desk: ArrivalRule.Booking?,
+        at now: Date, replacing previous: Date?
+    ) {
+        // The one this replaces, by the time it was delivered — the identifier
+        // is reconstructible from the ledger row, so nothing extra is stored to
+        // find it again.
+        if let previous {
+            withdraw([ArrivalNotifications.identifier(
+                officeID: office.id, day: day, at: previous
+            )])
+        }
+
         let snapshot = try? QuotaService.snapshot(
             for: day.month_, today: day, in: context
         )
@@ -67,7 +91,7 @@ final class ArrivalLedger {
             monthName: monthName(day.month_)
         )
         post(ArrivalNotifications.request(
-            content, officeID: office.id, day: day, bookingID: desk?.id
+            content, officeID: office.id, day: day, bookingID: desk?.id, at: now
         ))
     }
 
@@ -86,9 +110,20 @@ final class ArrivalLedger {
         (try? context.fetch(FetchDescriptor<Office>()))?.first { $0.id == id }
     }
 
-    private func rows() -> [ArrivalAlert.Row] {
+    /// The most recent delivery for this office today, which is both the start
+    /// of the settle window and the notification to withdraw.
+    private func lastAlert(officeID: UUID, day: Day) -> Date? {
         ((try? context.fetch(FetchDescriptor<ArrivalAlert>())) ?? [])
-            .map { ArrivalAlert.Row(day: $0.day, officeID: $0.officeID) }
+            .filter { $0.day == day && $0.officeID == officeID }
+            .map(\.deliveredAt)
+            .max()
+    }
+
+    private func attendance() -> [ArrivalRule.Attendance] {
+        ((try? context.fetch(FetchDescriptor<AttendanceDay>())) ?? []).compactMap {
+            guard let officeID = $0.officeID else { return nil }
+            return ArrivalRule.Attendance(day: $0.day, officeID: officeID)
+        }
     }
 
     private func bookings() -> [ArrivalRule.Booking] {

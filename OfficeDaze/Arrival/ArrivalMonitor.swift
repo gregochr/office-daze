@@ -99,8 +99,12 @@ final class ArrivalMonitor: NSObject {
                 radius: office.radiusMetres,
                 identifier: office.id.uuidString
             )
-            // Entry only. An exit event would double the wake-ups and tells us
-            // nothing the ledger does not already know.
+            // Entry only, still — even though the alert now repeats on every
+            // arrival. CoreLocation tracks the inside/outside state either way;
+            // these two flags only say which transitions are worth waking the
+            // app for. A re-entry after a real exit therefore arrives as
+            // another `didEnterRegion`, and waking for the exit as well would
+            // double the wake-ups to learn something the next entry tells us.
             region.notifyOnEntry = true
             region.notifyOnExit = false
             manager.startMonitoring(for: region)

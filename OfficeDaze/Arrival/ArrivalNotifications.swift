@@ -109,8 +109,21 @@ nonisolated enum ArrivalNotifications {
         ]
     }
 
+    /// Unique per delivery, because the alert now repeats until the day is
+    /// acknowledged.
+    ///
+    /// iOS treats a request whose identifier matches an already-delivered
+    /// notification as an edit of that notification rather than a new one, so a
+    /// per-day identifier would make the second arrival silently rewrite the
+    /// first instead of alerting. The delivery time is what makes each one
+    /// distinct; the ledger row it came from is what lets the previous one be
+    /// withdrawn, so the lock screen holds one arrival rather than a stack.
+    static func identifier(officeID: UUID, day: Day, at: Date) -> String {
+        "arrival.\(officeID.uuidString).\(day).\(Int(at.timeIntervalSince1970))"
+    }
+
     static func request(
-        _ content: Content, officeID: UUID, day: Day, bookingID: UUID?
+        _ content: Content, officeID: UUID, day: Day, bookingID: UUID?, at: Date
     ) -> UNNotificationRequest {
         let notification = UNMutableNotificationContent()
         notification.title = content.title
@@ -126,7 +139,7 @@ nonisolated enum ArrivalNotifications {
         // Nil trigger: deliver now. The region crossing is the trigger, and
         // handing iOS a CLRegion trigger here would monitor the region twice.
         return UNNotificationRequest(
-            identifier: "arrival.\(officeID.uuidString).\(day)",
+            identifier: identifier(officeID: officeID, day: day, at: at),
             content: notification,
             trigger: nil
         )
