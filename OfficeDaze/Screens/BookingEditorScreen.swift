@@ -113,10 +113,18 @@ struct BookingEditorScreen: View {
         dismiss()
     }
 
+    /// Through the store, not straight at the context: the attendance row for
+    /// this day holds the booking's id, and deleting the row out from under it
+    /// leaves that pointing at nothing. `BookingStore.delete` clears the link
+    /// and keeps the day, which is the whole rule — you can be somewhere
+    /// without a desk still being reserved for you.
+    ///
+    /// This dismiss only pops back to the detail screen. That screen sees the
+    /// booking has gone and dismisses in turn, which is what carries the user
+    /// out to the list.
     private func delete() {
         guard let booking else { return }
-        context.delete(booking)
-        try? context.save()
+        try? BookingStore.delete(booking, in: context)
         dismiss()
     }
 }

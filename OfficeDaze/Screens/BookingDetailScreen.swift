@@ -5,10 +5,20 @@ import SwiftUI
 /// and whether the day was actually attended.
 struct BookingDetailScreen: View {
     @Environment(\.modelContext) private var context
+    @Environment(\.dismiss) private var dismiss
     @Query private var offices: [Office]
     @Query private var attendance: [AttendanceDay]
+    @Query private var bookings: [DeskBooking]
 
     let booking: DeskBooking
+
+    /// Deleting from the editor pops one level, which lands back here — on a
+    /// booking that no longer exists, still showing its desk number as though
+    /// it did. A screen about a row that is gone has nothing to say, so it
+    /// leaves too, whoever did the deleting and from wherever.
+    private var stillExists: Bool {
+        bookings.contains { $0.id == booking.id }
+    }
 
     private var office: Office? {
         offices.first { $0.id == booking.officeID }
@@ -51,6 +61,9 @@ struct BookingDetailScreen: View {
             ToolbarItem(placement: .topBarTrailing) {
                 NavigationLink("Edit") { BookingEditorScreen(booking: booking) }
             }
+        }
+        .onChange(of: stillExists) { _, exists in
+            if !exists { dismiss() }
         }
     }
 
