@@ -76,7 +76,8 @@ struct StoreTests {
         )
         #expect(snapshot.result.workingDays == 20)
         #expect(snapshot.result.leaveTaken == 3)
-        #expect(snapshot.result.target == 7)
+        #expect(snapshot.result.relief == 0, "three days is short of a block")
+        #expect(snapshot.result.target == 8)
         #expect(snapshot.result.attended == 4, "London 3, Brussels 1")
     }
 

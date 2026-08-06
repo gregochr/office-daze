@@ -1,11 +1,16 @@
 import SwiftData
 import SwiftUI
 
-/// Annual leave, as a month grid. Tap a day to cycle it.
+/// The holiday calendar: annual leave as a month grid. Tap a day to cycle it.
 ///
 /// A grid rather than a list of dates because leave comes in runs — three days
 /// in the same week — and picking them off a calendar is one gesture per day
 /// against three taps in a date picker.
+///
+/// Two ways in, both landing here: the target line under the gauge, which is
+/// the leave's visible effect, and the Settings row, which is where you go
+/// when you have a fortnight to book and the gauge is not what you are
+/// thinking about.
 struct LeaveScreen: View {
     @Environment(\.modelContext) private var context
     @Query private var leave: [LeaveDay]
@@ -58,7 +63,7 @@ struct LeaveScreen: View {
             .padding(.bottom, 30)
         }
         .background(Palette.ground)
-        .navigationTitle("Annual leave")
+        .navigationTitle("Holiday calendar")
         .navigationBarTitleDisplayMode(.inline)
     }
 
@@ -150,19 +155,31 @@ struct LeaveScreen: View {
                 Text("Target \(result.target) for \(month.text)")
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(Palette.text)
-                Text(
-                    result.leaveTaken > 0
-                        ? "8 days pro-rated for \(number(result.leaveTaken)) "
-                          + "\(result.leaveTaken == 1 ? "day's" : "days'") leave "
-                          + "across \(result.workingDays) working days."
-                        : "8 days a month, across \(result.workingDays) working days."
-                )
-                .font(.system(size: 13))
-                .foregroundStyle(Palette.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+                Text(explanation)
+                    .font(.system(size: 13))
+                    .foregroundStyle(Palette.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    /// Where the target came from, in the one place with room to say it
+    /// properly. Leave that has not reached a whole block still gets named,
+    /// with the threshold it has not reached — a card that answers "why is it
+    /// still 8?" is worth more than one that only reports the number.
+    private var explanation: String {
+        let working = "across \(result.workingDays) working days"
+        guard result.leaveTaken > 0 else {
+            return "8 days a month, \(working). Every 5 days' leave takes 2 off."
+        }
+        let days = "\(number(result.leaveTaken)) "
+            + "\(result.leaveTaken == 1 ? "day's" : "days'") leave"
+        guard result.relief > 0 else {
+            return "8 days a month, \(working). \(days) booked so far — the "
+                + "first 2 come off at 5 days."
+        }
+        return "8 days a month less \(number(result.relief)) for \(days), \(working)."
     }
 
     private var key: some View {

@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The Grafana-style speedometer: attended days against a pro-rated target.
+/// The Grafana-style speedometer: attended days against the month's target.
 ///
 /// Drawn in `GaugeMetrics.boxSize` and scaled to whatever it is given, so the
 /// mock's radii can be used verbatim rather than re-derived as fractions of the

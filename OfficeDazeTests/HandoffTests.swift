@@ -40,21 +40,22 @@ struct LeaveTests {
         ))
     }
 
-    /// The point of the whole screen: leave moves the target.
-    @Test("Booking a day off lowers the target")
+    /// The point of the whole screen: leave moves the target. It moves in
+    /// blocks of five days, so a week off is what shows up and three days does
+    /// not.
+    @Test("Booking a week off lowers the target")
     func leaveMovesTheTarget() {
         let august = Month(year: 2026, month: 8)
-        let none = Quota.calculate(.init(month: august, today: Day(2026, 8, 4)))
-        #expect(none.target == 8)
-
-        let three = Quota.calculate(.init(
-            month: august,
-            leave: [
-                .init(Day(2026, 8, 17)), .init(Day(2026, 8, 18)), .init(Day(2026, 8, 19)),
-            ],
-            today: Day(2026, 8, 4)
-        ))
-        #expect(three.target == 7, "8 × 17 ÷ 20 = 6.8")
+        func target(_ days: [Int]) -> Int {
+            Quota.calculate(.init(
+                month: august,
+                leave: days.map { .init(Day(2026, 8, $0)) },
+                today: Day(2026, 8, 4)
+            )).target
+        }
+        #expect(target([]) == 8)
+        #expect(target([17, 18, 19]) == 8, "three days is short of a block")
+        #expect(target([17, 18, 19, 20, 21]) == 6, "the working week is a block")
     }
 }
 

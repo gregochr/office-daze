@@ -4,7 +4,8 @@ import Foundation
 ///
 ///     workingDays = weekdays(month) − bankHolidays(month)
 ///     eligible    = workingDays − sum(leave.fraction)
-///     target      = round(8 × eligible ÷ workingDays)
+///     relief      = floor(leave ÷ 5) × 2
+///     target      = clamp(8 − relief, 0 ... eligible)
 ///     attended    = sum(attendance.fraction)   // counts
 ///     forecast    = desk bookings and planned days after today  // does not
 ///     shortfall   = max(0, target − attended − forecast)
@@ -12,8 +13,20 @@ import Foundation
 /// Derived on read, never stored. Nothing in here is authored data.
 nonisolated enum Quota {
 
-    /// Eight days a month, before pro-rating.
+    /// Eight days a month, before leave.
     static let baseTarget: Double = 8
+
+    /// Leave comes off the target in whole blocks: every five days off takes
+    /// two days with it, and anything short of five takes nothing.
+    ///
+    /// This replaced a proportional pro-rate, `8 × eligible ÷ workingDays`,
+    /// which moved the target by a fraction of a day for every day booked and
+    /// so moved it by a whole day at an arbitrary point — the fourth day off in
+    /// one month, the third in another, depending on how many working days the
+    /// month happened to have. A block is a rule you can hold in your head: the
+    /// fifth day off is the one that matters, and it is worth two.
+    static let leaveBlock: Double = 5
+    static let blockRelief: Double = 2
 
     struct DayFraction: Hashable, Sendable {
         let day: Day
@@ -84,6 +97,10 @@ nonisolated enum Quota {
         let workingDays: Int
         let leaveTaken: Double
         let eligible: Double
+        /// Days taken off the base target by leave — always a multiple of two,
+        /// and zero until the fifth day is booked. The screens explain the
+        /// target with this rather than recomputing the rule.
+        let relief: Double
         let target: Int
         let attended: Double
         let forecast: Double
@@ -119,11 +136,16 @@ nonisolated enum Quota {
 
         let eligible = Double(workingDays) - leaveTaken
 
-        // Guard against a month with no working days — impossible in practice,
-        // but division is division.
-        let target = workingDays == 0
-            ? 0
-            : Int((baseTarget * eligible / Double(workingDays)).rounded())
+        // Whole blocks only, so four days off changes nothing and the fifth
+        // takes two. `leaveTaken` is always a multiple of a half day, which is
+        // exact in binary, so the floor needs no tolerance.
+        let relief = (leaveTaken / leaveBlock).rounded(.down) * blockRelief
+
+        // Clamped to the days actually left, or a month spent almost entirely
+        // on leave would still ask for days there is no room for: 19 working
+        // days all booked off is three whole blocks, which takes the target to
+        // two rather than to nothing.
+        let target = Int(min(max(0, baseTarget - relief), max(0, eligible)).rounded(.down))
 
         let attended = input.attendance
             .filter { month.contains($0.day) }
@@ -151,6 +173,7 @@ nonisolated enum Quota {
             workingDays: workingDays,
             leaveTaken: leaveTaken,
             eligible: eligible,
+            relief: relief,
             target: target,
             attended: attended,
             forecast: forecast,

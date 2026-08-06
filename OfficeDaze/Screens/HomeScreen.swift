@@ -196,7 +196,7 @@ struct HomeScreen: View {
                     NavigationLink {
                         LeaveScreen(month: month)
                     } label: {
-                        Text(targetExplanation(result))
+                        Text(Self.targetExplanation(result))
                             .font(.system(size: 12))
                             .foregroundStyle(Palette.secondary)
                             .multilineTextAlignment(.center)
@@ -254,16 +254,21 @@ struct HomeScreen: View {
         }
     }
 
-    /// `Target 7 — 8 days pro-rated for 3 days' leave`. The one line that says
+    /// `Target 6 — 8 days less 2 for 5 days' leave`. The one line that says
     /// where the number came from, because a target that moves without
     /// explanation reads as a bug.
-    private func targetExplanation(_ result: Quota.Result) -> String {
-        guard result.leaveTaken > 0 else {
-            return "Target \(result.target) — 8 days a month"
-        }
-        let days = number(result.leaveTaken)
-        let noun = result.leaveTaken == 1 ? "day's" : "days'"
-        return "Target \(result.target) — 8 days pro-rated for \(days) \(noun) leave"
+    ///
+    /// Leave too small to have moved anything gets a sentence of its own. The
+    /// old pro-rate shifted the number a little for every day booked, so the
+    /// leave was always visible in the result; blocks of five mean four days
+    /// off change nothing at all, and a line that then says only "8 days a
+    /// month" reads as though the four days were never recorded.
+    static func targetExplanation(_ result: Quota.Result) -> String {
+        let target = "Target \(result.target)"
+        guard result.leaveTaken > 0 else { return "\(target) — 8 days a month" }
+        let days = "\(number(result.leaveTaken)) \(result.leaveTaken == 1 ? "day's" : "days'") leave"
+        guard result.relief > 0 else { return "\(target) — \(days); 5 days takes 2 off" }
+        return "\(target) — 8 days less \(number(result.relief)) for \(days)"
     }
 
     /// The amber strip's two halves.
