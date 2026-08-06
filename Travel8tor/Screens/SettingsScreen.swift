@@ -10,6 +10,8 @@ struct SettingsScreen: View {
     @State private var apiKey = ""
     @State private var loaded = false
     @State private var confirmingWipe = false
+    @State private var nudgeEnabled = false
+    @State private var nudgeTime = Date()
 
     private var thisMonth: [Capture] {
         let month = Day.today.month_
@@ -31,6 +33,29 @@ struct SettingsScreen: View {
                 Text("Anthropic API key")
             } footer: {
                 Text("Stored in the iOS Keychain — never in the app's settings, and never in a backup. Reading a screenshot costs about a penny; everything else in the app works without a key.")
+            }
+
+            Section {
+                Toggle("Evening reminder", isOn: $nudgeEnabled)
+                    .onChange(of: nudgeEnabled) { _, new in
+                        NudgeScheduler.isEnabled = new
+                        NudgeScheduler.refresh(in: context)
+                    }
+                if nudgeEnabled {
+                    DatePicker(
+                        "Time", selection: $nudgeTime, displayedComponents: .hourAndMinute
+                    )
+                    .onChange(of: nudgeTime) { _, new in
+                        NudgeScheduler.time = Day.calendar.dateComponents(
+                            [.hour, .minute], from: new
+                        )
+                        NudgeScheduler.refresh(in: context)
+                    }
+                }
+            } header: {
+                Text("Reminder")
+            } footer: {
+                Text("One notification, and only when all three are true: tomorrow is a working day, nothing is booked, and the month is still short. A reminder that fires when the month is already met is a reminder you switch off.")
             }
 
             Section("This month") {
@@ -57,6 +82,12 @@ struct SettingsScreen: View {
             guard !loaded else { return }
             loaded = true
             apiKey = Keychain.apiKey ?? ""
+            nudgeEnabled = NudgeScheduler.isEnabled
+            var components = NudgeScheduler.time
+            components.year = Day.today.year
+            components.month = Day.today.month
+            components.day = Day.today.day
+            nudgeTime = Day.calendar.date(from: components) ?? Date()
         }
         .confirmationDialog(
             "Delete everything?", isPresented: $confirmingWipe, titleVisibility: .visible

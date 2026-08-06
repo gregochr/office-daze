@@ -64,11 +64,19 @@ struct HomeScreen: View {
                 .padding(.top, 2)
                 if let result = snapshot?.result {
                     shortfallStrip(result).padding(.top, 4)
-                    Text(targetExplanation(result))
-                        .font(.system(size: 12))
-                        .foregroundStyle(Palette.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.top, 11)
+                    // Tapping the sentence opens the thing it explains. The
+                    // target moves because of leave, so leave is where the
+                    // explanation should lead.
+                    NavigationLink {
+                        LeaveScreen(month: month)
+                    } label: {
+                        Text(targetExplanation(result))
+                            .font(.system(size: 12))
+                            .foregroundStyle(Palette.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.top, 11)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
         }

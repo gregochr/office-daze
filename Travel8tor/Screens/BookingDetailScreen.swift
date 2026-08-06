@@ -20,6 +20,8 @@ struct BookingDetailScreen: View {
 
     private var isPast: Bool { booking.day <= .today }
 
+    @State private var calendarOutcome: CalendarWriter.Outcome?
+
     var body: some View {
         ScrollView {
             VStack(spacing: Metrics.cardGap) {
@@ -123,10 +125,51 @@ struct BookingDetailScreen: View {
                 ActionRow(title: "Directions", enabled: office?.isLocated == true) {
                     openDirections()
                 }
-                // Add to calendar arrives with the rest of the handoff's stage
-                // 6, and "view original" needs a capture to have an original —
-                // both are deliberately absent rather than dead.
+                RowDivider(inset: 0)
+                ActionRow(title: calendarTitle) {
+                    Task { await addToCalendar() }
+                }
+                // "View original" needs a capture to have an original, so it
+                // only appears when there is one.
             }
+        }
+    }
+
+    private var calendarTitle: String {
+        switch calendarOutcome {
+        case .added: "Added to calendar"
+        case .updated: "Calendar updated"
+        case .denied: "Calendar access refused"
+        case .failed: "Couldn't add to calendar"
+        // Written once already, from an earlier visit to this screen.
+        case nil: booking.calendarEventID == nil ? "Add to calendar" : "Update calendar event"
+        }
+    }
+
+    /// A second tap updates the event rather than writing a twin — which is the
+    /// whole reason the identifier is stored on the booking.
+    private func addToCalendar() async {
+        guard let office else { return }
+        let outcome = await CalendarWriter.write(
+            CalendarWriter.Entry(
+                deskID: booking.deskID,
+                officeName: office.name,
+                address: fullAddress(office),
+                floor: booking.floor,
+                zone: booking.zone,
+                day: booking.day,
+                startTime: booking.startTime,
+                endTime: booking.endTime
+            ),
+            existingEventID: booking.calendarEventID
+        )
+        calendarOutcome = outcome
+        switch outcome {
+        case .added(let id), .updated(let id):
+            booking.calendarEventID = id
+            try? context.save()
+        case .denied, .failed:
+            break
         }
     }
 

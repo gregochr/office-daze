@@ -33,6 +33,8 @@ struct DebugRouter: View {
                 SettingsScreen()
             case "alert":
                 ArrivalPreviewScreen()
+            case "leave":
+                LeaveScreen(month: SeedData.month)
             default:
                 HomeScreen()
             }

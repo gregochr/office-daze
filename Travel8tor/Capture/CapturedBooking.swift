@@ -111,6 +111,10 @@ nonisolated extension CapturedBooking {
     /// `2026-08-05`. Strict: a date the model reformatted into something else
     /// is a date we did not read, and guessing at `05/08/2026` is exactly the
     /// day/month coin-flip the app must not make.
+    ///
+    /// Anything after the date itself is ignored, which is what lets a single
+    /// confirmation's `2026-08-25 09:00:00 CEST` through unharmed — the day is
+    /// the day whatever timezone the sender printed beside it.
     static func day(from text: String) -> Day? {
         let parts = text.prefix(10).split(separator: "-")
         guard parts.count == 3,

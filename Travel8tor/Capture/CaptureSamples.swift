@@ -30,6 +30,17 @@ nonisolated enum CaptureSamples {
     /// A single booking, to check the sheet hides the counter and the bar.
     static let one: [ParsedBooking] = [colemanWeek[1]]
 
+    /// The other layout: a confirmation email for one reservation on one day.
+    /// No city beside the building, and no end time printed anywhere, so the
+    /// sheet has two fields to ask about rather than the table's one.
+    static let confirmation: [ParsedBooking] = [
+        ParsedBooking(
+            officeName: "Coleman", day: Day(2026, 8, 25), deskID: "CO03B424",
+            floor: "03", zone: nil, startTime: "09:00", endTime: nil,
+            unsureFields: ["zone", "endTime"]
+        )
+    ]
+
     static let usage = HaikuClient.Usage(inputTokens: 1640, outputTokens: 520)
 }
 #endif

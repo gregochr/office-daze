@@ -92,16 +92,26 @@ nonisolated struct HaikuClient {
     guessed value is a wrong one, and it is worse than a blank because nobody \
     downstream can tell it apart from a real reading.
 
-    These documents are usually tables of several reservations, not single \
-    bookings. Return one entry per reservation row, in the order printed.
+    These documents come in two layouts, and both must be read.
 
-    The date is normally a group heading above a run of rows, not a column \
-    within them. Carry that heading down to every row beneath it, until the \
-    next heading. A row whose date you cannot establish this way has a null \
-    date and "date" in unsureFields.
+    The first is a table of several reservations. Return one entry per \
+    reservation row, in the order printed. The date is normally a group \
+    heading above a run of rows, not a column within them. Carry that heading \
+    down to every row beneath it, until the next heading. A row whose date you \
+    cannot establish this way has a null date and "date" in unsureFields.
+
+    The second is a confirmation message for one reservation, with its details \
+    set out as labelled fields — building, floor, desk number, date — rather \
+    than as a table. That is a single booking for a single day: return an \
+    array of exactly one entry, and never spread it across a range of dates. \
+    Its date is often a full timestamp, "2026-08-25 09:00:00 CEST". The \
+    calendar date there is the booking's date and the clock time is its start \
+    time; the end time is not stated, so it is null and named.
 
     Skip any row whose status is not "Confirmed". Cancelled, pending and \
-    waitlisted rows are not bookings and must not appear in the output.
+    waitlisted rows are not bookings and must not appear in the output. A \
+    document that states no status at all is a confirmation of what it \
+    describes — read it, do not skip it.
 
     Desk identifiers often encode the building and floor together — CO03C407 \
     is Coleman, floor 03, desk C407. Do not take them apart: return the desk \
@@ -109,7 +119,9 @@ nonisolated struct HaikuClient {
     there is no separate floor field, floor is null and named.
 
     Give the office exactly as printed, including the city if it is shown \
-    (for example "03, Coleman, London" is office "Coleman, London").
+    (for example "03, Coleman, London" is office "Coleman, London"). A single \
+    confirmation usually prints it as a building on its own — "Building: \
+    Coleman" is office "Coleman", with no city added.
 
     Times are wall-clock as printed, "08:00", with no timezone conversion. \
     This app has no timezone handling; a booking on the 5th is on the 5th.
@@ -145,7 +157,10 @@ nonisolated struct HaikuClient {
             "type": "object",
             "properties": [
                 "office": nullableString("Office as printed, including city."),
-                "date": nullableString("Booking date as YYYY-MM-DD, from the group heading."),
+                "date": nullableString(
+                    "Booking date as YYYY-MM-DD, from the group heading above the row "
+                    + "or from the confirmation's own date field."
+                ),
                 "deskId": nullableString("Desk identifier exactly as printed."),
                 "floor": nullableString("Floor, from its own field — never split out of the desk id."),
                 "zone": nullableString("Zone within the floor, or null."),
@@ -171,7 +186,8 @@ nonisolated struct HaikuClient {
                     "items": booking,
                     "description":
                         "Every confirmed booking in the document, in the order printed. "
-                        + "One entry per row for a table; a single confirmation is an array of one.",
+                        + "One entry per row for a table; a single-reservation confirmation "
+                        + "is an array of exactly one, for the one day it names.",
                 ]
             ],
             "required": ["bookings"],

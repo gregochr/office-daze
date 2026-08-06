@@ -45,6 +45,10 @@ struct OfficeDazeApp: App {
                     // moment the user asks for the alert, not to launch.
                     arrival.registerNotificationHandling()
                     arrival.refreshRegions()
+                    // The trigger repeats daily so it survives the app not
+                    // running; the decision cannot, so it is re-made every
+                    // time we are awake.
+                    NudgeScheduler.refresh(in: container.mainContext)
                     #if DEBUG
                     let office = ProcessInfo.processInfo.argument(after: "-arrival")
                     if !office.isEmpty { arrival.simulateEntry(officeNamed: office) }

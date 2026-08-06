@@ -84,6 +84,11 @@ final class DeskBooking {
     /// value — that is the invariant the whole never-guess rule rests on.
     var unsureFields: [String] = []
     var captureID: UUID?
+    /// The EventKit identifier of the calendar entry this booking was written
+    /// to, if it has been. Held because write-only access cannot read events
+    /// back — without recording it here, a second tap of Add to calendar would
+    /// write a twin and the app would have no way to know.
+    var calendarEventID: String?
 
     init(
         id: UUID = UUID(),
