@@ -247,6 +247,25 @@ struct SchemaTests {
         #expect(HaikuClient.model == "claude-haiku-4-5")
     }
 
+    /// A photograph of a table starts and ends mid-table. The row at the top of
+    /// the frame had its heading cropped away, and the nearest date to it is
+    /// the heading below — which belongs to the rows below. Carrying it up
+    /// would have filed a real desk on the wrong day, which is the one failure
+    /// the review sheet cannot catch, because the booking looks right.
+    @Test("The prompt reads only whole rows")
+    func promptReadsWholeRows() {
+        let prompt = HaikuClient.systemPrompt
+        #expect(prompt.contains("Read only whole rows"))
+        #expect(
+            prompt.contains("Headings carry downwards only"),
+            "so a cropped top row does not borrow the heading beneath it"
+        )
+        #expect(
+            prompt.contains("produces no entry at all"),
+            "a heading whose rows are below the edge is not a booking"
+        )
+    }
+
     /// A photographed screen read CO03C117 as C003C117 — the site letters as
     /// digits. The prefix is always two letters, so this is the one reading the
     /// prompt can overrule without guessing at anything.

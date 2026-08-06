@@ -100,6 +100,18 @@ nonisolated struct HaikuClient {
     down to every row beneath it, until the next heading. A row whose date you \
     cannot establish this way has a null date and "date" in unsureFields.
 
+    Read only whole rows. A photograph of a table is cut off at both ends, and \
+    the two ends are cut off differently. At the top, the first thing in frame \
+    is often a row whose group heading is above the edge of the picture: that \
+    row has no date. Headings carry downwards only, so the heading further \
+    down the picture belongs to the rows beneath it and never to that one, and \
+    reading it upwards would file the booking on somebody else's day. Give \
+    that row a null date and "date" in unsureFields. At the bottom, the last \
+    thing in frame is often a heading whose rows are below the edge: that is a \
+    date with no booking under it, and it produces no entry at all. Half a row \
+    is not a booking either way — a heading alone, or a row alone, is \
+    something the picture cut in half rather than something the document says.
+
     The second is a confirmation message for one reservation, with its details \
     set out as labelled fields — building, floor, desk number, date — rather \
     than as a table. That is a single booking for a single day: return an \
