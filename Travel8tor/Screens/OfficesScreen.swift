@@ -40,6 +40,26 @@ struct OfficesScreen: View {
                     .buttonStyle(.plain)
                 }
 
+                Card {
+                    NavigationLink {
+                        SettingsScreen()
+                    } label: {
+                        HStack {
+                            Text("Settings")
+                                .font(.system(size: 16))
+                                .foregroundStyle(Palette.tint)
+                            Spacer(minLength: 8)
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(Palette.tertiary)
+                        }
+                        .padding(.vertical, 15)
+                        .padding(.horizontal, 16)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+
                 Text(
                     "Each office has its own postcode and perimeter. The arrival alert "
                     + "fires once a day per office. All offices count toward the same "
