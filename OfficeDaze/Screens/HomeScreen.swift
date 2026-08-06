@@ -157,10 +157,9 @@ struct HomeScreen: View {
         .fullScreenCover(isPresented: $camera) {
             // Full screen, because a camera in a card with the app showing
             // round the edges is a viewfinder you have to aim through.
-            CameraPicker { data in
+            BookingScanner { data in
                 Task { await capture.receive(photo: data) }
             }
-            .ignoresSafeArea()
         }
     }
 
@@ -329,15 +328,16 @@ struct HomeScreen: View {
                     .accessibilityLabel("Add a booking or a day by hand")
 
                     // The confirmation is nearly always on a monitor in front
-                    // of you, so photographing it is the shortest way in. A
-                    // screenshot already in the library still arrives through
-                    // the iOS share sheet.
+                    // of you, so holding the phone up to it is the shortest way
+                    // in — there is not even a shutter to press. A screenshot
+                    // already in the library still arrives through the iOS
+                    // share sheet.
                     Button {
                         camera = true
                     } label: {
                         headerIcon("camera")
                     }
-                    .accessibilityLabel("Photograph a booking")
+                    .accessibilityLabel("Scan a booking")
                 }
                 .foregroundStyle(Palette.tint)
             }
