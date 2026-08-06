@@ -53,6 +53,26 @@ nonisolated enum Quota {
         }
     }
 
+    /// What the month amounts to.
+    ///
+    /// The distinction that matters is between *met* and *on track*, and a
+    /// shortfall of zero does not tell them apart: shortfall subtracts the
+    /// forecast, so four days attended with four more booked reaches zero
+    /// without a fifth day having been worked. Attendance is the only thing
+    /// that counts toward the eight — a booking is an intention, and an
+    /// intention is not a day on prem, which is the whole reason the two are
+    /// separate entities. Calling that "Target met" claimed the second as the
+    /// first, beside a dial reading `4 of 8` that said the opposite in the same
+    /// card.
+    enum Standing: Hashable, Sendable {
+        /// The days worked reach the target on their own.
+        case met
+        /// Not yet, but everything needed is already booked.
+        case onTrack
+        /// Short even with every booking honoured.
+        case behind
+    }
+
     struct Result: Hashable, Sendable {
         let bankHolidays: [Day]
         let workingDays: Int
@@ -70,6 +90,11 @@ nonisolated enum Quota {
         /// same boundary `forecast` uses, so the two figures can't disagree
         /// about whether today is still in play.
         let daysToRun: Int
+
+        var standing: Standing {
+            if attended >= Double(target) { return .met }
+            return shortfall > 0 ? .behind : .onTrack
+        }
     }
 
     static func calculate(_ input: Inputs) -> Result {

@@ -160,6 +160,11 @@ struct StatusStrip: View {
 
     private var surface: Color { tone == .warning ? Palette.warningSurface : Palette.successSurface }
     private var text: Color { tone == .warning ? Palette.warningText : Palette.successText }
+    /// Follows the tone. It was amber whatever the strip was, which only went
+    /// unnoticed while the green strip had nothing on its right.
+    private var secondary: Color {
+        tone == .warning ? Palette.warningSecondary : Palette.successText
+    }
 
     var body: some View {
         HStack(spacing: 10) {
@@ -173,7 +178,7 @@ struct StatusStrip: View {
             if let trailing {
                 Text(trailing)
                     .font(.system(size: 13))
-                    .foregroundStyle(Palette.warningSecondary)
+                    .foregroundStyle(secondary)
             }
         }
         .padding(.vertical, tone == .warning ? 11 : 14)

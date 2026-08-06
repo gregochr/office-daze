@@ -137,14 +137,26 @@ struct HomeScreen: View {
 
     @ViewBuilder
     private func shortfallStrip(_ result: Quota.Result) -> some View {
-        if result.shortfall > 0 {
+        switch result.standing {
+        case .behind:
             StatusStrip(
                 tone: .warning,
                 leading: "\(number(result.shortfall)) \(result.shortfall == 1 ? "day" : "days") to go",
                 trailing: "\(result.daysToRun) working \(result.daysToRun == 1 ? "day" : "days") left"
             )
-        } else {
+        case .met:
             StatusStrip(tone: .success, leading: "Target met", dot: true)
+        case .onTrack:
+            // The gauge says 4 of 8; on its own that reads as behind. This is
+            // the line that explains why it is not — and it names the bookings
+            // it is counting on, because "on track" resting on four
+            // reservations is a different fact from four days worked.
+            StatusStrip(
+                tone: .success,
+                leading: "On track",
+                trailing: "\(number(result.forecast)) more booked",
+                dot: true
+            )
         }
     }
 

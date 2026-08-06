@@ -123,6 +123,60 @@ struct QuotaTests {
         #expect(result.forecast == 0)
     }
 
+    /// Four days in and four booked reaches a shortfall of zero, and the strip
+    /// read that as "Target met" beside a dial reading 4 of 8. Days worked are
+    /// the only thing that meets the target; the bookings are what makes it
+    /// reachable, which is a different sentence.
+    @Test("Four attended with four booked is on track, not met")
+    func onTrackIsNotMet() {
+        let result = Quota.calculate(.init(
+            month: august,
+            attendance: [3, 4, 5, 6].map { .init(Day(2026, 8, $0)) },
+            deskBookingDays: Set([24, 25, 26, 27].map { Day(2026, 8, $0) }),
+            today: Day(2026, 8, 6)
+        ))
+        #expect(result.target == 8)
+        #expect(result.attended == 4)
+        #expect(result.forecast == 4)
+        #expect(result.shortfall == 0, "which is exactly why zero could not be the test")
+        #expect(result.standing == .onTrack)
+    }
+
+    @Test("Attendance alone is what meets the target")
+    func attendedMeetsIt() {
+        let result = Quota.calculate(.init(
+            month: august,
+            attendance: (3...12).map { .init(Day(2026, 8, $0)) },
+            today: Day(2026, 8, 20)
+        ))
+        #expect(result.standing == .met)
+    }
+
+    @Test("Short even with every booking honoured is behind")
+    func behindEvenWithBookings() {
+        let result = Quota.calculate(.init(
+            month: august,
+            attendance: [.init(Day(2026, 8, 3))],
+            deskBookingDays: [Day(2026, 8, 24)],
+            today: Day(2026, 8, 6)
+        ))
+        #expect(result.shortfall == 6)
+        #expect(result.standing == .behind)
+    }
+
+    /// A month with nothing required is met by having done nothing, which is
+    /// the honest answer rather than a shortfall of zero reported as on track.
+    @Test("A target of nothing is met, not merely on track")
+    func nothingRequiredIsMet() {
+        let result = Quota.calculate(.init(
+            month: august,
+            leave: august.weekdays.map { .init($0) },
+            today: Day(2026, 8, 4)
+        ))
+        #expect(result.target == 0)
+        #expect(result.standing == .met)
+    }
+
     @Test("Shortfall never goes negative")
     func overAchievement() {
         let result = Quota.calculate(.init(
