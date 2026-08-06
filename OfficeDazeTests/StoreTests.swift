@@ -100,6 +100,53 @@ struct StoreTests {
         #expect(fullAddress(coleman) == "63 Coleman Street, London EC2R 5BB")
     }
 
+    /// A workshop or a meeting is a day on prem with no desk behind it. The
+    /// target counts days worked, not desks reserved, so it counts the same.
+    @Test("A day recorded by hand with no booking counts toward the month")
+    func attendanceWithoutABooking() throws {
+        let context = container.mainContext
+        func attended() throws -> Double {
+            try QuotaService.snapshot(
+                for: SeedData.month, today: Day(2026, 8, 4), in: context
+            ).result.attended
+        }
+        let before = try attended()
+
+        let recorded = try #require(
+            try BookingStore.recordAttendance(
+                day: Day(2026, 8, 20), officeID: SeedData.brusselsID,
+                source: .manual, in: context
+            )
+        )
+        #expect(recorded.bookingID == nil, "there was no desk to point at")
+        #expect(try attended() == before + 1)
+
+        try BookingStore.deleteAttendance(recorded, in: context)
+        #expect(try attended() == before)
+    }
+
+    /// The list has to account for every day the gauge counts, without counting
+    /// a day twice because it was both booked and turned up for.
+    @Test("The month's list is the bookings plus the days no booking explains")
+    func listCoversEveryCountedDay() throws {
+        let context = container.mainContext
+        let entries = HomeScreen.entries(
+            bookings: try context.fetch(FetchDescriptor<DeskBooking>()),
+            attendance: try context.fetch(FetchDescriptor<AttendanceDay>()),
+            in: SeedData.month
+        )
+        // Four bookings, and four attended days of which two are already
+        // covered by a booking on the same day at the same office.
+        #expect(entries.count == 6)
+        #expect(entries.map(\.day) == [
+            Day(2026, 8, 3), Day(2026, 8, 4), Day(2026, 8, 5),
+            Day(2026, 8, 6), Day(2026, 8, 11), Day(2026, 8, 12),
+        ])
+
+        let unbooked = entries.filter { if case .attended = $0 { true } else { false } }
+        #expect(unbooked.map(\.day) == [Day(2026, 8, 3), Day(2026, 8, 4)])
+    }
+
     /// Re-importing a day cannot double the month — one desk per office per
     /// day — but it can move the desk id, which is what the sheet now asks
     /// about before it happens.

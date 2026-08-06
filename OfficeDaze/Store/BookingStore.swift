@@ -89,6 +89,13 @@ enum BookingStore {
         try context.save()
     }
 
+    /// Removes a recorded day. The counterpart of `recordAttendance`, for a day
+    /// entered by hand and then thought better of.
+    static func deleteAttendance(_ day: AttendanceDay, in context: ModelContext) throws {
+        context.delete(day)
+        try context.save()
+    }
+
     /// Records a day on prem. Never called without the user confirming — the
     /// geofence offers, it does not record.
     @discardableResult

@@ -25,8 +25,63 @@ struct HomeScreen: View {
     /// why it lives here rather than in each row.
     @State private var openRow: UUID?
 
+    /// Which kind of manual entry the header's menu is adding, if any.
+    @State private var adding: ManualEntry?
+
+    enum ManualEntry: String, Identifiable {
+        case booking, attendance
+        var id: String { rawValue }
+    }
+
+    /// A row in the month's list.
+    ///
+    /// Most are desk bookings. The other kind is a day on prem with no desk
+    /// behind it — a workshop, a meeting, a visit — which has to appear here or
+    /// the gauge counts a day the list below it cannot account for.
+    enum Entry: Identifiable {
+        case booking(DeskBooking)
+        case attended(AttendanceDay)
+
+        var id: UUID {
+            switch self {
+            case .booking(let booking): booking.id
+            case .attended(let day): day.id
+            }
+        }
+
+        var day: Day {
+            switch self {
+            case .booking(let booking): booking.day
+            case .attended(let record): record.day
+            }
+        }
+    }
+
     private var monthBookings: [DeskBooking] {
         bookings.filter { month.contains($0.day) }
+    }
+
+    private var monthEntries: [Entry] {
+        Self.entries(bookings: bookings, attendance: attendance, in: month)
+    }
+
+    /// The month's list: every booking, plus every day on prem that no booking
+    /// accounts for.
+    ///
+    /// Static so the one rule worth getting right can be tested — a day that is
+    /// both booked and attended must produce one row, not two. It is matched on
+    /// day and office, the same pairing `isAttended` uses, so the two cannot
+    /// disagree about which days are already covered.
+    static func entries(
+        bookings: [DeskBooking], attendance: [AttendanceDay], in month: Month
+    ) -> [Entry] {
+        let booked = bookings.filter { month.contains($0.day) }
+        let unbooked = attendance.filter { record in
+            month.contains(record.day)
+                && !booked.contains { $0.day == record.day && $0.officeID == record.officeID }
+        }
+        return (booked.map(Entry.booking) + unbooked.map(Entry.attended))
+            .sorted { $0.day < $1.day }
     }
 
     private var snapshot: QuotaService.Snapshot? {
@@ -70,6 +125,17 @@ struct HomeScreen: View {
         }
         // The library hands back bytes, not a file, so this is the one intake
         // that has to convert before the coordinator can use it.
+        // Sheets rather than pushes: a NavigationLink inside a Menu does not
+        // reliably push, and the capture flow already presents the booking
+        // editor this way.
+        .sheet(item: $adding) { which in
+            NavigationStack {
+                switch which {
+                case .booking: BookingEditorScreen()
+                case .attendance: AttendanceEditorScreen()
+                }
+            }
+        }
         .onChange(of: photo) { _, chosen in
             guard let chosen else { return }
             photo = nil
@@ -213,9 +279,14 @@ struct HomeScreen: View {
             // Two ways in, named for what they are rather than for one "Add"
             // that hides the interesting half. The picker is the only route to
             // capture that does not go through the share sheet.
-            SectionHeader(title: "Bookings") {
+            SectionHeader(title: "This month") {
                 HStack(spacing: 16) {
-                    NavigationLink("+ Manually") { BookingEditorScreen() }
+                    Menu {
+                        Button("Desk booking") { adding = .booking }
+                        Button("Day in the office") { adding = .attendance }
+                    } label: {
+                        Text("+ Manually")
+                    }
                     PhotosPicker(selection: $photo, matching: .images) {
                         Text("+ From image")
                     }
@@ -223,21 +294,26 @@ struct HomeScreen: View {
                 .font(.system(size: 15))
                 .foregroundStyle(Palette.tint)
             }
-            if monthBookings.isEmpty {
+            if monthEntries.isEmpty {
                 emptyBookings
             } else {
-                RowStack(items: monthBookings, inset: 38) { booking in
-                    SwipeToDelete(id: booking.id, open: $openRow) {
-                        // The booking only. Attendance is the record that the
-                        // day was worked, and it outlives the desk.
-                        try? BookingStore.delete(booking, in: context)
+                RowStack(items: monthEntries, inset: 38) { entry in
+                    SwipeToDelete(id: entry.id, open: $openRow) {
+                        delete(entry)
                     } content: {
-                        NavigationLink {
-                            BookingDetailScreen(booking: booking)
-                        } label: {
-                            bookingRow(booking)
+                        switch entry {
+                        case .booking(let booking):
+                            NavigationLink {
+                                BookingDetailScreen(booking: booking)
+                            } label: {
+                                bookingRow(booking)
+                            }
+                            .buttonStyle(.plain)
+                        case .attended(let record):
+                            // No detail screen: there is no desk, no floor and
+                            // no hours to show. The row is the whole record.
+                            attendedRow(record)
                         }
-                        .buttonStyle(.plain)
                     }
                 }
             }
@@ -251,7 +327,7 @@ struct HomeScreen: View {
             VStack(spacing: 10) {
                 Text(offices.isEmpty
                      ? "Add an office before booking a desk."
-                     : "No desk bookings in \(month.text).")
+                     : "Nothing recorded for \(month.text).")
                     .font(.system(size: 15))
                     .foregroundStyle(Palette.secondary)
                     .multilineTextAlignment(.center)
@@ -293,6 +369,43 @@ struct HomeScreen: View {
         .padding(.horizontal, 16)
         .frame(minHeight: Metrics.minimumRow)
         .contentShape(Rectangle())
+    }
+
+    /// A day on prem with no desk behind it. Says so where the desk id would
+    /// be, rather than leaving a gap that reads as a booking half-read.
+    private func attendedRow(_ record: AttendanceDay) -> some View {
+        let office = offices.first { $0.id == record.officeID }
+        return HStack(spacing: 13) {
+            OfficeDot(colourHex: office?.colourHex ?? "")
+            VStack(alignment: .leading, spacing: 3) {
+                Text(record.day.mediumText)
+                    .font(.system(size: 16))
+                    .foregroundStyle(Palette.text)
+                Text("\(office?.name ?? "Unknown office") · no desk booked")
+                    .font(.system(size: 13))
+                    .foregroundStyle(Palette.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            Text("Attended")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Palette.met)
+        }
+        .padding(.vertical, 13)
+        .padding(.horizontal, 16)
+        .frame(minHeight: Metrics.minimumRow)
+        .contentShape(Rectangle())
+    }
+
+    private func delete(_ entry: Entry) {
+        switch entry {
+        case .booking(let booking):
+            // The booking only. Attendance is the record that the day was
+            // worked, and it outlives the desk.
+            try? BookingStore.delete(booking, in: context)
+        case .attended(let record):
+            try? BookingStore.deleteAttendance(record, in: context)
+        }
     }
 
     /// Attendance is its own record, not a flag on the booking — you can book
