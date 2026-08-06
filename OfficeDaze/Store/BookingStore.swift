@@ -89,6 +89,30 @@ enum BookingStore {
         try context.save()
     }
 
+    /// Notes a day still ahead as one you intend to be on prem for, with no
+    /// desk. The mirror of `recordAttendance`: that one refuses the future,
+    /// this one refuses the past, and between them every day has exactly one
+    /// record that fits it.
+    @discardableResult
+    static func recordPlanned(
+        day: Day, officeID: UUID, today: Day = .today, in context: ModelContext
+    ) throws -> PlannedDay? {
+        guard day > today else { return nil }
+        let already = try context.fetch(FetchDescriptor<PlannedDay>())
+            .contains { $0.day == day && $0.officeID == officeID }
+        guard !already else { return nil }
+
+        let planned = PlannedDay(day: day, officeID: officeID)
+        context.insert(planned)
+        try context.save()
+        return planned
+    }
+
+    static func deletePlanned(_ planned: PlannedDay, in context: ModelContext) throws {
+        context.delete(planned)
+        try context.save()
+    }
+
     /// Removes a recorded day. The counterpart of `recordAttendance`, for a day
     /// entered by hand and then thought better of.
     static func deleteAttendance(_ day: AttendanceDay, in context: ModelContext) throws {
@@ -99,10 +123,23 @@ enum BookingStore {
     /// Records a day on prem. Never called without the user confirming — the
     /// geofence offers, it does not record.
     @discardableResult
+    ///
+    /// `today` is injected rather than read, as it is in `QuotaService` and
+    /// `ArrivalRule`, so the boundary itself can be tested instead of only
+    /// holding on whatever date the suite happens to run.
     static func recordAttendance(
         day: Day, officeID: UUID?, source: AttendanceSource,
-        bookingID: UUID? = nil, in context: ModelContext
+        bookingID: UUID? = nil, today: Day = .today, in context: ModelContext
     ) throws -> AttendanceDay? {
+        // A day that has not happened cannot have been worked. The rule lives
+        // here rather than only in the date picker because `attended` is the
+        // one number the target is measured against — and the difference
+        // between "target met" and "on track" is precisely that attendance
+        // counts days behind you while a booking counts intent. A future
+        // attendance row collapses that distinction and the gauge starts
+        // claiming days that have not happened.
+        guard day <= today else { return nil }
+
         let already = try context.fetch(FetchDescriptor<AttendanceDay>())
             .contains { $0.day == day && $0.officeID == officeID }
         guard !already else { return nil }

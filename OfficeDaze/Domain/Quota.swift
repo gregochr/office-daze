@@ -6,7 +6,7 @@ import Foundation
 ///     eligible    = workingDays − sum(leave.fraction)
 ///     target      = round(8 × eligible ÷ workingDays)
 ///     attended    = sum(attendance.fraction)   // counts
-///     forecast    = desk bookings after today  // does not
+///     forecast    = desk bookings and planned days after today  // does not
 ///     shortfall   = max(0, target − attended − forecast)
 ///
 /// Derived on read, never stored. Nothing in here is authored data.
@@ -36,6 +36,10 @@ nonisolated enum Quota {
         /// Days with a desk booking that counts to quota. Only those strictly
         /// after `today` and not already attended become forecast.
         let deskBookingDays: Set<Day>
+        /// Days intended on prem with no desk — a workshop, a meeting. They
+        /// forecast exactly as a booking does, and a day that is both booked
+        /// and planned counts once.
+        let plannedDays: Set<Day>
         let today: Day
 
         init(
@@ -43,12 +47,14 @@ nonisolated enum Quota {
             leave: [DayFraction] = [],
             attendance: [DayFraction] = [],
             deskBookingDays: Set<Day> = [],
+            plannedDays: Set<Day> = [],
             today: Day
         ) {
             self.month = month
             self.leave = leave
             self.attendance = attendance
             self.deskBookingDays = deskBookingDays
+            self.plannedDays = plannedDays
             self.today = today
         }
     }
@@ -124,10 +130,12 @@ nonisolated enum Quota {
             .reduce(0) { $0 + $1.fraction }
         let attendedDays = Set(input.attendance.map(\.day))
 
-        // Forecast is what is booked ahead and not yet turned up for. A desk
-        // booked for a day already attended is not forecast — it has converted.
+        // Forecast is what is intended ahead and not yet turned up for, whether
+        // a desk was reserved or not. A day already attended is not forecast —
+        // it has converted. Unioned, so a day both booked and planned is one
+        // day rather than two.
         let forecast = Double(
-            input.deskBookingDays
+            input.deskBookingDays.union(input.plannedDays)
                 .filter { workingDaySet.contains($0) }
                 .filter { $0 > input.today }
                 .subtracting(attendedDays)

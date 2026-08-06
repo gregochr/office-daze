@@ -30,11 +30,16 @@ enum QuotaService {
             .map(\.day)
             .filter { month.contains($0) }
 
+        let plannedDays = try context.fetch(FetchDescriptor<PlannedDay>())
+            .map(\.day)
+            .filter { month.contains($0) }
+
         let result = Quota.calculate(.init(
             month: month,
             leave: leave.map { Quota.DayFraction($0.day, $0.fraction) },
             attendance: attendance.map { Quota.DayFraction($0.day, $0.fraction) },
             deskBookingDays: Set(bookedDays),
+            plannedDays: Set(plannedDays),
             today: today
         ))
 

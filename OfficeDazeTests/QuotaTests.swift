@@ -100,6 +100,45 @@ struct QuotaTests {
         #expect(result.forecast == 1)
     }
 
+    /// A workshop you have not been to yet is as good a reason to expect a day
+    /// on prem as a desk you have reserved. The target counts days, not desks.
+    @Test("A planned day forecasts exactly as a booking does")
+    func plannedDaysForecast() {
+        let result = Quota.calculate(.init(
+            month: august,
+            plannedDays: [Day(2026, 8, 20)],
+            today: Day(2026, 8, 4)
+        ))
+        #expect(result.forecast == 1)
+        #expect(result.attended == 0, "intending to be somewhere is not having been")
+    }
+
+    /// Booked *and* planned is one day on prem, not two — otherwise noting a
+    /// workshop on a day you also have a desk would invent a day.
+    @Test("A day both booked and planned counts once")
+    func plannedAndBookedIsOneDay() {
+        let result = Quota.calculate(.init(
+            month: august,
+            deskBookingDays: [Day(2026, 8, 20)],
+            plannedDays: [Day(2026, 8, 20)],
+            today: Day(2026, 8, 4)
+        ))
+        #expect(result.forecast == 1)
+    }
+
+    /// Turning up converts it, exactly as it does a booking.
+    @Test("A planned day already attended is no longer forecast")
+    func plannedThenAttended() {
+        let result = Quota.calculate(.init(
+            month: august,
+            attendance: [.init(Day(2026, 8, 20))],
+            plannedDays: [Day(2026, 8, 20)],
+            today: Day(2026, 8, 4)
+        ))
+        #expect(result.attended == 1)
+        #expect(result.forecast == 0)
+    }
+
     @Test("A desk booked for a past day is not forecast")
     func pastBookingsAreNotForecast() {
         let result = Quota.calculate(.init(

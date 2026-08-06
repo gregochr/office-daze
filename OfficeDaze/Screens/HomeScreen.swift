@@ -10,6 +10,7 @@ struct HomeScreen: View {
     @Query(sort: \Office.name) private var offices: [Office]
     @Query(sort: \DeskBooking.date) private var bookings: [DeskBooking]
     @Query private var attendance: [AttendanceDay]
+    @Query private var planned: [PlannedDay]
 
     /// Which month the gauge is showing. Starts on today's, and the stepper
     /// moves it — the store holds every month at once, so this is the only
@@ -41,11 +42,13 @@ struct HomeScreen: View {
     enum Entry: Identifiable {
         case booking(DeskBooking)
         case attended(AttendanceDay)
+        case planned(PlannedDay)
 
         var id: UUID {
             switch self {
             case .booking(let booking): booking.id
             case .attended(let day): day.id
+            case .planned(let day): day.id
             }
         }
 
@@ -53,6 +56,7 @@ struct HomeScreen: View {
             switch self {
             case .booking(let booking): booking.day
             case .attended(let record): record.day
+            case .planned(let record): record.day
             }
         }
     }
@@ -62,26 +66,46 @@ struct HomeScreen: View {
     }
 
     private var monthEntries: [Entry] {
-        Self.entries(bookings: bookings, attendance: attendance, in: month)
+        Self.entries(
+            bookings: bookings, attendance: attendance, planned: planned, in: month
+        )
     }
 
-    /// The month's list: every booking, plus every day on prem that no booking
-    /// accounts for.
+    /// The month's list: every booking, plus every day on prem — worked or
+    /// intended — that no booking already accounts for.
     ///
-    /// Static so the one rule worth getting right can be tested — a day that is
-    /// both booked and attended must produce one row, not two. It is matched on
-    /// day and office, the same pairing `isAttended` uses, so the two cannot
+    /// Static so the rule worth getting right can be tested: one day at one
+    /// office is one row however many records describe it. A booked day speaks
+    /// for its own attendance, and a planned day that has since been worked is
+    /// spoken for by the attendance. Everything is matched on day and office,
+    /// the same pairing `isAttended` uses, so no two parts of this screen can
     /// disagree about which days are already covered.
     static func entries(
-        bookings: [DeskBooking], attendance: [AttendanceDay], in month: Month
+        bookings: [DeskBooking], attendance: [AttendanceDay],
+        planned: [PlannedDay], in month: Month
     ) -> [Entry] {
         let booked = bookings.filter { month.contains($0.day) }
-        let unbooked = attendance.filter { record in
-            month.contains(record.day)
-                && !booked.contains { $0.day == record.day && $0.officeID == record.officeID }
+        func isBooked(_ day: Day, _ officeID: UUID?) -> Bool {
+            booked.contains { $0.day == day && $0.officeID == officeID }
         }
-        return (booked.map(Entry.booking) + unbooked.map(Entry.attended))
-            .sorted { $0.day < $1.day }
+
+        let attended = attendance.filter {
+            month.contains($0.day) && !isBooked($0.day, $0.officeID)
+        }
+        let intended = planned.filter { record in
+            month.contains(record.day)
+                && !isBooked(record.day, record.officeID)
+                // Turning up is what converts it. The attendance row is the
+                // truer record of the same day, so the plan stops being shown.
+                && !attended.contains {
+                    $0.day == record.day && $0.officeID == record.officeID
+                }
+        }
+        return (
+            booked.map(Entry.booking)
+                + attended.map(Entry.attended)
+                + intended.map(Entry.planned)
+        ).sorted { $0.day < $1.day }
     }
 
     private var snapshot: QuotaService.Snapshot? {
@@ -312,7 +336,15 @@ struct HomeScreen: View {
                         case .attended(let record):
                             // No detail screen: there is no desk, no floor and
                             // no hours to show. The row is the whole record.
-                            attendedRow(record)
+                            deskless(
+                                officeID: record.officeID, day: record.day,
+                                status: "Attended", tone: Palette.met
+                            )
+                        case .planned(let record):
+                            deskless(
+                                officeID: record.officeID, day: record.day,
+                                status: "Planned", tone: Palette.secondary
+                            )
                         }
                     }
                 }
@@ -371,14 +403,17 @@ struct HomeScreen: View {
         .contentShape(Rectangle())
     }
 
-    /// A day on prem with no desk behind it. Says so where the desk id would
-    /// be, rather than leaving a gap that reads as a booking half-read.
-    private func attendedRow(_ record: AttendanceDay) -> some View {
-        let office = offices.first { $0.id == record.officeID }
+    /// A day on prem with no desk behind it, worked or intended. Says so where
+    /// the desk id would be, rather than leaving a gap that reads as a booking
+    /// half-read.
+    private func deskless(
+        officeID: UUID?, day: Day, status: String, tone: Color
+    ) -> some View {
+        let office = offices.first { $0.id == officeID }
         return HStack(spacing: 13) {
             OfficeDot(colourHex: office?.colourHex ?? "")
             VStack(alignment: .leading, spacing: 3) {
-                Text(record.day.mediumText)
+                Text(day.mediumText)
                     .font(.system(size: 16))
                     .foregroundStyle(Palette.text)
                 Text("\(office?.name ?? "Unknown office") · no desk booked")
@@ -387,9 +422,9 @@ struct HomeScreen: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 8)
-            Text("Attended")
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(Palette.met)
+            Text(status)
+                .font(.system(size: 12, weight: tone == Palette.met ? .semibold : .regular))
+                .foregroundStyle(tone)
         }
         .padding(.vertical, 13)
         .padding(.horizontal, 16)
@@ -405,6 +440,8 @@ struct HomeScreen: View {
             try? BookingStore.delete(booking, in: context)
         case .attended(let record):
             try? BookingStore.deleteAttendance(record, in: context)
+        case .planned(let record):
+            try? BookingStore.deletePlanned(record, in: context)
         }
     }
 

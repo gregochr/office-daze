@@ -436,7 +436,7 @@ struct ArrivalLedgerTests {
 
         ledger.handleEntry(officeID: SeedData.colemanID, day: unattended, now: arrived)
         ledger.confirmAttendance(
-            officeID: SeedData.colemanID, day: unattended, bookingID: nil
+            officeID: SeedData.colemanID, day: unattended, bookingID: nil, today: unattended
         )
         let after = ledger.handleEntry(
             officeID: SeedData.colemanID, day: unattended,
@@ -460,13 +460,13 @@ struct ArrivalLedgerTests {
             "the alert offers; it does not record"
         )
 
-        ledger.confirmAttendance(officeID: SeedData.colemanID, day: day, bookingID: nil)
+        ledger.confirmAttendance(officeID: SeedData.colemanID, day: day, bookingID: nil, today: day)
         #expect(
             try container.mainContext.fetchCount(FetchDescriptor<AttendanceDay>()) == before + 1
         )
 
         // And confirming twice does not double-count the day.
-        ledger.confirmAttendance(officeID: SeedData.colemanID, day: day, bookingID: nil)
+        ledger.confirmAttendance(officeID: SeedData.colemanID, day: day, bookingID: nil, today: day)
         #expect(
             try container.mainContext.fetchCount(FetchDescriptor<AttendanceDay>()) == before + 1
         )

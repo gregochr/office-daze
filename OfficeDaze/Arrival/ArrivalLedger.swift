@@ -97,10 +97,12 @@ final class ArrivalLedger {
 
     /// The `I'm here` button. This is the only path that records attendance
     /// from an arrival — the geofence offers, the user confirms.
-    func confirmAttendance(officeID: UUID, day: Day, bookingID: UUID?) {
+    func confirmAttendance(
+        officeID: UUID, day: Day, bookingID: UUID?, today: Day = .today
+    ) {
         try? BookingStore.recordAttendance(
             day: day, officeID: officeID, source: .geofence,
-            bookingID: bookingID, in: context
+            bookingID: bookingID, today: today, in: context
         )
     }
 

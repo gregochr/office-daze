@@ -112,10 +112,12 @@ struct StoreTests {
         }
         let before = try attended()
 
+        // The 3rd at Brussels: a day in the seeded month that is genuinely
+        // past, so the future-day guard is not what this test is about.
         let recorded = try #require(
             try BookingStore.recordAttendance(
-                day: Day(2026, 8, 20), officeID: SeedData.brusselsID,
-                source: .manual, in: context
+                day: Day(2026, 8, 3), officeID: SeedData.brusselsID,
+                source: .manual, today: Day(2026, 8, 4), in: context
             )
         )
         #expect(recorded.bookingID == nil, "there was no desk to point at")
@@ -123,6 +125,29 @@ struct StoreTests {
 
         try BookingStore.deleteAttendance(recorded, in: context)
         #expect(try attended() == before)
+    }
+
+    /// Recording a day still to come made the gauge claim a day that had not
+    /// happened — and collapsed the difference between met and on track, which
+    /// is exactly that attendance counts days behind you.
+    @Test("A day that has not happened cannot be recorded as attended")
+    func attendanceIsNeverInTheFuture() throws {
+        let context = container.mainContext
+        let today = Day(2026, 8, 6)
+        let recorded = try BookingStore.recordAttendance(
+            day: today.adding(days: 1), officeID: SeedData.brusselsID,
+            source: .manual, today: today, in: context
+        )
+        #expect(recorded == nil)
+        #expect(try context.fetchCount(FetchDescriptor<AttendanceDay>()) == 4, "nothing written")
+
+        // Today itself is not the future.
+        #expect(
+            try BookingStore.recordAttendance(
+                day: today, officeID: SeedData.brusselsID,
+                source: .manual, today: today, in: context
+            ) != nil
+        )
     }
 
     /// The list has to account for every day the gauge counts, without counting
@@ -133,6 +158,7 @@ struct StoreTests {
         let entries = HomeScreen.entries(
             bookings: try context.fetch(FetchDescriptor<DeskBooking>()),
             attendance: try context.fetch(FetchDescriptor<AttendanceDay>()),
+            planned: try context.fetch(FetchDescriptor<PlannedDay>()),
             in: SeedData.month
         )
         // Four bookings, and four attended days of which two are already
@@ -145,6 +171,58 @@ struct StoreTests {
 
         let unbooked = entries.filter { if case .attended = $0 { true } else { false } }
         #expect(unbooked.map(\.day) == [Day(2026, 8, 3), Day(2026, 8, 4)])
+    }
+
+    /// The mirror of the attendance guard: attendance refuses the future,
+    /// planning refuses the past. Between them every day has exactly one record
+    /// that fits it, and neither can be used to say the other's thing.
+    @Test("A day already gone cannot be planned")
+    func planningIsNeverInThePast() throws {
+        let context = container.mainContext
+        let today = Day(2026, 8, 6)
+        #expect(
+            try BookingStore.recordPlanned(
+                day: today, officeID: SeedData.brusselsID, today: today, in: context
+            ) == nil,
+            "today is not still to come"
+        )
+        #expect(
+            try BookingStore.recordPlanned(
+                day: today.adding(days: 1), officeID: SeedData.brusselsID,
+                today: today, in: context
+            ) != nil
+        )
+    }
+
+    /// One day at one office is one row, however many records describe it.
+    @Test("A planned day that has been worked shows as attended, not twice")
+    func plannedThenAttendedIsOneRow() throws {
+        let context = container.mainContext
+        let day = Day(2026, 8, 20)
+        try BookingStore.recordPlanned(
+            day: day, officeID: SeedData.brusselsID, today: Day(2026, 8, 6), in: context
+        )
+
+        func rows() throws -> [HomeScreen.Entry] {
+            HomeScreen.entries(
+                bookings: try context.fetch(FetchDescriptor<DeskBooking>()),
+                attendance: try context.fetch(FetchDescriptor<AttendanceDay>()),
+                planned: try context.fetch(FetchDescriptor<PlannedDay>()),
+                in: SeedData.month
+            )
+        }
+        #expect(try rows().filter { $0.day == day }.count == 1)
+
+        // The day arrives and is turned up for.
+        try BookingStore.recordAttendance(
+            day: day, officeID: SeedData.brusselsID, source: .manual,
+            today: day, in: context
+        )
+        let onTheDay = try rows().filter { $0.day == day }
+        #expect(onTheDay.count == 1, "the plan and the day worked are one day")
+        if case .attended = onTheDay.first {} else {
+            Issue.record("expected the attended row to win, got \(String(describing: onTheDay.first))")
+        }
     }
 
     /// Re-importing a day cannot double the month — one desk per office per

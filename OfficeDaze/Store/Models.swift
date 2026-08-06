@@ -176,6 +176,37 @@ final class AttendanceDay {
     }
 }
 
+/// A day you intend to be on prem with no desk reserved — a workshop, a
+/// meeting, a visit to another site.
+///
+/// Neither of the two it sits between. Not an `AttendanceDay`, because that is
+/// a day already worked and the only thing the target is measured against; a
+/// day still ahead recorded as attended makes the gauge claim days that have
+/// not happened. Not a `DeskBooking`, because that would have to carry a desk
+/// number the arrival alert would then display, and a made-up desk number is
+/// the one thing that alert must never show.
+///
+/// It counts toward the forecast exactly as a booking does, and toward nothing
+/// else. Once the day arrives, turning up is what converts it — the arrival
+/// alert offers, as it does for any day with nothing booked.
+@Model
+final class PlannedDay {
+    var id: UUID = UUID()
+    var date: Date = Date.distantPast
+    var officeID: UUID = UUID()
+
+    init(id: UUID = UUID(), day: Day, officeID: UUID) {
+        self.id = id
+        self.date = day.startOfDayUTC
+        self.officeID = officeID
+    }
+
+    var day: Day {
+        get { Day(of: date) }
+        set { date = newValue.startOfDayUTC }
+    }
+}
+
 nonisolated enum LeaveKind: String, Codable, Sendable {
     case annual, bankHoliday, sick
 }
@@ -267,7 +298,7 @@ final class Capture {
 
 nonisolated enum OfficeDazeSchema {
     static let all: [any PersistentModel.Type] = [
-        Office.self, DeskBooking.self, AttendanceDay.self,
+        Office.self, DeskBooking.self, AttendanceDay.self, PlannedDay.self,
         LeaveDay.self, ArrivalAlert.self, Capture.self,
     ]
 }

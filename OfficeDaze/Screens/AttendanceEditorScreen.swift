@@ -1,19 +1,23 @@
 import SwiftData
 import SwiftUI
 
-/// Recording a day on prem that had no desk behind it — a workshop, a meeting,
-/// a visit to another site.
+/// A day in the office with no desk reserved — a workshop, a meeting, a visit
+/// to another site.
 ///
-/// Not a booking with the desk left blank. `AttendanceDay` exists apart from
-/// `DeskBooking` precisely because the two come apart in both directions, and a
-/// booking with no desk would be a reservation for nothing — it would show up
-/// on the arrival alert as a blank where the desk number goes, which is the one
-/// thing that alert is for.
+/// Not a booking with the desk left blank. `AttendanceDay` and `PlannedDay`
+/// exist apart from `DeskBooking` because a booking would have to carry a desk
+/// number, and the arrival alert would then show one that was invented — the
+/// one thing that alert must never do.
+///
+/// One screen for both because the user is answering one question. Which record
+/// it becomes follows from the date and is not theirs to choose: a day gone by
+/// was worked, a day ahead is intended, and no date is both.
 struct AttendanceEditorScreen: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
     @Query(sort: \Office.name) private var offices: [Office]
     @Query private var attendance: [AttendanceDay]
+    @Query private var planned: [PlannedDay]
 
     @State private var officeID: UUID?
     @State private var date = Day.today.startOfDayUTC
@@ -21,12 +25,17 @@ struct AttendanceEditorScreen: View {
 
     private var day: Day { Day(of: date) }
 
-    /// The day is already recorded at this office. Saving again would be a
-    /// no-op — `recordAttendance` refuses to double-count — so the button says
-    /// so rather than appearing to work.
+    /// Counts toward the month now, or only toward the forecast.
+    private var isAhead: Bool { day > .today }
+
+    /// Already held, in whichever form suits the date. Saving again would be a
+    /// no-op — both store calls refuse a duplicate — so the button says so
+    /// rather than appearing to work.
     private var alreadyRecorded: Bool {
         guard let officeID else { return false }
-        return attendance.contains { $0.day == day && $0.officeID == officeID }
+        return isAhead
+            ? planned.contains { $0.day == day && $0.officeID == officeID }
+            : attendance.contains { $0.day == day && $0.officeID == officeID }
     }
 
     private var canSave: Bool { officeID != nil && !alreadyRecorded }
@@ -42,11 +51,7 @@ struct AttendanceEditorScreen: View {
                 }
                 DatePicker("Date", selection: $date, displayedComponents: .date)
             } footer: {
-                if alreadyRecorded {
-                    Text("That day is already recorded at this office.")
-                } else {
-                    Text("Counts toward the month exactly as a booked day does — the target counts days on prem, not desks reserved.")
-                }
+                Text(footer)
             }
         }
         .navigationTitle("Day in the office")
@@ -64,11 +69,28 @@ struct AttendanceEditorScreen: View {
         }
     }
 
+    /// Says which of the two it will be, because the difference is the whole
+    /// point: one moves the gauge, the other only the forecast.
+    private var footer: String {
+        if alreadyRecorded {
+            return isAhead
+                ? "That day is already planned for this office."
+                : "That day is already recorded at this office."
+        }
+        return isAhead
+            ? "A day still to come counts toward the forecast, the same as a booked desk does — it becomes a day attended when you turn up and say so."
+            : "A day you were there counts toward the month exactly as a booked day does, because the target counts days on prem rather than desks reserved."
+    }
+
     private func save() {
         guard let officeID else { return }
-        try? BookingStore.recordAttendance(
-            day: day, officeID: officeID, source: .manual, in: context
-        )
+        if isAhead {
+            try? BookingStore.recordPlanned(day: day, officeID: officeID, in: context)
+        } else {
+            try? BookingStore.recordAttendance(
+                day: day, officeID: officeID, source: .manual, in: context
+            )
+        }
         dismiss()
     }
 }
