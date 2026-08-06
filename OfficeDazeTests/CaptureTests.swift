@@ -136,6 +136,14 @@ struct CaptureMappingTests {
         #expect(bookings.first?.deskID == "CO03D211")
     }
 
+    /// The correction has to be on the path every capture takes, not on a
+    /// helper the decode forgot to call.
+    @Test("A misread site code is corrected on the way out of the response")
+    func correctsTheSiteCodeOnDecode() throws {
+        let (bookings, _) = try HaikuClient.decode(envelope(row(desk: "\"C003A424\"")))
+        #expect(bookings.first?.deskID == "CO03A424")
+    }
+
     @Test("A document with nothing readable is a failure, not an empty success")
     func nothingReadable() {
         #expect(throws: CaptureError.self) {
@@ -264,6 +272,41 @@ struct SchemaTests {
             prompt.contains("produces no entry at all"),
             "a heading whose rows are below the edge is not a booking"
         )
+    }
+
+    /// The prompt has said this since the first photographed capture, and a
+    /// photograph of a monitor still came back `C003A424`. Saying it twice is
+    /// not the fix; the fix is that the app no longer has to be told.
+    @Test("A digit in the site code is corrected to the letter it misread", arguments: [
+        ("C003A424", "CO03A424"),
+        ("C003C117", "CO03C117"),
+        ("1O03A424", "IO03A424"),
+        ("5O03A424", "SO03A424"),
+        ("8R02D100", "BR02D100"),
+    ])
+    func correctsTheSiteCode(_ read: String, _ corrected: String) {
+        #expect(CapturedBooking.correctingSiteCode(read) == corrected)
+    }
+
+    /// Everything past the first two characters is a floor and a desk, where
+    /// digits are what belong.
+    @Test("The rest of the id is left alone", arguments: [
+        "CO03A424", "CO03C117", "CO00B100", "AB11C555",
+    ])
+    func leavesTheRestOfTheIDAlone(_ deskID: String) {
+        #expect(CapturedBooking.correctingSiteCode(deskID) == deskID)
+    }
+
+    /// A 3 is not a letter that was misread — it is a 3. Correcting it would
+    /// mean choosing a letter, which is the guess this app does not make.
+    @Test("A digit with no letter behind it is left as it came back")
+    func leavesAnUnreadableDigitAlone() {
+        #expect(CapturedBooking.correctingSiteCode("C903A424") == "C903A424")
+        // The first character is correctable and the second is not, so the
+        // whole correction is abandoned rather than left half applied.
+        #expect(CapturedBooking.correctingSiteCode("09O3A424") == "09O3A424")
+        #expect(CapturedBooking.correctingSiteCode("C") == "C")
+        #expect(CapturedBooking.correctingSiteCode("") == "")
     }
 
     /// A photographed screen read CO03C117 as C003C117 — the site letters as

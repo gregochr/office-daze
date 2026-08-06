@@ -113,13 +113,49 @@ nonisolated extension CapturedBooking {
         return ParsedBooking(
             officeName: honouring("office", office),
             day: day,
-            deskID: desk,
+            deskID: Self.correctingSiteCode(desk),
             floor: honouring("floor", floor),
             zone: honouring("zone", zone),
             startTime: honouring("startTime", startTime),
             endTime: end,
             unsureFields: unsure
         )
+    }
+
+    /// Digits that are only ever a letter misread, and the letter each one is.
+    ///
+    /// Confined to the pairs that are the same shape twice — a zero for an O, a
+    /// one for an I, a five for an S, an eight for a B. A 9 has no letter it
+    /// could be, so an id carrying one is left exactly as it came back: the
+    /// point of this is to undo a misreading, and a 9 turned into a letter of
+    /// our choosing would be an invention, which is the thing the whole capture
+    /// path exists to avoid.
+    private static let letterTwins: [Character: Character] = [
+        "0": "O", "1": "I", "5": "S", "8": "B",
+    ]
+
+    /// A desk id always opens with the two-letter site code, so a digit in
+    /// either position is a misreading — `C003A424` for `CO03A424`, which is
+    /// the one that came back from a photograph of a monitor.
+    ///
+    /// The prompt already says this and justifies it, and the model still got
+    /// it wrong, which is the argument for the rule living here as well. It is
+    /// the one correction the app can make without guessing: those two
+    /// characters are known to be letters, so no reading of them as digits can
+    /// be right, and that is true whether the model believes it or not.
+    ///
+    /// All or nothing across the pair. Half a correction would leave an id that
+    /// is neither what was printed nor what was read, and no one downstream
+    /// could tell which half to trust.
+    static func correctingSiteCode(_ deskID: String) -> String {
+        var characters = Array(deskID)
+        guard characters.count >= 2 else { return deskID }
+
+        for index in 0..<2 where characters[index].isNumber {
+            guard let letter = letterTwins[characters[index]] else { return deskID }
+            characters[index] = letter
+        }
+        return String(characters)
     }
 
     /// `2026-08-05`. Strict: a date the model reformatted into something else
