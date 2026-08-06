@@ -13,47 +13,44 @@ struct OfficeDazeApp: App {
 
     var body: some Scene {
         WindowGroup {
-            StageOneView()
+            StageTwoView()
         }
         .modelContainer(container)
     }
 }
 
-/// Stage 1 has no UI by design — the maths is proved in tests before anything
-/// is drawn. This view exists only so the app launches and the seeded store can
-/// be seen to have opened. Home replaces it in stage 3.
-private struct StageOneView: View {
-    @Environment(\.modelContext) private var context
-    @Query(sort: \Office.name) private var offices: [Office]
-    @Query(sort: \DeskBooking.date) private var bookings: [DeskBooking]
+/// Stage 2 shows the gauge on its own, in the four states from the design, so
+/// it can be judged before it is embedded in anything. Xcode previews cover the
+/// same ground; this exists so the dial can also be looked at on a real screen
+/// at real size. Home replaces it in stage 3.
+private struct StageTwoView: View {
+    private let states: [(String, Double, Int)] = [
+        ("Behind", 1, 7), ("Close", 6, 7), ("Met", 7, 7), ("Over \u{00B7} +2", 9, 7),
+    ]
 
     var body: some View {
         NavigationStack {
-            List {
-                Section("Quota — August 2026") {
-                    if let result = try? QuotaService.snapshot(
-                        for: SeedData.month, today: Day(2026, 8, 4), in: context
-                    ).result {
-                        LabeledContent("Working days", value: "\(result.workingDays)")
-                        LabeledContent("Leave", value: result.leaveTaken.formatted())
-                        LabeledContent("Target", value: "\(result.target)")
-                        LabeledContent("Attended", value: result.attended.formatted())
-                        LabeledContent("Forecast", value: result.forecast.formatted())
-                        LabeledContent("Shortfall", value: result.shortfall.formatted())
+            ScrollView {
+                VStack(spacing: Metrics.cardGap) {
+                    ForEach(states, id: \.0) { title, attended, target in
+                        VStack(spacing: 2) {
+                            Text(title)
+                                .font(.system(size: 13))
+                                .foregroundStyle(
+                                    attended >= Double(target) ? Palette.met : Palette.secondary
+                                )
+                            AttendanceGauge(attended: attended, target: target)
+                        }
+                        .padding(.vertical, 12)
+                        .frame(maxWidth: .infinity)
+                        .background(Palette.card)
+                        .clipShape(RoundedRectangle(cornerRadius: Metrics.cardRadius))
                     }
                 }
-                Section("Offices") {
-                    ForEach(offices) { office in
-                        LabeledContent(office.name, value: office.postcode)
-                    }
-                }
-                Section("Bookings") {
-                    ForEach(bookings) { booking in
-                        LabeledContent(booking.day.mediumText, value: booking.deskID)
-                    }
-                }
+                .padding(Metrics.screenPadding)
             }
-            .navigationTitle("Office Daze")
+            .background(Palette.ground)
+            .navigationTitle("Gauge")
         }
     }
 }
