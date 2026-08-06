@@ -21,6 +21,13 @@ struct OfficeEditorScreen: View {
     @State private var loaded = false
     @State private var saving = false
     @State private var confirmingDelete = false
+    @State private var couldNotLocate = false
+    /// The office a first save created, when this screen was opened to add
+    /// one. Saving again has to correct that row rather than insert a second.
+    @State private var created: Office?
+
+    /// The row being edited, once there is one.
+    private var editing: Office? { office ?? created }
 
     private var isNew: Bool { office == nil }
 
@@ -40,11 +47,11 @@ struct OfficeEditorScreen: View {
                     .textInputAutocapitalization(.words)
                 TextField("Address", text: $address)
                     .textInputAutocapitalization(.words)
-                TextField("Postcode", text: $postcode)
+                TextField("Postcode (optional)", text: $postcode)
                     .textInputAutocapitalization(.characters)
                     .autocorrectionDisabled()
             } footer: {
-                Text("The postcode is geocoded once when you save, so the perimeter works with no signal.")
+                Text("The address and postcode are looked up together, once, when you save — so the perimeter still works with no signal. The postcode is its own field because a UK one locates a building on its own; where it does not, leave it out and let the address do the work.")
             }
 
             Section("Colour") {
@@ -58,15 +65,27 @@ struct OfficeEditorScreen: View {
                     value: $radius, in: 20...500, step: 10
                 )
             } footer: {
-                Text("The alert fires once a day per office, and shows your desk number.")
+                Text("The alert shows your desk number when you arrive, and comes back on every arrival until you tap \"I'm here\".")
             }
 
-            if let office, office.isLocated {
+            // `editing`, not `office`: after a first save that could not be
+            // located, this is the section the user has been sent back to look
+            // at, and it has to describe the row that was just written.
+            if let editing {
                 Section("Location") {
-                    LabeledContent(
-                        "Coordinates",
-                        value: String(format: "%.4f, %.4f", office.latitude, office.longitude)
-                    )
+                    if editing.isLocated {
+                        LabeledContent(
+                            "Coordinates",
+                            value: String(format: "%.4f, %.4f", editing.latitude, editing.longitude)
+                        )
+                    } else {
+                        // Shown rather than hidden. An office with no
+                        // coordinates has no perimeter, and the section
+                        // disappearing was the only sign of it.
+                        Text("This address could not be found, so there is no perimeter and the arrival alert cannot fire. Adding the city usually fixes it.")
+                            .font(.system(size: 14))
+                            .foregroundStyle(Palette.warningText)
+                    }
                 }
             }
 
@@ -110,6 +129,14 @@ struct OfficeEditorScreen: View {
         } message: {
             Text("Its desk bookings stay, but they will no longer name an office.")
         }
+        .alert("Saved, but not located", isPresented: $couldNotLocate) {
+            // Stay, so the address can be corrected while it is still in front
+            // of you.
+            Button("Edit address", role: .cancel) {}
+            Button("Done") { dismiss() }
+        } message: {
+            Text("\(name) is saved, but the address could not be found on the map, so the arrival alert will not fire for it. Adding the city — or the country — usually fixes it.")
+        }
     }
 
     private var colourPicker: some View {
@@ -143,7 +170,13 @@ struct OfficeEditorScreen: View {
         saving = true
         defer { saving = false }
 
-        let target = office ?? Office(
+        // Read before anything is written. When editing, `target` *is* the
+        // stored office, so comparing the two afterwards compares a value with
+        // itself and always says nothing changed — which is why correcting an
+        // address on an already-located office never re-geocoded it.
+        let before = editing.map { [$0.postcode, $0.address] }
+
+        let target = editing ?? Office(
             name: "", address: "", postcode: "", colourHex: colourHex
         )
         target.name = name.trimmingCharacters(in: .whitespaces)
@@ -153,12 +186,10 @@ struct OfficeEditorScreen: View {
         target.radiusMetres = radius
         target.alertEnabled = alertEnabled
 
-        // Only when the address has actually changed, or on a first save. A
-        // geocode is a network round trip and the coordinates do not rot.
-        let addressChanged = office == nil
-            || office?.postcode != target.postcode
-            || office?.address != target.address
-        if addressChanged || !target.isLocated {
+        // Only when the address has actually changed, or while there is still
+        // nowhere to draw a perimeter. A geocode is a network round trip and
+        // coordinates do not rot.
+        if before != [target.postcode, target.address] || !target.isLocated {
             if let point = await Geocoding.coordinates(
                 postcode: target.postcode, address: target.address
             ) {
@@ -167,9 +198,24 @@ struct OfficeEditorScreen: View {
             }
         }
 
-        if office == nil { context.insert(target) }
+        if editing == nil {
+            context.insert(target)
+            // Held, so a second Save after the not-located alert corrects this
+            // office rather than inserting another one beside it.
+            created = target
+        }
         try? context.save()
-        dismiss()
+
+        // The office saves either way — one the geocoder cannot place is still
+        // an office, it just cannot be monitored. But it is worth saying so
+        // now rather than leaving it to be inferred from a line in the list a
+        // week later, and only when the alert was actually asked for: an
+        // office with the alert off does not need coordinates at all.
+        if alertEnabled && !target.isLocated {
+            couldNotLocate = true
+        } else {
+            dismiss()
+        }
     }
 
     private func delete() {
