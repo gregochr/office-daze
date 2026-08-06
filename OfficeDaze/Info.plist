@@ -32,11 +32,11 @@
 	-->
 	<!--
 	  The camera is the shortest path from a confirmation on a monitor to a
-	  booking in the app: point, shoot, read. No photo-library key is needed
+	  booking in the app: point and it reads. No photo-library key is needed
 	  beside it — the picture is handed straight to the app and never saved.
 	-->
 	<key>NSCameraUsageDescription</key>
-	<string>Photograph a desk booking on your screen and Office Daze reads the details off it. The picture is sent to Anthropic to be read by Claude, and is not saved to your photos.</string>
+	<string>Point Office Daze at a desk booking on your screen and it reads the details off it — there is no shutter to press. The picture it takes is sent to Anthropic to be read by Claude, and is not saved to your photos.</string>
 
 	<key>NSCalendarsWriteOnlyAccessUsageDescription</key>
 	<string>Adding a desk booking to your calendar puts the office, the floor and the hours where the rest of your day already is. Office Daze only ever writes events; it cannot read your calendar.</string>

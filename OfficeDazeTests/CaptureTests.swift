@@ -136,6 +136,14 @@ struct CaptureMappingTests {
         #expect(bookings.first?.deskID == "CO03D211")
     }
 
+    /// The correction has to be on the path every capture takes, not on a
+    /// helper the decode forgot to call.
+    @Test("A misread site code is corrected on the way out of the response")
+    func correctsTheSiteCodeOnDecode() throws {
+        let (bookings, _) = try HaikuClient.decode(envelope(row(desk: "\"C003A424\"")))
+        #expect(bookings.first?.deskID == "CO03A424")
+    }
+
     @Test("A document with nothing readable is a failure, not an empty success")
     func nothingReadable() {
         #expect(throws: CaptureError.self) {
@@ -245,6 +253,60 @@ struct SchemaTests {
         )
         #expect(prompt.contains("Do not take them apart"), "the desk id is not split")
         #expect(HaikuClient.model == "claude-haiku-4-5")
+    }
+
+    /// A photograph of a table starts and ends mid-table. The row at the top of
+    /// the frame had its heading cropped away, and the nearest date to it is
+    /// the heading below — which belongs to the rows below. Carrying it up
+    /// would have filed a real desk on the wrong day, which is the one failure
+    /// the review sheet cannot catch, because the booking looks right.
+    @Test("The prompt reads only whole rows")
+    func promptReadsWholeRows() {
+        let prompt = HaikuClient.systemPrompt
+        #expect(prompt.contains("Read only whole rows"))
+        #expect(
+            prompt.contains("Headings carry downwards only"),
+            "so a cropped top row does not borrow the heading beneath it"
+        )
+        #expect(
+            prompt.contains("produces no entry at all"),
+            "a heading whose rows are below the edge is not a booking"
+        )
+    }
+
+    /// The prompt has said this since the first photographed capture, and a
+    /// photograph of a monitor still came back `C003A424`. Saying it twice is
+    /// not the fix; the fix is that the app no longer has to be told.
+    @Test("A digit in the site code is corrected to the letter it misread", arguments: [
+        ("C003A424", "CO03A424"),
+        ("C003C117", "CO03C117"),
+        ("1O03A424", "IO03A424"),
+        ("5O03A424", "SO03A424"),
+        ("8R02D100", "BR02D100"),
+    ])
+    func correctsTheSiteCode(_ read: String, _ corrected: String) {
+        #expect(CapturedBooking.correctingSiteCode(read) == corrected)
+    }
+
+    /// Everything past the first two characters is a floor and a desk, where
+    /// digits are what belong.
+    @Test("The rest of the id is left alone", arguments: [
+        "CO03A424", "CO03C117", "CO00B100", "AB11C555",
+    ])
+    func leavesTheRestOfTheIDAlone(_ deskID: String) {
+        #expect(CapturedBooking.correctingSiteCode(deskID) == deskID)
+    }
+
+    /// A 3 is not a letter that was misread — it is a 3. Correcting it would
+    /// mean choosing a letter, which is the guess this app does not make.
+    @Test("A digit with no letter behind it is left as it came back")
+    func leavesAnUnreadableDigitAlone() {
+        #expect(CapturedBooking.correctingSiteCode("C903A424") == "C903A424")
+        // The first character is correctable and the second is not, so the
+        // whole correction is abandoned rather than left half applied.
+        #expect(CapturedBooking.correctingSiteCode("09O3A424") == "09O3A424")
+        #expect(CapturedBooking.correctingSiteCode("C") == "C")
+        #expect(CapturedBooking.correctingSiteCode("") == "")
     }
 
     /// A photographed screen read CO03C117 as C003C117 — the site letters as
@@ -448,5 +510,59 @@ struct OfficeMatcherTests {
         #expect(
             OfficeMatcher.match("The Coleman Building", against: offices)?.id == london.id
         )
+    }
+
+    // MARK: What the sheet was told
+
+    /// An office saved as "Euroclear London" shares only the city with a
+    /// printed "Coleman, London", so no rule here can match them and the sheet
+    /// asks. Once answered, it must stop asking.
+    let euroclear = OfficeMatcher.Candidate(
+        id: UUID(), name: "Euroclear London", postcode: "", address: "",
+        aliases: ["Coleman, London"]
+    )
+
+    @Test("A name the sheet was told about matches, where no rule could")
+    func matchesByAlias() {
+        #expect(OfficeMatcher.match("Coleman, London", against: [euroclear])?.id == euroclear.id)
+        #expect(
+            OfficeMatcher.match("Coleman, London", against: [brussels]) == nil,
+            "an office without the alias is still no match"
+        )
+    }
+
+    /// The same building prints with a floor in front of it on some rows and
+    /// not on others. An alias taught by one row has to hold for the next.
+    @Test("An alias is the same answer with the floor in front of it")
+    func aliasIgnoresTheFloor() {
+        #expect(
+            OfficeMatcher.match("03, Coleman, London", against: [euroclear])?.id == euroclear.id
+        )
+        #expect(
+            OfficeMatcher.match("coleman london", against: [euroclear])?.id == euroclear.id
+        )
+    }
+
+    /// An alias is an answer, not a heuristic — it outranks the name rule that
+    /// would otherwise have claimed this printed name for somebody else.
+    @Test("An alias beats a name that merely looks right")
+    func aliasWinsOverTheNameRule() {
+        let taught = OfficeMatcher.Candidate(
+            id: UUID(), name: "Euroclear London", postcode: "", address: "",
+            aliases: ["Coleman"]
+        )
+        let matched = OfficeMatcher.match("Coleman", against: [london, taught])
+        #expect(matched?.id == taught.id, "the answer wins over the resemblance")
+    }
+
+    /// Nothing should ever write this, since remembering strips the name off
+    /// every other office. If it happens anyway, asking beats picking one.
+    @Test("Two offices claiming one name is still a question")
+    func twoClaimsAskAgain() {
+        let rival = OfficeMatcher.Candidate(
+            id: UUID(), name: "Euroclear Leeds", postcode: "", address: "",
+            aliases: ["Coleman, London"]
+        )
+        #expect(OfficeMatcher.match("Coleman, London", against: [euroclear, rival]) == nil)
     }
 }

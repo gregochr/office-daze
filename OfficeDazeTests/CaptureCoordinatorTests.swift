@@ -34,6 +34,22 @@ struct CaptureCoordinatorTests {
         try container.mainContext.fetch(FetchDescriptor<DeskBooking>())
     }
 
+    /// A building name no rule can match to the seeded offices, so the sheet
+    /// has to ask — which is the only way an alias is ever written.
+    func unknownOffice(_ name: String = "Ropemaker Place") -> [ParsedBooking] {
+        [ParsedBooking(
+            officeName: name, day: Day(2026, 8, 4), deskID: "RP01A100",
+            floor: "01", zone: nil, startTime: "08:00", endTime: "17:00",
+            unsureFields: ["zone"]
+        )]
+    }
+
+    func office(_ id: UUID) throws -> Office {
+        try #require(
+            try container.mainContext.fetch(FetchDescriptor<Office>()).first { $0.id == id }
+        )
+    }
+
     // MARK: Reviewing
 
     @Test("A table is reviewed one booking at a time, in the order printed")
@@ -130,6 +146,72 @@ struct CaptureCoordinatorTests {
             coordinator.matchedOffice(for: elsewhere) == nil,
             "a silently invented office gets its own perimeter and never fires"
         )
+    }
+
+    /// The whole point: answer the question once and it stops being asked. An
+    /// office saved as "Coleman" and a booking system printing "Ropemaker
+    /// Place" share nothing for a rule to work on, so the answer is the only
+    /// thing that can connect them.
+    @Test("The office the sheet had to ask about is remembered")
+    func remembersTheAnswer() async throws {
+        stub(unknownOffice())
+        await coordinator.receive(data: image, filename: "one.png")
+        let booking = try #require(coordinator.current)
+        #expect(coordinator.matchedOffice(for: booking) == nil, "nothing to go on yet")
+
+        coordinator.save(booking, to: SeedData.colemanID)
+
+        #expect(try office(SeedData.colemanID).aliases == ["Ropemaker Place"])
+        #expect(
+            coordinator.matchedOffice(for: booking)?.id == SeedData.colemanID,
+            "the next capture of this name does not ask"
+        )
+    }
+
+    /// Only the answers worth keeping. A name the rules already handle would
+    /// fill the office's list with what it is called anyway.
+    @Test("A name that already matched is not remembered")
+    func remembersNothingItAlreadyKnew() async throws {
+        stub(CaptureSamples.colemanWeek)
+        await coordinator.receive(data: image, filename: "week.png")
+        let booking = try #require(coordinator.current)
+
+        coordinator.save(booking, to: SeedData.colemanID)
+
+        #expect(try office(SeedData.colemanID).aliases.isEmpty)
+    }
+
+    /// A building name means one building. Two offices claiming it is a
+    /// question the matcher will not answer, so it asks — and the answer takes
+    /// the name off the other one, which is what stops it asking a third time.
+    @Test("Answering an ambiguous name takes it off the other office")
+    func theNewestAnswerStands() async throws {
+        try office(SeedData.brusselsID).aliases = ["Ropemaker Place"]
+        try office(SeedData.colemanID).aliases = ["Ropemaker Place"]
+        try container.mainContext.save()
+
+        stub(unknownOffice())
+        await coordinator.receive(data: image, filename: "one.png")
+        let booking = try #require(coordinator.current)
+        #expect(coordinator.matchedOffice(for: booking) == nil, "two claims; ask")
+
+        coordinator.save(booking, to: SeedData.colemanID)
+
+        #expect(try office(SeedData.brusselsID).aliases.isEmpty)
+        #expect(try office(SeedData.colemanID).aliases == ["Ropemaker Place"])
+        #expect(coordinator.matchedOffice(for: booking)?.id == SeedData.colemanID)
+    }
+
+    /// The floor in front of the name varies row to row, and an alias taught by
+    /// one row that did not hold for the next would be no better than typing it.
+    @Test("The remembered name holds when the floor is printed in front of it")
+    func theAnswerSurvivesAFloorPrefix() async throws {
+        stub(unknownOffice())
+        await coordinator.receive(data: image, filename: "one.png")
+        coordinator.save(try #require(coordinator.current), to: SeedData.colemanID)
+
+        let later = try #require(unknownOffice("01, Ropemaker Place").first)
+        #expect(coordinator.matchedOffice(for: later)?.id == SeedData.colemanID)
     }
 
     @Test("The day's existing booking is found, so the sheet can name it")

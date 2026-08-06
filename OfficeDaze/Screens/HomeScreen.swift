@@ -25,6 +25,9 @@ struct HomeScreen: View {
     /// Which kind of manual entry the header's menu is adding, if any.
     @State private var adding: ManualEntry?
 
+    /// The booking a swipe sent to the editor, if any.
+    @State private var editing: DeskBooking?
+
     enum ManualEntry: String, Identifiable {
         case booking, attendance
         var id: String { rawValue }
@@ -54,6 +57,12 @@ struct HomeScreen: View {
             case .attended(let record): record.day
             case .planned(let record): record.day
             }
+        }
+
+        /// The booking behind this row, for the rows that have one.
+        var booking: DeskBooking? {
+            if case .booking(let booking) = self { return booking }
+            return nil
         }
     }
 
@@ -154,13 +163,17 @@ struct HomeScreen: View {
                 }
             }
         }
+        // The same editor the menu opens, handed the row that was swiped —
+        // a sheet rather than a push for the reason above.
+        .sheet(item: $editing) { booking in
+            NavigationStack { BookingEditorScreen(booking: booking) }
+        }
         .fullScreenCover(isPresented: $camera) {
             // Full screen, because a camera in a card with the app showing
             // round the edges is a viewfinder you have to aim through.
-            CameraPicker { data in
+            BookingScanner { data in
                 Task { await capture.receive(photo: data) }
             }
-            .ignoresSafeArea()
         }
     }
 
@@ -329,15 +342,16 @@ struct HomeScreen: View {
                     .accessibilityLabel("Add a booking or a day by hand")
 
                     // The confirmation is nearly always on a monitor in front
-                    // of you, so photographing it is the shortest way in. A
-                    // screenshot already in the library still arrives through
-                    // the iOS share sheet.
+                    // of you, so holding the phone up to it is the shortest way
+                    // in — there is not even a shutter to press. A screenshot
+                    // already in the library still arrives through the iOS
+                    // share sheet.
                     Button {
                         camera = true
                     } label: {
                         headerIcon("camera")
                     }
-                    .accessibilityLabel("Photograph a booking")
+                    .accessibilityLabel("Scan a booking")
                 }
                 .foregroundStyle(Palette.tint)
             }
@@ -345,9 +359,15 @@ struct HomeScreen: View {
                 emptyBookings
             } else {
                 RowStack(items: monthEntries, inset: 38) { entry in
-                    SwipeToDelete(id: entry.id, open: $openRow) {
-                        delete(entry)
-                    } content: {
+                    SwipeActions(
+                        id: entry.id,
+                        open: $openRow,
+                        // Only a booking has anything to edit. An attendance
+                        // record is a day and an office, and the screen that
+                        // takes those can only add another one.
+                        edit: entry.booking.map { booking in { editing = booking } },
+                        delete: { delete(entry) }
+                    ) {
                         switch entry {
                         case .booking(let booking):
                             NavigationLink {

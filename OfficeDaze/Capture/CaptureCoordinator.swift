@@ -177,7 +177,8 @@ final class CaptureCoordinator {
         let offices = (try? context.fetch(FetchDescriptor<Office>())) ?? []
         let candidates = offices.map {
             OfficeMatcher.Candidate(
-                id: $0.id, name: $0.name, postcode: $0.postcode, address: $0.address
+                id: $0.id, name: $0.name, postcode: $0.postcode, address: $0.address,
+                aliases: $0.aliases
             )
         }
         guard let match = OfficeMatcher.match(booking.officeName, against: candidates) else {
@@ -205,6 +206,11 @@ final class CaptureCoordinator {
     /// the incoming booking wins whatever the stored one's source was.
     func save(_ booking: ParsedBooking, to officeID: UUID, chosen: Bool = false) {
         guard case .review(let bookings, let index, var saved) = phase else { return }
+        // Asked before anything is written, because adding the alias first
+        // would make the question look as though it had never been asked.
+        if let printed = booking.officeName, matchedOffice(for: booking) == nil {
+            remember(printed, as: officeID)
+        }
         try? BookingStore.upsert(
             BookingMerge.Candidate(
                 officeID: officeID,
@@ -224,6 +230,26 @@ final class CaptureCoordinator {
         saved.insert(booking.id)
         phase = .review(bookings: bookings, index: index, saved: saved)
         advance()
+    }
+
+    /// The sheet asked which office this printed name meant and was told. Next
+    /// capture it will not ask.
+    ///
+    /// Taken off every other office on the way, because a building name means
+    /// one building: leaving it on two would make both claim it, which the
+    /// matcher reads as ambiguous and answers by asking again — the very thing
+    /// this exists to stop. The newest answer is the one that stands.
+    private func remember(_ printed: String, as officeID: UUID) {
+        let offices = (try? context.fetch(FetchDescriptor<Office>())) ?? []
+        guard let target = offices.first(where: { $0.id == officeID }) else { return }
+
+        for office in offices where office.id != officeID {
+            office.aliases.removeAll { OfficeMatcher.matches(printed, $0) }
+        }
+        if !target.aliases.contains(where: { OfficeMatcher.matches(printed, $0) }) {
+            target.aliases.append(printed)
+        }
+        try? context.save()
     }
 
     /// Skip is a save that writes nothing. From here the two are the same
