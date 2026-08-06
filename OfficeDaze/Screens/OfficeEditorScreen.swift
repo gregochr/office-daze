@@ -65,7 +65,7 @@ struct OfficeEditorScreen: View {
                     value: $radius, in: 20...500, step: 10
                 )
             } footer: {
-                Text("The alert shows your desk number when you arrive, and comes back on every arrival until you tap \"I'm here\".")
+                Text(ArrivalCopy.officeEditor)
             }
 
             // `editing`, not `office`: after a first save that could not be

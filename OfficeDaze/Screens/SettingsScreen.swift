@@ -40,7 +40,7 @@ struct SettingsScreen: View {
             } header: {
                 Text("Offices")
             } footer: {
-                Text("Each office has its own postcode and perimeter. The arrival alert fires once a day per office. All offices count toward the same monthly target.")
+                Text(ArrivalCopy.officesSection)
             }
 
             Section {

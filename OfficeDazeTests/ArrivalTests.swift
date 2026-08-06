@@ -135,6 +135,23 @@ struct ArrivalRuleTests {
 @Suite("The arrival alert's copy")
 struct ArrivalNotificationTests {
 
+    /// Three screens described the old rule, and changing it left all three
+    /// promising once a day. Copy cannot be tested for being *right*, but it
+    /// can be held to naming the thing that actually ends the alert — and the
+    /// old promise can be kept from coming back.
+    @Test("No screen still promises the alert fires once a day")
+    func copyMatchesTheRule() {
+        for line in ArrivalCopy.all {
+            #expect(!line.localizedCaseInsensitiveContains("once a day"))
+            #expect(!line.localizedCaseInsensitiveContains("once per day"))
+            #expect(
+                line.contains("I'm here"),
+                "the acknowledgement is the only thing that stops it, so each line says so"
+            )
+        }
+    }
+
+
     func booking(floor: String? = "Level 3", zone: String? = "C") -> ArrivalRule.Booking {
         .init(
             id: UUID(), officeID: UUID(), day: Day(2026, 8, 5),

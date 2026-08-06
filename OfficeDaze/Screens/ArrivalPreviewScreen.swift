@@ -63,7 +63,7 @@ struct ArrivalPreviewScreen: View {
                     Text(
                         desk == nil
                             ? "No desk booked today, so the alert offers to record the day anyway."
-                            : "Fires once a day, per office."
+                            : ArrivalCopy.preview
                     )
                     .font(.system(size: 13))
                     .foregroundStyle(Palette.secondary)
