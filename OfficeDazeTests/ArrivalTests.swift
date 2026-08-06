@@ -104,11 +104,11 @@ struct ArrivalNotificationTests {
     @Test("The desk number is the headline")
     func deskIsTheTitle() {
         let content = ArrivalNotifications.content(
-            officeName: "Ropemaker Place", desk: booking(),
+            officeName: "Coleman", desk: booking(),
             attended: 4, target: 7, monthName: "August"
         )
         #expect(content.title == "3C-114")
-        #expect(content.subtitle == "You're at Ropemaker Place")
+        #expect(content.subtitle == "You're at Coleman")
         #expect(content.body.contains("Level 3, Zone C"))
         #expect(content.body.contains("Day 4 of 7 for August"))
         #expect(content.category == .booked)
@@ -125,7 +125,7 @@ struct ArrivalNotificationTests {
         #expect(ArrivalNotifications.level("Mezzanine") == "Mezzanine")
 
         let content = ArrivalNotifications.content(
-            officeName: "Ropemaker Place", desk: booking(floor: "Level 3"),
+            officeName: "Coleman", desk: booking(floor: "Level 3"),
             attended: 4, target: 7, monthName: "August"
         )
         #expect(content.body.contains("Level 3, Zone C"))
@@ -156,7 +156,7 @@ struct ArrivalNotificationTests {
     @Test("The unbooked prompt says so, and uses its own category")
     func unbooked() {
         let content = ArrivalNotifications.content(
-            officeName: "Ropemaker Place", desk: nil,
+            officeName: "Coleman", desk: nil,
             attended: 4, target: 7, monthName: "August"
         )
         #expect(content.title == "You're on site")
@@ -194,7 +194,7 @@ struct ArrivalNotificationTests {
         let officeID = UUID()
         let request = ArrivalNotifications.request(
             ArrivalNotifications.content(
-                officeName: "Ropemaker Place", desk: desk,
+                officeName: "Coleman", desk: desk,
                 attended: 4, target: 7, monthName: "August"
             ),
             officeID: officeID, day: Day(2026, 8, 5), bookingID: desk.id
@@ -237,7 +237,7 @@ struct ArrivalLedgerTests {
     func booked() throws {
         let posted = recording()
         let decision = ledger.handleEntry(
-            officeID: SeedData.ropemakerID, day: Day(2026, 8, 5)
+            officeID: SeedData.colemanID, day: Day(2026, 8, 5)
         )
 
         guard case .desk(let booking) = decision else {
@@ -250,15 +250,15 @@ struct ArrivalLedgerTests {
 
         let rows = try container.mainContext.fetch(FetchDescriptor<ArrivalAlert>())
         #expect(rows.count == 1)
-        #expect(rows.first?.officeID == SeedData.ropemakerID)
+        #expect(rows.first?.officeID == SeedData.colemanID)
     }
 
     @Test("The second crossing of the day posts nothing and writes nothing")
     func firesOnce() throws {
         let posted = recording()
         let day = Day(2026, 8, 5)
-        ledger.handleEntry(officeID: SeedData.ropemakerID, day: day)
-        let second = ledger.handleEntry(officeID: SeedData.ropemakerID, day: day)
+        ledger.handleEntry(officeID: SeedData.colemanID, day: day)
+        let second = ledger.handleEntry(officeID: SeedData.colemanID, day: day)
 
         #expect(second == .alreadyFired)
         #expect(posted.requests.count == 1, "not a second notification")
@@ -272,8 +272,8 @@ struct ArrivalLedgerTests {
         let posted = recording()
         let day = Day(2026, 8, 20) // a working day with no seeded booking
 
-        #expect(ledger.handleEntry(officeID: SeedData.ropemakerID, day: day) == .nothingBooked)
-        #expect(ledger.handleEntry(officeID: SeedData.ropemakerID, day: day) == .alreadyFired)
+        #expect(ledger.handleEntry(officeID: SeedData.colemanID, day: day) == .nothingBooked)
+        #expect(ledger.handleEntry(officeID: SeedData.colemanID, day: day) == .alreadyFired)
         #expect(posted.requests.count == 1)
         #expect(posted.requests.first?.content.body.contains("No desk booked today.") == true)
     }
@@ -285,19 +285,19 @@ struct ArrivalLedgerTests {
         let day = Day(2026, 8, 20)
         let before = try container.mainContext.fetchCount(FetchDescriptor<AttendanceDay>())
 
-        ledger.handleEntry(officeID: SeedData.ropemakerID, day: day)
+        ledger.handleEntry(officeID: SeedData.colemanID, day: day)
         #expect(
             try container.mainContext.fetchCount(FetchDescriptor<AttendanceDay>()) == before,
             "the alert offers; it does not record"
         )
 
-        ledger.confirmAttendance(officeID: SeedData.ropemakerID, day: day, bookingID: nil)
+        ledger.confirmAttendance(officeID: SeedData.colemanID, day: day, bookingID: nil)
         #expect(
             try container.mainContext.fetchCount(FetchDescriptor<AttendanceDay>()) == before + 1
         )
 
         // And confirming twice does not double-count the day.
-        ledger.confirmAttendance(officeID: SeedData.ropemakerID, day: day, bookingID: nil)
+        ledger.confirmAttendance(officeID: SeedData.colemanID, day: day, bookingID: nil)
         #expect(
             try container.mainContext.fetchCount(FetchDescriptor<AttendanceDay>()) == before + 1
         )
@@ -308,7 +308,7 @@ struct ArrivalLedgerTests {
         let posted = recording()
         let office = try #require(
             try container.mainContext.fetch(FetchDescriptor<Office>())
-                .first { $0.id == SeedData.ropemakerID }
+                .first { $0.id == SeedData.colemanID }
         )
         office.alertEnabled = false
         try container.mainContext.save()

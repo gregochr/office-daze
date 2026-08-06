@@ -43,5 +43,13 @@ nonisolated enum CaptureSamples {
     ]
 
     static let usage = HaikuClient.Usage(inputTokens: 1640, outputTokens: 520)
+
+    /// A real 1×1 PNG, because the debug flow runs the app's own intake and
+    /// that intake decodes what it is given. A string standing in for an image
+    /// used to be enough; now it fails at the door, which is the point.
+    static let pixel = Data(base64Encoded: """
+        iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGA\
+        hKmMIQAAAABJRU5ErkJggg==
+        """)!
 }
 #endif

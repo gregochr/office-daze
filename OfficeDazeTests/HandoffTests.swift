@@ -181,8 +181,8 @@ struct CalendarWriterTests {
     ) -> CalendarWriter.Entry {
         .init(
             deskID: "3C-114",
-            officeName: "Ropemaker Place",
-            address: "25 Ropemaker St, London EC2Y 9LY",
+            officeName: "Coleman",
+            address: "63 Coleman Street, London EC2R 5BB",
             floor: floor, zone: zone,
             day: Day(2026, 8, 5),
             startTime: start, endTime: end
@@ -193,10 +193,10 @@ struct CalendarWriterTests {
     /// calendar beside meetings other people wrote.
     @Test("The title reads as a calendar entry, not an app label")
     func title() {
-        #expect(CalendarWriter.title(entry()) == "Desk 3C-114 · Ropemaker Place")
+        #expect(CalendarWriter.title(entry()) == "Desk 3C-114 · Coleman")
         #expect(
             CalendarWriter.location(entry())
-                == "Ropemaker Place, 25 Ropemaker St, London EC2Y 9LY"
+                == "Coleman, 63 Coleman Street, London EC2R 5BB"
         )
     }
 

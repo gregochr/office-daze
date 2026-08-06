@@ -71,19 +71,54 @@ final class CaptureCoordinator {
     }
 
     func receive(data: Data, filename: String) async {
+        // The extension is only good for the error message. What the bytes
+        // actually are is ImageIO's answer, not the filename's — a share from
+        // Photos arrives as .heic or .jpeg with no promise about its size, and
+        // the size is what the API rejected.
+        let ext = (filename as NSString).pathExtension
+        await receive(image: data, unreadableAs: ext.isEmpty ? nil : ext)
+    }
+
+    /// A photo chosen from the library — raw bytes, no filename to go on.
+    func receive(photo data: Data) async {
+        await receive(image: data, unreadableAs: nil)
+    }
+
+    /// The one intake every path goes through, because every path can hand over
+    /// a 12MP camera frame: the share sheet as readily as the picker.
+    ///
+    /// The re-encode runs before `lastInput` is set, so `Try again` repeats the
+    /// model call and not the conversion — and an image that never decoded
+    /// leaves `lastInput` nil, which is what `canRetry` reads to hide a retry
+    /// that could only fail the same way twice.
+    private func receive(image data: Data, unreadableAs ext: String?) async {
         // The sheet appears the instant the file lands, not when the response
         // does — the call takes a couple of seconds and a blank screen for
         // those seconds reads as a hang.
         phase = .parsing(step: .received)
-
-        guard let mediaType = HaikuClient.mediaType(filename: filename) else {
-            let ext = (filename as NSString).pathExtension
-            phase = .failed(.unsupportedFile(ext.isEmpty ? "file" : ext))
-            return
+        do {
+            let prepared = try await Task.detached { try PhotoImport.prepare(data) }.value
+            lastInput = (prepared.data, prepared.mediaType)
+            await run()
+        } catch {
+            // A PDF says so by name. Bytes with no name behind them can only
+            // say they were not an image.
+            phase = .failed(ext.map { CaptureError.unsupportedFile($0) } ?? .unreadableImage)
         }
-        lastInput = (data, mediaType)
-        await run()
     }
+
+    /// The photo could not be loaded out of the library at all. Surfaced
+    /// through the same sheet as every other failure rather than as a tap that
+    /// appears to do nothing.
+    func failed(_ error: CaptureError) {
+        lastInput = nil
+        phase = .failed(error)
+    }
+
+    /// False when the failure happened before there was anything to send —
+    /// an unreadable file, an unsupported one. Offering `Try again` there is
+    /// offering a button that does nothing.
+    var canRetry: Bool { lastInput != nil }
 
     func retry() async {
         guard lastInput != nil else { return }

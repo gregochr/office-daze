@@ -1,10 +1,16 @@
 import SwiftData
 import SwiftUI
 
-/// Not in the mock, but capture cannot work without somewhere to put the API
-/// key, and the key must not live in the repository or in a build setting.
+/// Everything that is set up once and then left alone: the offices, the key,
+/// the reminder.
+///
+/// Offices used to have a screen of their own off the home toolbar, which gave
+/// the app's least-visited list its most prominent link. It is a section here
+/// instead, behind the cog, and the toolbar slot it vacated is the cog itself.
 struct SettingsScreen: View {
     @Environment(\.modelContext) private var context
+    @Environment(ArrivalMonitor.self) private var arrival
+    @Query(sort: \Office.name) private var offices: [Office]
     @Query private var captures: [Capture]
 
     @State private var apiKey = ""
@@ -20,6 +26,23 @@ struct SettingsScreen: View {
 
     var body: some View {
         Form {
+            Section {
+                if !arrival.canMonitor && !offices.isEmpty { permissionRow }
+                ForEach(offices) { office in
+                    NavigationLink {
+                        OfficeEditorScreen(office: office)
+                    } label: {
+                        officeRow(office)
+                    }
+                }
+                NavigationLink("Add office") { OfficeEditorScreen() }
+                    .foregroundStyle(Palette.tint)
+            } header: {
+                Text("Offices")
+            } footer: {
+                Text("Each office has its own postcode and perimeter. The arrival alert fires once a day per office. All offices count toward the same monthly target.")
+            }
+
             Section {
                 SecureField("sk-ant-…", text: $apiKey)
                     .autocorrectionDisabled()
@@ -71,9 +94,9 @@ struct SettingsScreen: View {
             }
 
             Section {
-                Button("Delete everything", role: .destructive) { confirmingWipe = true }
+                Button("Delete data…", role: .destructive) { confirmingWipe = true }
             } footer: {
-                Text("Offices, bookings, attendance and leave. Attendance is the only record that a day was worked on prem — there is no other copy.")
+                Text("A booking can be captured again in seconds. An office is a name, an address and a perimeter you typed in yourself, so it goes only if you say so. Attendance is the only record that a day was worked on prem — there is no other copy, under either choice.")
             }
         }
         .navigationTitle("Settings")
@@ -89,10 +112,115 @@ struct SettingsScreen: View {
             components.day = Day.today.day
             nudgeTime = Day.calendar.date(from: components) ?? Date()
         }
+        // Two destructive choices rather than one, because they are not the
+        // same size of loss: the bookings are disposable and the offices are
+        // not.
         .confirmationDialog(
-            "Delete everything?", isPresented: $confirmingWipe, titleVisibility: .visible
+            "Delete what?", isPresented: $confirmingWipe, titleVisibility: .visible
         ) {
-            Button("Delete everything", role: .destructive) { try? Store.wipe(context) }
+            Button("Bookings, attendance and leave", role: .destructive) { wipe(.records) }
+            Button(everythingTitle, role: .destructive) { wipe(.everything) }
+        } message: {
+            Text("Attendance is the only record that a day was worked on prem — there is no other copy.")
         }
     }
+
+    private var everythingTitle: String {
+        guard !offices.isEmpty else { return "Everything" }
+        return "Everything, including \(offices.count) \(offices.count == 1 ? "office" : "offices")"
+    }
+
+    private func wipe(_ scope: Store.Scope) {
+        try? Store.wipe(context, scope: scope)
+        // Both of these were computed from records that no longer exist. The
+        // regions matter most: iOS goes on monitoring a perimeter for a deleted
+        // office until something tells it not to.
+        arrival.refreshRegions()
+        NudgeScheduler.refresh(in: context)
+    }
+
+    // MARK: Offices
+
+    private func officeRow(_ office: Office) -> some View {
+        HStack(spacing: 12) {
+            OfficeDot(colourHex: office.colourHex, size: 11)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(office.name)
+                    .foregroundStyle(Palette.text)
+                Text(fullAddress(office))
+                    .font(.system(size: 13))
+                    .foregroundStyle(Palette.secondary)
+                Text(alertText(office))
+                    .font(.system(size: 13))
+                    // Green for an alert that will fire, and only that. The
+                    // toggle being on is not the same thing, and colouring by
+                    // the toggle put "Alert needs location access" in the
+                    // reassuring colour.
+                    .foregroundStyle(willFire(office) ? Palette.met : Palette.secondary)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    /// Every condition the alert actually depends on. Anything short of Always
+    /// means iOS will not wake us for a crossing, and an office with no
+    /// coordinates has no perimeter to cross — whatever the toggle says.
+    private func willFire(_ office: Office) -> Bool {
+        office.alertEnabled && arrival.canMonitor && office.isLocated
+    }
+
+    private func alertText(_ office: Office) -> String {
+        guard office.alertEnabled else { return "Alert off" }
+        guard arrival.canMonitor else { return "Alert needs location access" }
+        guard office.isLocated else { return "Alert on · no location yet" }
+        return "Alert on · \(Int(office.radiusMetres))m"
+    }
+
+    /// The alert cannot fire without Always, so the list says so rather than
+    /// showing "Alert on" against a perimeter iOS will never wake us for.
+    private var permissionRow: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(arrival.authorization == .denied || arrival.authorization == .restricted
+                 ? "Location access is off — the arrival alert can't fire"
+                 : "The arrival alert needs \"Always\" location access")
+                .font(.system(size: 14))
+                .foregroundStyle(Palette.warningText)
+            Button(grantTitle) {
+                if arrival.authorization == .denied || arrival.authorization == .restricted {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(url)
+                    }
+                } else {
+                    arrival.requestAuthorization()
+                }
+            }
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundStyle(Palette.warningText)
+        }
+        .padding(.vertical, 2)
+        .listRowBackground(Palette.warningSurface)
+    }
+
+    private var grantTitle: String {
+        switch arrival.authorization {
+        case .denied, .restricted: "Open Settings"
+        case .authorizedWhenInUse: "Allow Always"
+        default: "Allow"
+        }
+    }
+}
+
+/// `63 Coleman Street, London EC2R 5BB`.
+///
+/// The postcode is a separate field because the geocoder wants it on its own,
+/// but people type it into the address line as well. Appending it regardless
+/// gives `… 1210 Brussels 1210`, so a postcode already in the address is left
+/// where it is.
+func fullAddress(_ office: Office) -> String {
+    let postcode = office.postcode.trimmingCharacters(in: .whitespaces)
+    guard !postcode.isEmpty,
+          !office.address.localizedCaseInsensitiveContains(postcode) else {
+        return office.address
+    }
+    return office.address.isEmpty ? postcode : "\(office.address) \(postcode)"
 }

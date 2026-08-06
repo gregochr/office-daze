@@ -252,17 +252,4 @@ nonisolated struct HaikuClient {
               let message = error["message"] as? String else { return "unknown error" }
         return message
     }
-
-    /// What the API will accept, from what iOS handed us.
-    static func mediaType(filename: String) -> String? {
-        switch (filename as NSString).pathExtension.lowercased() {
-        case "png": "image/png"
-        case "jpg", "jpeg": "image/jpeg"
-        case "gif": "image/gif"
-        case "webp": "image/webp"
-        // HEIC is what the iPhone camera writes and the API does not take it;
-        // the caller transcodes before reaching here.
-        default: nil
-        }
-    }
 }

@@ -53,17 +53,38 @@ enum Store {
         hasSeeded = true
     }
 
-    /// Deletes everything: offices, bookings, leave, attendance, the arrival
-    /// ledger and the retained capture originals.
+    /// How far a wipe reaches.
     ///
-    /// One thing it cannot undo: an `AttendanceDay` is the only record that a
-    /// day was ever worked on prem, and there is no other copy.
-    static func wipe(_ context: ModelContext) throws {
-        for model in OfficeDazeSchema.all {
+    /// The two are worth separating because the offices are the only thing in
+    /// the store the user typed in themselves — a name, an address, a postcode
+    /// and a perimeter per building. Everything else either arrived from a
+    /// screenshot or can be captured again in seconds. Clearing out the sample
+    /// month should not cost someone the buildings they set up.
+    enum Scope {
+        /// Bookings, attendance, leave, the arrival ledger and the retained
+        /// capture originals. The offices stay.
+        case records
+        /// The above and the offices with it.
+        case everything
+
+        var models: [any PersistentModel.Type] {
+            switch self {
+            case .everything: OfficeDazeSchema.all
+            case .records: OfficeDazeSchema.all.filter { $0 != Office.self }
+            }
+        }
+    }
+
+    /// One thing neither scope can undo: an `AttendanceDay` is the only record
+    /// that a day was ever worked on prem, and there is no other copy.
+    static func wipe(_ context: ModelContext, scope: Scope = .everything) throws {
+        for model in scope.models {
             try context.delete(model: model)
         }
         try context.save()
-        // So the sample month does not come back on the next launch.
+        // So the sample month does not come back on the next launch. Set for
+        // either scope: re-seeding over the offices someone kept would put the
+        // sample bookings back under them.
         hasSeeded = true
     }
 }

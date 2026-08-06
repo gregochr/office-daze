@@ -35,7 +35,7 @@ nonisolated enum ArrivalNotifications {
         var category: Category
     }
 
-    /// `3C-114` / `You're at Ropemaker Place` / `Level 3, Zone C` + the day
+    /// `3C-114` / `You're at Coleman` / `Level 3, Zone C` + the day
     /// count.
     static func content(
         officeName: String,

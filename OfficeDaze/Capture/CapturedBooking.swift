@@ -43,6 +43,10 @@ nonisolated struct ParsedBooking: Equatable, Sendable, Identifiable {
 nonisolated enum CaptureError: LocalizedError, Equatable {
     case noAPIKey
     case unsupportedFile(String)
+    /// Chosen from the library and then unreadable — a format ImageIO does not
+    /// decode, or bytes that are not an image at all. Distinct from
+    /// `unsupportedFile`, which knows what the thing was.
+    case unreadableImage
     case network(String)
     case httpStatus(Int, String)
     case modelReturnedNothingUsable(String)
@@ -54,6 +58,8 @@ nonisolated enum CaptureError: LocalizedError, Equatable {
             "No API key yet. Add one in Settings to read screenshots."
         case .unsupportedFile(let ext):
             "Office Daze can't read a .\(ext.uppercased()) file."
+        case .unreadableImage:
+            "That image couldn't be opened. Try a screenshot or a photo instead."
         case .network(let why):
             "The network request failed: \(why)"
         case .httpStatus(let code, let why):

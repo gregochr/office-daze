@@ -1,5 +1,8 @@
+import CoreGraphics
 import Foundation
+import ImageIO
 import Testing
+import UniformTypeIdentifiers
 @testable import OfficeDaze
 
 /// The wire shape and its mapping. The never-guess rule lives here — it is
@@ -241,12 +244,122 @@ struct SchemaTests {
         #expect(HaikuClient.model == "claude-haiku-4-5")
     }
 
-    @Test("Only media types the API accepts get sent")
-    func mediaTypes() {
-        #expect(HaikuClient.mediaType(filename: "week.png") == "image/png")
-        #expect(HaikuClient.mediaType(filename: "week.JPG") == "image/jpeg")
-        #expect(HaikuClient.mediaType(filename: "week.heic") == nil, "iPhone camera format")
-        #expect(HaikuClient.mediaType(filename: "week.pdf") == nil)
+}
+
+/// The conversion in front of the model call. A photographed confirmation came
+/// back `400 … image exceeds 10 MB maximum: 11907424 bytes`, and every case
+/// here is one of the reasons that happened.
+@Suite("Preparing an image for the API")
+struct PhotoImportTests {
+
+    @Test("A 12MP frame is cut to the long edge the API downsizes to anyway")
+    func oversizedIsResampled() throws {
+        let (data, mediaType) = try PhotoImport.prepare(
+            makeImage(width: 5712, height: 4284, type: .jpeg)
+        )
+        #expect(mediaType == "image/jpeg")
+        let size = try #require(dimensions(data))
+        #expect(size.width == PhotoImport.maxEdge, "the long edge is the one that is capped")
+        #expect(size.height == 1176, "and the aspect ratio survives it")
+    }
+
+    /// The camera's own format, which the API does not accept at any size.
+    @Test("HEIC becomes JPEG")
+    func heicIsTranscoded() throws {
+        let heic = makeImage(width: 800, height: 600, type: .heic)
+        // Encoding HEIC needs an encoder the host may not have. The decode side
+        // is what ships and it is the same code either way, so a host without
+        // one has nothing to say here rather than something to fail about.
+        guard !heic.isEmpty else { return }
+        #expect(try PhotoImport.prepare(heic).mediaType == "image/jpeg")
+    }
+
+    /// The one that would leave the model a sideways page. The rotation lives
+    /// in EXIF, not in the pixels, so a re-encode that ignores it silently
+    /// turns a readable confirmation into an unreadable one.
+    @Test("A landscape photo's EXIF rotation is baked into the pixels")
+    func orientationIsApplied() throws {
+        let sideways = makeImage(width: 4000, height: 3000, type: .jpeg, orientation: 6)
+        let size = try #require(dimensions(try PhotoImport.prepare(sideways).data))
+        #expect(size.height > size.width, "orientation 6 is a quarter turn")
+    }
+
+    @Test("An acceptable format at an acceptable size is not touched")
+    func smallPNGPassesThrough() throws {
+        let png = makeImage(width: 900, height: 600, type: .png)
+        let (data, mediaType) = try PhotoImport.prepare(png)
+        #expect(mediaType == "image/png")
+        #expect(data == png, "a lossy round-trip could only make the text harder to read")
+    }
+
+    /// Dimensions alone are not the bound the API rejected on — a screenshot
+    /// can sit inside 1568px and still be megabytes of PNG.
+    @Test("A within-bounds image that is simply too many bytes is re-encoded")
+    func oversizedBytesAreReencoded() throws {
+        let noisy = makeImage(width: 1500, height: 1400, type: .png, noisy: true)
+        try #require(noisy.count > PhotoImport.maxBytes, "the fixture has to be incompressible")
+        let (data, mediaType) = try PhotoImport.prepare(noisy)
+        #expect(mediaType == "image/jpeg")
+        #expect(data.count < PhotoImport.maxBytes)
+    }
+
+    @Test("Bytes that are not an image say so rather than being sent")
+    func rubbishThrows() {
+        #expect(throws: CaptureError.unreadableImage) {
+            try PhotoImport.prepare(Data("screenshot".utf8))
+        }
+        #expect(throws: CaptureError.unreadableImage) {
+            try PhotoImport.prepare(Data())
+        }
+    }
+
+    // MARK: Fixtures
+
+    /// Flat grey unless `noisy`, which fills the buffer with something that
+    /// will not compress — the only way to get a large file at small
+    /// dimensions.
+    func makeImage(
+        width: Int, height: Int, type: UTType, orientation: Int? = nil, noisy: Bool = false
+    ) -> Data {
+        var pixels = [UInt8](repeating: 128, count: width * height * 4)
+        if noisy {
+            // xorshift rather than anything periodic: a repeating pattern is
+            // exactly what PNG is good at, and the fixture only earns its keep
+            // if it refuses to compress.
+            var state: UInt64 = 0x2545_F491_4F6C_DD1D
+            for index in pixels.indices {
+                state ^= state << 13
+                state ^= state >> 7
+                state ^= state << 17
+                pixels[index] = UInt8(truncatingIfNeeded: state)
+            }
+        }
+        let image: CGImage? = pixels.withUnsafeMutableBytes { buffer in
+            CGContext(
+                data: buffer.baseAddress, width: width, height: height,
+                bitsPerComponent: 8, bytesPerRow: width * 4,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
+            )?.makeImage()
+        }
+        let out = NSMutableData()
+        guard let image, let writer = CGImageDestinationCreateWithData(
+            out, type.identifier as CFString, 1, nil
+        ) else { return Data() }
+        var properties: [CFString: Any] = [:]
+        if let orientation { properties[kCGImagePropertyOrientation] = orientation }
+        CGImageDestinationAddImage(writer, image, properties as CFDictionary)
+        guard CGImageDestinationFinalize(writer) else { return Data() }
+        return out as Data
+    }
+
+    func dimensions(_ data: Data) -> (width: Int, height: Int)? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil)
+                as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? Int,
+              let height = properties[kCGImagePropertyPixelHeight] as? Int else { return nil }
+        return (width, height)
     }
 }
 
@@ -254,7 +367,7 @@ struct SchemaTests {
 struct OfficeMatcherTests {
 
     let london = OfficeMatcher.Candidate(
-        id: UUID(), name: "Coleman", postcode: "EC2Y 9LY", address: "London"
+        id: UUID(), name: "Coleman", postcode: "EC2R 5BB", address: "London"
     )
     let brussels = OfficeMatcher.Candidate(
         id: UUID(), name: "Brussels", postcode: "1040", address: "Rue de la Loi 42"
@@ -272,7 +385,7 @@ struct OfficeMatcherTests {
     @Test("A postcode is unambiguous, so it wins")
     func matchesByPostcode() {
         #expect(
-            OfficeMatcher.match("Somewhere, EC2Y 9LY", against: offices)?.id == london.id
+            OfficeMatcher.match("Somewhere, EC2R 5BB", against: offices)?.id == london.id
         )
     }
 

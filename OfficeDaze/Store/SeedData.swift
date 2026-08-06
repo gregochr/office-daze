@@ -12,45 +12,55 @@ enum SeedData {
 
     // Offices are stable identities, so their ids are fixed rather than random:
     // the desk bookings, the attendance rows and the geofence all have to agree
-    // on which building Ropemaker Place is.
-    static let ropemakerID = UUID(uuidString: "A0000000-0000-0000-0000-000000000001")!
+    // on which building Coleman is.
+    static let colemanID = UUID(uuidString: "A0000000-0000-0000-0000-000000000001")!
     static let brusselsID = UUID(uuidString: "A0000000-0000-0000-0000-000000000002")!
 
     /// The month the sample data describes.
     static let month = Month(year: 2026, month: 8)
 
     static func populate(_ context: ModelContext) throws {
-        let ropemaker = Office(
-            id: ropemakerID,
-            name: "Ropemaker Place",
-            address: "25 Ropemaker St, London",
-            postcode: "EC2Y 9LY",
-            latitude: 51.5195,
-            longitude: -0.0885,
+        // Named as the booking system prints it, because that is what the
+        // matcher has to recognise: every capture sample says "Coleman", and a
+        // seed office called anything else makes the sheet ask which office
+        // "Coleman" is on every single import.
+        //
+        // Coordinates as for Brussels — off the street, not surveyed, and
+        // replaced by the geocoder the first time the office is saved.
+        let coleman = Office(
+            id: colemanID,
+            name: "Coleman",
+            address: "63 Coleman Street, London",
+            postcode: "EC2R 5BB",
+            latitude: 51.5172,
+            longitude: -0.0893,
             colourHex: OfficeColours.palette[0]
         )
+        // Euroclear Bank. The coordinates are read off the street, not
+        // surveyed — close enough to seed a 50m perimeter for the simulator,
+        // and the geocoder replaces them the first time the office is saved.
         let brussels = Office(
             id: brusselsID,
             name: "Brussels",
-            address: "Rue de la Loi 42, 1040 Brussels",
-            postcode: "1040",
-            latitude: 50.8467,
-            longitude: 4.3676,
+            address: "1 Boulevard du Roi Albert II, 1210 Brussels",
+            postcode: "1210",
+            latitude: 50.8568,
+            longitude: 4.3567,
             colourHex: OfficeColours.palette[1]
         )
-        context.insert(ropemaker)
+        context.insert(coleman)
         context.insert(brussels)
 
         // The four bookings on the home screen. The 5th and 6th have been
         // attended; the 11th and 12th are still ahead, and count as forecast.
         let bookings = [
             DeskBooking(
-                officeID: ropemakerID, day: Day(2026, 8, 5), deskID: "3C-114",
+                officeID: colemanID, day: Day(2026, 8, 5), deskID: "3C-114",
                 floor: "Level 3", zone: "C",
                 startTime: "09:00", endTime: "17:00", source: .capture
             ),
             DeskBooking(
-                officeID: ropemakerID, day: Day(2026, 8, 6), deskID: "3C-116",
+                officeID: colemanID, day: Day(2026, 8, 6), deskID: "3C-116",
                 floor: "Level 3", zone: "C",
                 startTime: "09:00", endTime: "17:00", source: .capture
             ),
@@ -64,7 +74,7 @@ enum SeedData {
                 unsureFields: ["zone"]
             ),
             DeskBooking(
-                officeID: ropemakerID, day: Day(2026, 8, 12), deskID: "3C-121",
+                officeID: colemanID, day: Day(2026, 8, 12), deskID: "3C-121",
                 floor: "Level 3", zone: "C",
                 startTime: "09:00", endTime: "17:00", source: .manual
             ),
@@ -75,14 +85,14 @@ enum SeedData {
         // Two of them have no desk booking behind them — days turned up for
         // without booking, which the nullable bookingID exists to record.
         let attendance = [
-            AttendanceDay(day: Day(2026, 8, 3), officeID: ropemakerID, source: .manual),
+            AttendanceDay(day: Day(2026, 8, 3), officeID: colemanID, source: .manual),
             AttendanceDay(day: Day(2026, 8, 4), officeID: brusselsID, source: .manual),
             AttendanceDay(
-                day: Day(2026, 8, 5), officeID: ropemakerID,
+                day: Day(2026, 8, 5), officeID: colemanID,
                 source: .geofence, bookingID: bookings[0].id
             ),
             AttendanceDay(
-                day: Day(2026, 8, 6), officeID: ropemakerID,
+                day: Day(2026, 8, 6), officeID: colemanID,
                 source: .geofence, bookingID: bookings[1].id
             ),
         ]

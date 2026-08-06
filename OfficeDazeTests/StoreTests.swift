@@ -26,7 +26,7 @@ struct StoreTests {
     func offices() throws {
         let offices = try container.mainContext.fetch(FetchDescriptor<Office>())
             .sorted { $0.name < $1.name }
-        #expect(offices.map(\.name) == ["Brussels", "Ropemaker Place"])
+        #expect(offices.map(\.name) == ["Brussels", "Coleman"])
         #expect(Set(offices.map(\.colourHex)).count == 2, "never the same colour twice")
         // Hoisted out of #expect: `allSatisfy` is `rethrows`, and the macro
         // cannot tell a non-throwing closure from a throwing one inside it.
@@ -85,22 +85,22 @@ struct StoreTests {
         let snapshot = try QuotaService.snapshot(
             for: SeedData.month, today: Day(2026, 8, 4), in: container.mainContext
         )
-        #expect(snapshot.attendedByOffice[SeedData.ropemakerID] == 3)
+        #expect(snapshot.attendedByOffice[SeedData.colemanID] == 3)
         #expect(snapshot.attendedByOffice[SeedData.brusselsID] == 1)
     }
 
     /// The postcode is its own field, but people type it into the address as
-    /// well. Appending it regardless gave "… 1040 Brussels 1040".
+    /// well. Appending it regardless gave "… 1210 Brussels 1210".
     @Test("A postcode already in the address is not appended twice")
     func addressFormatting() throws {
         let offices = try container.mainContext.fetch(FetchDescriptor<Office>())
         let brussels = try #require(offices.first { $0.name == "Brussels" })
-        let ropemaker = try #require(offices.first { $0.name == "Ropemaker Place" })
-        #expect(fullAddress(brussels) == "Rue de la Loi 42, 1040 Brussels")
-        #expect(fullAddress(ropemaker) == "25 Ropemaker St, London EC2Y 9LY")
+        let coleman = try #require(offices.first { $0.name == "Coleman" })
+        #expect(fullAddress(brussels) == "1 Boulevard du Roi Albert II, 1210 Brussels")
+        #expect(fullAddress(coleman) == "63 Coleman Street, London EC2R 5BB")
     }
 
-    @Test("Wiping leaves nothing behind")
+    @Test("Wiping everything leaves nothing behind")
     func wipe() throws {
         let context = container.mainContext
         try Store.wipe(context)
@@ -112,5 +112,26 @@ struct StoreTests {
         ]
         let allEmpty = counts.allSatisfy { $0 == 0 }
         #expect(allEmpty)
+    }
+
+    /// The offices are the only thing in the store that was typed in by hand,
+    /// so clearing out the sample month must not take them with it.
+    @Test("Wiping the records keeps the offices")
+    func wipeRecordsOnly() throws {
+        let context = container.mainContext
+        try Store.wipe(context, scope: .records)
+        #expect(try context.fetchCount(FetchDescriptor<DeskBooking>()) == 0)
+        #expect(try context.fetchCount(FetchDescriptor<AttendanceDay>()) == 0)
+        #expect(try context.fetchCount(FetchDescriptor<LeaveDay>()) == 0)
+
+        let offices = try context.fetch(FetchDescriptor<Office>())
+        #expect(offices.map(\.name).sorted() == ["Brussels", "Coleman"])
+        // Not just present — intact. A perimeter that survived the wipe
+        // without its coordinates would monitor nothing.
+        //
+        // Hoisted out of #expect for the same reason as `offices()` above:
+        // `allSatisfy` is `rethrows` and the macro cannot tell the difference.
+        let located = offices.allSatisfy(\.isLocated)
+        #expect(located)
     }
 }

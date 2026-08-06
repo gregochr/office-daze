@@ -282,10 +282,15 @@ struct CaptureSheet: View {
 
             Card {
                 VStack(spacing: 0) {
-                    ActionRow(title: "Try again", centred: true) {
-                        Task { await coordinator.retry() }
+                    // Only when there is something to retry. A photo that never
+                    // decoded has no request behind it, and a button that
+                    // re-runs nothing is worse than no button.
+                    if coordinator.canRetry {
+                        ActionRow(title: "Try again", centred: true) {
+                            Task { await coordinator.retry() }
+                        }
+                        RowDivider(inset: 0)
                     }
-                    RowDivider(inset: 0)
                     ActionRow(title: "Enter manually", centred: true) {
                         manualEntry = true
                     }

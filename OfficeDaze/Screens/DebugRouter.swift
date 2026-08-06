@@ -15,8 +15,8 @@ struct DebugRouter: View {
     var body: some View {
         NavigationStack {
             switch ProcessInfo.processInfo.screenArgument {
-            case "offices":
-                OfficesScreen()
+            case "offices", "settings":
+                SettingsScreen()
             case "office":
                 OfficeEditorScreen(office: offices.first)
             case "booking":
@@ -29,8 +29,6 @@ struct DebugRouter: View {
                 }
             case "add":
                 BookingEditorScreen()
-            case "settings":
-                SettingsScreen()
             case "alert":
                 ArrivalPreviewScreen()
             case "leave":
@@ -64,7 +62,7 @@ struct DebugRouter: View {
             default:
                 return
             }
-            await capture.receive(data: Data("screenshot".utf8), filename: "week.png")
+            await capture.receive(data: CaptureSamples.pixel, filename: "week.png")
         }
     }
 }

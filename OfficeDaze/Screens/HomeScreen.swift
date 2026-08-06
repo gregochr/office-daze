@@ -1,9 +1,11 @@
+import PhotosUI
 import SwiftData
 import SwiftUI
 
 /// The gauge, the month's split by office, and every booking in it.
 struct HomeScreen: View {
     @Environment(\.modelContext) private var context
+    @Environment(CaptureCoordinator.self) private var capture
 
     @Query(sort: \Office.name) private var offices: [Office]
     @Query(sort: \DeskBooking.date) private var bookings: [DeskBooking]
@@ -13,6 +15,11 @@ struct HomeScreen: View {
     /// moves it — the store holds every month at once, so this is the only
     /// state the screen needs.
     @State private var month = Day.today.month_
+
+    /// Cleared as soon as it is read. The picker only reports a *change*, so
+    /// leaving the last choice in place would make picking the same photo twice
+    /// in a row do nothing the second time.
+    @State private var photo: PhotosPickerItem?
 
     private var monthBookings: [DeskBooking] {
         bookings.filter { month.contains($0.day) }
@@ -46,7 +53,25 @@ struct HomeScreen: View {
         .navigationTitle("Office Daze")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                NavigationLink("Offices") { OfficesScreen() }
+                NavigationLink {
+                    SettingsScreen()
+                } label: {
+                    Image(systemName: "gearshape")
+                }
+                .accessibilityLabel("Settings")
+            }
+        }
+        // The library hands back bytes, not a file, so this is the one intake
+        // that has to convert before the coordinator can use it.
+        .onChange(of: photo) { _, chosen in
+            guard let chosen else { return }
+            photo = nil
+            Task {
+                guard let data = try? await chosen.loadTransferable(type: Data.self) else {
+                    capture.failed(.unreadableImage)
+                    return
+                }
+                await capture.receive(photo: data)
             }
         }
     }
@@ -166,10 +191,18 @@ struct HomeScreen: View {
 
     private var bookingsSection: some View {
         VStack(spacing: 8) {
+            // Two ways in, named for what they are rather than for one "Add"
+            // that hides the interesting half. The picker is the only route to
+            // capture that does not go through the share sheet.
             SectionHeader(title: "Bookings") {
-                NavigationLink("Add") { BookingEditorScreen() }
-                    .font(.system(size: 15))
-                    .foregroundStyle(Palette.tint)
+                HStack(spacing: 16) {
+                    NavigationLink("+ Manually") { BookingEditorScreen() }
+                    PhotosPicker(selection: $photo, matching: .images) {
+                        Text("+ From image")
+                    }
+                }
+                .font(.system(size: 15))
+                .foregroundStyle(Palette.tint)
             }
             if monthBookings.isEmpty {
                 emptyBookings
@@ -245,6 +278,8 @@ struct HomeScreen: View {
 }
 
 #Preview {
-    NavigationStack { HomeScreen() }
-        .modelContainer(try! Store.makeInMemoryContainer(seeded: true))
+    let container = try! Store.makeInMemoryContainer(seeded: true)
+    return NavigationStack { HomeScreen() }
+        .modelContainer(container)
+        .environment(CaptureCoordinator(context: container.mainContext))
 }
