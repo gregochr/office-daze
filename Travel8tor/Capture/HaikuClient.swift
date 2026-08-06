@@ -106,7 +106,9 @@ nonisolated struct HaikuClient {
     array of exactly one entry, and never spread it across a range of dates. \
     Its date is often a full timestamp, "2026-08-25 09:00:00 CEST". The \
     calendar date there is the booking's date and the clock time is its start \
-    time; the end time is not stated, so it is null and named.
+    time; the end time is not stated anywhere, so it is null and named — the \
+    app fills in the end of the working day itself, and an invented one would \
+    be indistinguishable from a real reading.
 
     Skip any row whose status is not "Confirmed". Cancelled, pending and \
     waitlisted rows are not bookings and must not appear in the output. A \

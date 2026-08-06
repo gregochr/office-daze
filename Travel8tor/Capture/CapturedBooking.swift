@@ -68,6 +68,9 @@ nonisolated enum CaptureError: LocalizedError, Equatable {
 
 nonisolated extension CapturedBooking {
 
+    /// The end of the working day, used when the document does not print one.
+    static let defaultEndTime = "17:00"
+
     /// Nil when the row cannot become a booking at all — no legible date, or no
     /// desk. Everything else is optional by design.
     ///
@@ -83,15 +86,20 @@ nonisolated extension CapturedBooking {
         guard let dateText = honouring("date", date), let day = Self.day(from: dateText),
               let desk = honouring("deskId", deskId) else { return nil }
 
+        // The one value the app supplies for itself. A single confirmation
+        // prints when the desk becomes yours and never when it stops being, and
+        // the answer is 17:00 every time — so this is a default rather than a
+        // question, and the field is not flagged for review.
+        let end = honouring("endTime", endTime) ?? Self.defaultEndTime
+
         // A field the model left blank without naming it is still unread — the
         // schema asks for null and a name, but the flag has to hold even when
         // the model forgets half of that.
-        var unsure = unsureFields
+        var unsure = unsureFields.filter { $0 != "endTime" }
         for (name, value) in [
             ("floor", honouring("floor", floor)),
             ("zone", honouring("zone", zone)),
             ("startTime", honouring("startTime", startTime)),
-            ("endTime", honouring("endTime", endTime)),
         ] where value == nil && !unsure.contains(name) {
             unsure.append(name)
         }
@@ -103,7 +111,7 @@ nonisolated extension CapturedBooking {
             floor: honouring("floor", floor),
             zone: honouring("zone", zone),
             startTime: honouring("startTime", startTime),
-            endTime: honouring("endTime", endTime),
+            endTime: end,
             unsureFields: unsure
         )
     }

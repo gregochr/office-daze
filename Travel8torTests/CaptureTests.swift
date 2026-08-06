@@ -48,6 +48,45 @@ struct CaptureMappingTests {
         #expect(usage.outputTokens == 520)
     }
 
+    /// The other layout the booking system sends: a confirmation email for one
+    /// reservation, its details as labelled fields and its date a timestamp
+    /// with a timezone the app does not handle. One booking, one day.
+    @Test("A single-reservation confirmation becomes one booking on the day it names")
+    func singleConfirmation() throws {
+        let (bookings, _) = try HaikuClient.decode(envelope(row(
+            office: "\"Coleman\"", date: "\"2026-08-25 09:00:00 CEST\"",
+            desk: "\"CO03B424\"", floor: "\"03\"", zone: "null",
+            start: "\"09:00\"", end: "null", unsure: "[\\\"zone\\\",\\\"endTime\\\"]"
+        )))
+
+        #expect(bookings.count == 1, "this layout is one booking, never a range")
+        let booking = try #require(bookings.first)
+        #expect(booking.day == Day(2026, 8, 25), "the timezone beside it changes nothing")
+        #expect(booking.deskID == "CO03B424")
+        #expect(booking.floor == "03", "read from its own field, not split off the desk id")
+        #expect(booking.officeName == "Coleman", "no city was printed, so none is added")
+        #expect(booking.startTime == "09:00")
+        #expect(booking.endTime == "17:00", "unprinted, so the working day's end stands in")
+        #expect(!booking.unsureFields.contains("endTime"), "a default, not a question")
+        #expect(booking.needsChecking, "the zone is still unread")
+    }
+
+    /// The end of the day is the one field the app answers for itself: a
+    /// confirmation prints when the desk becomes yours and never when it stops.
+    @Test("An unread end time defaults to 17:00 rather than being flagged")
+    func endTimeDefaults() throws {
+        let (fromNull, _) = try HaikuClient.decode(envelope(row(end: "null", unsure: "[]")))
+        #expect(fromNull.first?.endTime == "17:00")
+        #expect(fromNull.first?.unsureFields.contains("endTime") == false)
+
+        // Even a value the model itself called unread gives way to the default.
+        let (fromUnsure, _) = try HaikuClient.decode(envelope(
+            row(end: "\"19:00\"", unsure: "[\\\"endTime\\\"]")
+        ))
+        #expect(fromUnsure.first?.endTime == "17:00")
+        #expect(fromUnsure.first?.unsureFields.contains("endTime") == false)
+    }
+
     /// The desk id is `CO03C407` — Coleman, floor 03, desk C407 — and the
     /// prompt forbids taking it apart. The floor comes from its own field.
     @Test("A site-coded desk id is stored whole, and the floor read separately")
@@ -124,6 +163,7 @@ struct CaptureMappingTests {
     func strictDates() {
         #expect(CapturedBooking.day(from: "2026-08-05") == Day(2026, 8, 5))
         #expect(CapturedBooking.day(from: "2026-08-05T08:00:00+01:00") == Day(2026, 8, 5))
+        #expect(CapturedBooking.day(from: "2026-08-25 09:00:00 CEST") == Day(2026, 8, 25))
         #expect(CapturedBooking.day(from: "05/08/2026") == nil)
         #expect(CapturedBooking.day(from: "5 August 2026") == nil)
         #expect(CapturedBooking.day(from: "2026-13-05") == nil)
@@ -190,7 +230,13 @@ struct SchemaTests {
         #expect(prompt.contains("NEVER INFER A VALUE"))
         #expect(prompt.contains("unsureFields"))
         #expect(prompt.contains("Confirmed"), "non-confirmed rows are skipped")
+        #expect(prompt.contains("no status at all"), "a confirmation without a status is read")
+        #expect(prompt.contains("two layouts"), "a table and a single confirmation")
         #expect(prompt.contains("group heading"), "the date is carried down to each row")
+        #expect(
+            prompt.contains("array of exactly one entry"),
+            "a single confirmation is one day, not a range"
+        )
         #expect(prompt.contains("Do not take them apart"), "the desk id is not split")
         #expect(HaikuClient.model == "claude-haiku-4-5")
     }
