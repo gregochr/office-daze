@@ -234,7 +234,10 @@ struct SchemaTests {
         #expect(prompt.contains("unsureFields"))
         #expect(prompt.contains("Confirmed"), "non-confirmed rows are skipped")
         #expect(prompt.contains("no status at all"), "a confirmation without a status is read")
-        #expect(prompt.contains("two layouts"), "a table and a single confirmation")
+        #expect(
+            prompt.contains("three layouts"),
+            "a table, a single confirmation, and a reservation page"
+        )
         #expect(prompt.contains("group heading"), "the date is carried down to each row")
         #expect(
             prompt.contains("array of exactly one entry"),
@@ -242,6 +245,39 @@ struct SchemaTests {
         )
         #expect(prompt.contains("Do not take them apart"), "the desk id is not split")
         #expect(HaikuClient.model == "claude-haiku-4-5")
+    }
+
+    /// A photographed screen read CO03C117 as C003C117 — the site letters as
+    /// digits. The prefix is always two letters, so this is the one reading the
+    /// prompt can overrule without guessing at anything.
+    @Test("The prompt knows the site code is letters, never digits")
+    func promptFixesTheSitePrefix() {
+        let prompt = HaikuClient.systemPrompt
+        #expect(prompt.contains("always begins with two letters"))
+        #expect(prompt.contains("the letter O, not a zero"))
+        #expect(prompt.contains("C003C407"), "the misreading is named, not just the rule")
+        #expect(
+            prompt.contains("no reading of them as digits can be right"),
+            "the override is justified, so it does not read as licence to invent"
+        )
+    }
+
+    /// The reservation page keeps its desk id in the heading and nowhere else,
+    /// and surrounds it with numbers that are not desks.
+    @Test("The prompt accounts for the reservation page")
+    func promptReadsTheReservationPage() {
+        let prompt = HaikuClient.systemPrompt
+        #expect(prompt.contains("Reservation for"), "the heading holds the desk id")
+        #expect(
+            prompt.contains("no separate desk field"),
+            "so it must be read from the heading rather than looked for elsewhere"
+        )
+        #expect(prompt.contains("WRES"), "a reservation number is not a desk id")
+        #expect(prompt.contains("9 Hours"), "nor is a duration a time")
+        #expect(
+            prompt.contains("read both and take the date from the start"),
+            "this layout prints a real end time, so nothing is defaulted"
+        )
     }
 
 }

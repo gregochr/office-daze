@@ -42,6 +42,18 @@ nonisolated enum CaptureSamples {
         )
     ]
 
+    /// The third layout: the reservation's own page. Its desk id came out of
+    /// the heading, and unlike the confirmation email it prints both ends of
+    /// the day — so nothing is defaulted and only the floor, which the page
+    /// never states, is flagged.
+    static let reservationPage: [ParsedBooking] = [
+        ParsedBooking(
+            officeName: "Coleman, London", day: Day(2026, 9, 7), deskID: "CO03C117",
+            floor: nil, zone: nil, startTime: "08:00", endTime: "17:00",
+            unsureFields: ["floor", "zone"]
+        )
+    ]
+
     static let usage = HaikuClient.Usage(inputTokens: 1640, outputTokens: 520)
 
     /// A real 1×1 PNG, because the debug flow runs the app's own intake and

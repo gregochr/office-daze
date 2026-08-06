@@ -92,7 +92,7 @@ nonisolated struct HaikuClient {
     guessed value is a wrong one, and it is worse than a blank because nobody \
     downstream can tell it apart from a real reading.
 
-    These documents come in two layouts, and both must be read.
+    These documents come in three layouts, and all three must be read.
 
     The first is a table of several reservations. Return one entry per \
     reservation row, in the order printed. The date is normally a group \
@@ -110,6 +110,18 @@ nonisolated struct HaikuClient {
     app fills in the end of the working day itself, and an invented one would \
     be indistinguishable from a real reading.
 
+    The third is the reservation's own page in the booking system, headed \
+    "Reservation for CO03C117" with its details in labelled blocks — Location, \
+    Buildings, Time details, Shift details. It describes one reservation: \
+    return an array of exactly one entry. Two things about it are unlike the \
+    others. The desk id is in that heading and there is no separate desk field \
+    anywhere on the page, so read it from the heading; and both ends of the \
+    booking are printed in full, "Starts 2026-09-07 08:00 Europe/London" and \
+    "Ends 2026-09-07 17:00", so read both and take the date from the start. \
+    Such a page also carries a reservation number like WRES1946519 and a \
+    duration like "9 Hours". Neither is a desk id, a floor or a time, and \
+    neither belongs anywhere in the output.
+
     Skip any row whose status is not "Confirmed". Cancelled, pending and \
     waitlisted rows are not bookings and must not appear in the output. A \
     document that states no status at all is a confirmation of what it \
@@ -119,6 +131,14 @@ nonisolated struct HaikuClient {
     is Coleman, floor 03, desk C407. Do not take them apart: return the desk \
     id exactly as printed, and read the floor from its own separate field. If \
     there is no separate floor field, floor is null and named.
+
+    A desk identifier always begins with two letters, the site code, and never \
+    with a digit. The CO of CO03C407 is the letter O, not a zero. A desk id \
+    you were about to return as C003C407, or with any digit among its first \
+    two characters, is that pair of letters misread — correct it before you \
+    return it. This is the one place you may override what the pixels appear \
+    to say, because the two characters are known to be letters and no reading \
+    of them as digits can be right.
 
     Give the office exactly as printed, including the city if it is shown \
     (for example "03, Coleman, London" is office "Coleman, London"). A single \
@@ -160,10 +180,15 @@ nonisolated struct HaikuClient {
             "properties": [
                 "office": nullableString("Office as printed, including city."),
                 "date": nullableString(
-                    "Booking date as YYYY-MM-DD, from the group heading above the row "
-                    + "or from the confirmation's own date field."
+                    "Booking date as YYYY-MM-DD, from the group heading above the row, "
+                    + "from the confirmation's own date field, or from the start of a "
+                    + "reservation page's time details."
                 ),
-                "deskId": nullableString("Desk identifier exactly as printed."),
+                "deskId": nullableString(
+                    "Desk identifier exactly as printed — which on a reservation page is "
+                    + "in the heading rather than in a labelled field. Always begins with "
+                    + "two letters, never a digit. Never a reservation number."
+                ),
                 "floor": nullableString("Floor, from its own field — never split out of the desk id."),
                 "zone": nullableString("Zone within the floor, or null."),
                 "startTime": nullableString("Start of the booking as printed, e.g. 08:00."),

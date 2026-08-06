@@ -37,7 +37,7 @@ struct DebugRouter: View {
                 HomeScreen()
             }
         }
-        // `-capture table|one|confirmation|slow|failed` drives the real capture flow with a
+        // `-capture table|one|confirmation|page|slow|failed` drives the real capture flow with a
         // stubbed extractor, so the sheets can be looked at without a network
         // call or a share-sheet hand-off.
         .task {
@@ -51,6 +51,10 @@ struct DebugRouter: View {
             case "confirmation":
                 capture.extractor = { _, _, _ in
                     (CaptureSamples.confirmation, CaptureSamples.usage)
+                }
+            case "page":
+                capture.extractor = { _, _, _ in
+                    (CaptureSamples.reservationPage, CaptureSamples.usage)
                 }
             case "slow":
                 capture.extractor = { _, _, _ in
