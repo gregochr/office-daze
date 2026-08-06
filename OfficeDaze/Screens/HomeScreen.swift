@@ -37,7 +37,10 @@ struct HomeScreen: View {
         ScrollView {
             VStack(spacing: 0) {
                 gaugeCard
-                if !offices.isEmpty {
+                // Two or more, because these exist to split the month between
+                // offices. With one there is nothing to split: the card says
+                // the same number the gauge has just said, with a name on it.
+                if offices.count > 1 {
                     officeCards.padding(.top, Metrics.cardGap)
                 }
                 bookingsSection.padding(.top, Metrics.sectionGap)
