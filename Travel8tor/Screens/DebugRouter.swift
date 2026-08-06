@@ -31,6 +31,8 @@ struct DebugRouter: View {
                 BookingEditorScreen()
             case "settings":
                 SettingsScreen()
+            case "alert":
+                ArrivalPreviewScreen()
             default:
                 HomeScreen()
             }

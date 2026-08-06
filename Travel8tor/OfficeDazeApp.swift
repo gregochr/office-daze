@@ -12,10 +12,21 @@ struct OfficeDazeApp: App {
     /// the sheet that shows it.
     @State private var capture: CaptureCoordinator
 
+    /// Created at launch, not by a screen. iOS relaunches the app in the
+    /// background when a monitored region is crossed, and the queued event is
+    /// only delivered if a CLLocationManager already exists with its delegate
+    /// set — a manager created lazily by a view that never appears would drop
+    /// the arrival silently.
+    @State private var arrival: ArrivalMonitor
+
     init() {
         let container = try! Store.makeContainer()
         self.container = container
         _capture = State(initialValue: CaptureCoordinator(context: container.mainContext))
+        let ledger = ArrivalLedger(context: container.mainContext)
+        _arrival = State(initialValue: ArrivalMonitor(
+            ledger: ledger, context: container.mainContext
+        ))
     }
 
     var body: some Scene {
@@ -27,6 +38,17 @@ struct OfficeDazeApp: App {
                 // extension.
                 .onOpenURL { url in
                     Task { await capture.receive(url: url) }
+                }
+                .environment(arrival)
+                .task {
+                    // Registration only — the permission prompt belongs to the
+                    // moment the user asks for the alert, not to launch.
+                    arrival.registerNotificationHandling()
+                    arrival.refreshRegions()
+                    #if DEBUG
+                    let office = ProcessInfo.processInfo.argument(after: "-arrival")
+                    if !office.isEmpty { arrival.simulateEntry(officeNamed: office) }
+                    #endif
                 }
                 .sheet(isPresented: .init(
                     get: { capture.isActive },

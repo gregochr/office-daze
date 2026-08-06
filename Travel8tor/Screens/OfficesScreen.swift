@@ -2,11 +2,13 @@ import SwiftData
 import SwiftUI
 
 struct OfficesScreen: View {
+    @Environment(ArrivalMonitor.self) private var arrival
     @Query(sort: \Office.name) private var offices: [Office]
 
     var body: some View {
         ScrollView {
             VStack(spacing: Metrics.cardGap) {
+                if !arrival.canMonitor && !offices.isEmpty { permissionCard }
                 if offices.isEmpty {
                     Card(padding: EdgeInsets(top: 18, leading: 16, bottom: 18, trailing: 16)) {
                         Text("No offices yet.")
@@ -79,6 +81,40 @@ struct OfficesScreen: View {
         .navigationTitle("Offices")
     }
 
+    /// The alert cannot fire without Always, so the screen says so rather than
+    /// showing "Alert on" against a perimeter iOS will never wake us for.
+    private var permissionCard: some View {
+        StatusStrip(
+            tone: .warning,
+            leading: arrival.authorization == .denied || arrival.authorization == .restricted
+                ? "Location access is off — the arrival alert can't fire"
+                : "The arrival alert needs \"Always\" location access"
+        )
+        .overlay(alignment: .bottomTrailing) {
+            Button(grantTitle) {
+                if arrival.authorization == .denied || arrival.authorization == .restricted {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(url)
+                    }
+                } else {
+                    arrival.requestAuthorization()
+                }
+            }
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundStyle(Palette.warningText)
+            .padding(.trailing, 13)
+            .padding(.bottom, 10)
+        }
+    }
+
+    private var grantTitle: String {
+        switch arrival.authorization {
+        case .denied, .restricted: "Open Settings"
+        case .authorizedWhenInUse: "Allow Always"
+        default: "Allow"
+        }
+    }
+
     private func officeRow(_ office: Office) -> some View {
         HStack(spacing: 13) {
             OfficeDot(colourHex: office.colourHex, size: 11)
@@ -107,6 +143,9 @@ struct OfficesScreen: View {
 
     private func alertText(_ office: Office) -> String {
         guard office.alertEnabled else { return "Alert off" }
+        // Anything short of Always means iOS will not wake us for a crossing,
+        // so promising an alert would be a promise the app cannot keep.
+        guard arrival.canMonitor else { return "Alert needs location access" }
         // An office with no coordinates cannot be monitored, whatever the
         // toggle says. Saying "Alert on" there would be a promise the app
         // cannot keep.
@@ -130,7 +169,4 @@ func fullAddress(_ office: Office) -> String {
     return office.address.isEmpty ? postcode : "\(office.address) \(postcode)"
 }
 
-#Preview {
-    NavigationStack { OfficesScreen() }
-        .modelContainer(try! Store.makeInMemoryContainer(seeded: true))
-}
+

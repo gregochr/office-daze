@@ -30,6 +30,13 @@ struct HomeScreen: View {
                     officeCards.padding(.top, Metrics.cardGap)
                 }
                 bookingsSection.padding(.top, Metrics.sectionGap)
+                if !offices.isEmpty {
+                    NavigationLink("Preview arrival alert") { ArrivalPreviewScreen() }
+                        .font(.system(size: 14))
+                        .foregroundStyle(Palette.tint)
+                        .padding(.top, 16)
+                        .padding(.vertical, 13)
+                }
             }
             .padding(.horizontal, Metrics.screenPadding)
             .padding(.top, 6)
