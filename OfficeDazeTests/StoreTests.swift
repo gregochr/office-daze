@@ -100,6 +100,34 @@ struct StoreTests {
         #expect(fullAddress(coleman) == "63 Coleman Street, London EC2R 5BB")
     }
 
+    /// The two come apart in both directions, which is why they are separate
+    /// entities. Deleting the desk you reserved does not undo having been
+    /// there, and attendance is the only record that you were.
+    @Test("Deleting a booking keeps the day it was attended on")
+    func deleteKeepsAttendance() throws {
+        let context = container.mainContext
+        let booking = try #require(
+            try context.fetch(FetchDescriptor<DeskBooking>()).first { $0.deskID == "3C-114" }
+        )
+        let attended = try #require(
+            try context.fetch(FetchDescriptor<AttendanceDay>())
+                .first { $0.bookingID == booking.id }
+        )
+
+        try BookingStore.delete(booking, in: context)
+
+        #expect(try context.fetchCount(FetchDescriptor<DeskBooking>()) == 3)
+        #expect(try context.fetchCount(FetchDescriptor<AttendanceDay>()) == 4, "the day stands")
+        // Cleared, not left pointing at a row that is gone. The day is now one
+        // turned up for without booking, which is what it is.
+        #expect(attended.bookingID == nil)
+
+        let snapshot = try QuotaService.snapshot(
+            for: SeedData.month, today: Day(2026, 8, 4), in: context
+        )
+        #expect(snapshot.result.attended == 4, "and it still counts toward the month")
+    }
+
     @Test("Wiping everything leaves nothing behind")
     func wipe() throws {
         let context = container.mainContext

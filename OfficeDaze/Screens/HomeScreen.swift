@@ -21,6 +21,10 @@ struct HomeScreen: View {
     /// in a row do nothing the second time.
     @State private var photo: PhotosPickerItem?
 
+    /// The booking row currently swiped open, if any. One at a time, which is
+    /// why it lives here rather than in each row.
+    @State private var openRow: UUID?
+
     private var monthBookings: [DeskBooking] {
         bookings.filter { month.contains($0.day) }
     }
@@ -208,12 +212,18 @@ struct HomeScreen: View {
                 emptyBookings
             } else {
                 RowStack(items: monthBookings, inset: 38) { booking in
-                    NavigationLink {
-                        BookingDetailScreen(booking: booking)
-                    } label: {
-                        bookingRow(booking)
+                    SwipeToDelete(id: booking.id, open: $openRow) {
+                        // The booking only. Attendance is the record that the
+                        // day was worked, and it outlives the desk.
+                        try? BookingStore.delete(booking, in: context)
+                    } content: {
+                        NavigationLink {
+                            BookingDetailScreen(booking: booking)
+                        } label: {
+                            bookingRow(booking)
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
             }
         }

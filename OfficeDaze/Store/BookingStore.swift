@@ -68,6 +68,24 @@ enum BookingStore {
         )
     }
 
+    /// Removes a booking.
+    ///
+    /// Attendance is deliberately left standing. It is the only record that a
+    /// day was worked on prem, and deleting the desk you reserved does not undo
+    /// having been there — the two come apart in both directions, which is why
+    /// they were separate entities in the first place. The link is cleared
+    /// rather than left pointing at a row that is gone, which puts the day in
+    /// the same state as one turned up for without booking. Which is what it
+    /// now is.
+    static func delete(_ booking: DeskBooking, in context: ModelContext) throws {
+        let attendance = try context.fetch(FetchDescriptor<AttendanceDay>())
+        for day in attendance where day.bookingID == booking.id {
+            day.bookingID = nil
+        }
+        context.delete(booking)
+        try context.save()
+    }
+
     /// Records a day on prem. Never called without the user confirming — the
     /// geofence offers, it does not record.
     @discardableResult
