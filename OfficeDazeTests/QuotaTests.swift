@@ -133,6 +133,34 @@ struct QuotaTests {
         )
     }
 
+    /// The app is entirely about a deadline, and the remaining month used to
+    /// appear only in the trailing half of the amber strip — so on track or met
+    /// it vanished, which is exactly when you want to know whether you can stop.
+    @Test("The date line says where the month is, in every state")
+    func dateLine() {
+        let result = Quota.calculate(.init(month: august, today: Day(2026, 8, 4)))
+        #expect(
+            HomeScreen.dateLine(result, month: august, today: Day(2026, 8, 4))
+                == "4 August · 18 working days left"
+        )
+
+        // A month you are not inside has no deadline to be counting down to,
+        // so it says how big it was rather than how much of it is left.
+        let september = Month(year: 2026, month: 9)
+        let ahead = Quota.calculate(.init(month: september, today: Day(2026, 8, 4)))
+        #expect(
+            HomeScreen.dateLine(ahead, month: september, today: Day(2026, 8, 4))
+                == "22 working days"
+        )
+
+        // One day is a day.
+        let last = Quota.calculate(.init(month: august, today: Day(2026, 8, 27)))
+        #expect(
+            HomeScreen.dateLine(last, month: august, today: Day(2026, 8, 27))
+                == "27 August · 1 working day left"
+        )
+    }
+
     /// A workshop you have not been to yet is as good a reason to expect a day
     /// on prem as a desk you have reserved. The target counts days, not desks.
     @Test("A planned day forecasts exactly as a booking does")

@@ -221,15 +221,31 @@ struct HomeScreen: View {
         return MonthRange.canStepBack(from: month, recorded: recorded, today: .today)
     }
 
+    private var isThisMonth: Bool { month == Day.today.month_ }
+
     private var monthStepper: some View {
         HStack {
             stepButton("chevron.left", enabled: canStepBack) {
                 month = month.adding(months: -1)
             }
             Spacer(minLength: 8)
-            Text(month.text)
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(Palette.text)
+            // The way home. Step to December and getting back was four taps on
+            // a chevron; the month name is the obvious thing to press and did
+            // nothing. Dimmed rather than hidden when you are already here, so
+            // the stepper keeps its shape and the name does not move.
+            Button {
+                month = Day.today.month_
+            } label: {
+                Text(month.text)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(isThisMonth ? Palette.text : Palette.tint)
+                    .padding(.vertical, 6)
+                    .padding(.horizontal, 8)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(isThisMonth)
+            .accessibilityLabel(isThisMonth ? month.text : "\(month.text), back to this month")
             Spacer(minLength: 8)
             stepButton("chevron.right") { month = month.adding(months: 1) }
         }
