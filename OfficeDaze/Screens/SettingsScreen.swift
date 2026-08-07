@@ -52,6 +52,16 @@ struct SettingsScreen: View {
                 }
                 NavigationLink("Add office") { OfficeEditorScreen() }
                     .foregroundStyle(Palette.tint)
+                // Beneath the offices because it is a property of them: the
+                // alert fires on their perimeters, and each row above says
+                // whether its own will. On the home screen it sat under the
+                // month's bookings, which is the one thing it has nothing to do
+                // with — and it was permanent furniture on the screen you open
+                // every day, for something you look at once when setting up.
+                if !offices.isEmpty {
+                    NavigationLink("Preview arrival alert") { ArrivalPreviewScreen() }
+                        .foregroundStyle(Palette.tint)
+                }
             } header: {
                 Text("Offices")
             } footer: {

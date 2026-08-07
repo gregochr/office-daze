@@ -67,11 +67,21 @@ struct LeaveScreen: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 
+    /// The same floor the gauge uses, from the same question, so stepping back
+    /// stops on the same month on both screens. See `MonthRange` for why
+    /// forward does not stop.
+    private var canStepBack: Bool {
+        guard let recorded = try? Store.recordedDays(in: context) else { return true }
+        return MonthRange.canStepBack(from: month, recorded: recorded, today: .today)
+    }
+
     private var monthStepper: some View {
         HStack {
             Button { month = month.adding(months: -1) } label: {
                 Image(systemName: "chevron.left")
+                    .opacity(canStepBack ? 1 : 0.3)
             }
+            .disabled(!canStepBack)
             Spacer(minLength: 8)
             Text(month.text)
                 .font(.system(size: 15, weight: .semibold))

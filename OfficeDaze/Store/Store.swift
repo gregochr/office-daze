@@ -53,6 +53,23 @@ enum Store {
         hasSeeded = true
     }
 
+    /// Every day the store holds a record for: a desk booked, a day worked, a
+    /// day intended, a day off.
+    ///
+    /// Both month steppers ask this one question, so the gauge and the holiday
+    /// calendar cannot disagree about how far back the months go. Bank-holiday
+    /// leave rows are left out on the same grounds every other reader leaves
+    /// them out: they are derived from the calendar rather than entered, so a
+    /// month containing nothing but bank holidays is still an empty month.
+    static func recordedDays(in context: ModelContext) throws -> [Day] {
+        try context.fetch(FetchDescriptor<DeskBooking>()).map(\.day)
+            + context.fetch(FetchDescriptor<AttendanceDay>()).map(\.day)
+            + context.fetch(FetchDescriptor<PlannedDay>()).map(\.day)
+            + context.fetch(FetchDescriptor<LeaveDay>())
+                .filter { $0.kind != .bankHoliday }
+                .map(\.day)
+    }
+
     /// How far a wipe reaches.
     ///
     /// The two are worth separating because the offices are the only thing in

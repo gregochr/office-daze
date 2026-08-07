@@ -128,13 +128,6 @@ struct HomeScreen: View {
                     officeCards.padding(.top, Metrics.cardGap)
                 }
                 bookingsSection.padding(.top, Metrics.sectionGap)
-                if !offices.isEmpty {
-                    NavigationLink("Preview arrival alert") { ArrivalPreviewScreen() }
-                        .font(.system(size: 14))
-                        .foregroundStyle(Palette.tint)
-                        .padding(.top, 16)
-                        .padding(.vertical, 13)
-                }
             }
             .padding(.horizontal, Metrics.screenPadding)
             .padding(.top, 6)
@@ -208,9 +201,18 @@ struct HomeScreen: View {
         }
     }
 
+    /// Back stops at the first month with anything in it; forward does not stop
+    /// at all. See `MonthRange` for why the two directions differ.
+    private var canStepBack: Bool {
+        guard let recorded = try? Store.recordedDays(in: context) else { return true }
+        return MonthRange.canStepBack(from: month, recorded: recorded, today: .today)
+    }
+
     private var monthStepper: some View {
         HStack {
-            stepButton("chevron.left") { month = month.adding(months: -1) }
+            stepButton("chevron.left", enabled: canStepBack) {
+                month = month.adding(months: -1)
+            }
             Spacer(minLength: 8)
             Text(month.text)
                 .font(.system(size: 15, weight: .semibold))
@@ -220,16 +222,24 @@ struct HomeScreen: View {
         }
     }
 
-    private func stepButton(_ symbol: String, action: @escaping () -> Void) -> some View {
+    /// A chevron that does nothing says so by fading rather than by
+    /// disappearing: the stepper keeps its shape, and the month title stays
+    /// centred between two arrows rather than sliding across the card at the
+    /// edge of the range.
+    private func stepButton(
+        _ symbol: String, enabled: Bool = true, action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: 17, weight: .regular))
                 .foregroundStyle(Palette.tertiary)
+                .opacity(enabled ? 1 : 0.3)
                 .padding(.vertical, 6)
                 .padding(.horizontal, 10)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .disabled(!enabled)
     }
 
     @ViewBuilder
