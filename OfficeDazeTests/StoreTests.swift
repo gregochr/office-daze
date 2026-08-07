@@ -216,6 +216,43 @@ struct StoreTests {
         #expect(!unused.notAttended)
     }
 
+    /// `AttendanceDay.fraction` held 1.0 or 0.5 from the start and `Quota`
+    /// summed it faithfully, but nothing could enter a half — you could book
+    /// half a day off and not record half a day on. A field only a fixture can
+    /// reach is a trap for whoever reads the model next.
+    @Test("Half a day on prem counts as half a day")
+    func halfDaysCanBeRecorded() throws {
+        let context = container.mainContext
+        let day = Day(2026, 8, 7)
+        let record = try #require(
+            try BookingStore.recordAttendance(
+                day: day, officeID: SeedData.brusselsID, source: .manual,
+                fraction: 0.5, today: day, in: context
+            )
+        )
+        #expect(record.fraction == 0.5)
+
+        let snapshot = try QuotaService.snapshot(for: SeedData.month, today: day, in: context)
+        #expect(snapshot.result.attended == 4.5, "four seeded days and a half")
+        #expect(snapshot.attendedByOffice[SeedData.brusselsID] == 1.5)
+    }
+
+    /// The never-guess rule is the app's best idea, and an amber dot saying
+    /// only that something could not be read was the worst way to report it.
+    @Test("What could not be read is named, not merely marked")
+    func unreadFieldsAreNamed() {
+        #expect(BookingEditorScreen.unreadFieldNames(["zone"]) == "zone")
+        #expect(BookingEditorScreen.unreadFieldNames(["floor", "zone"]) == "floor and zone")
+        #expect(
+            BookingEditorScreen.unreadFieldNames(["floor", "zone", "startTime"])
+                == "floor, zone and from"
+        )
+        // The schema's own names are what arrive; anything else is ignored
+        // rather than shown raw.
+        #expect(BookingEditorScreen.unreadFieldNames(["nonsense"]) == "this booking")
+        #expect(BookingEditorScreen.Field(unsureField: "deskId") == .desk)
+    }
+
     /// The mirror of the attendance guard: attendance refuses the future,
     /// planning refuses the past. Between them every day has exactly one record
     /// that fits it, and neither can be used to say the other's thing.

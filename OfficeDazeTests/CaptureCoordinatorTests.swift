@@ -18,6 +18,9 @@ struct CaptureCoordinatorTests {
     init() throws {
         container = try Store.makeInMemoryContainer(seeded: true)
         coordinator = CaptureCoordinator(context: container.mainContext)
+        // The deliberate half second on the parsing sheet is for a person
+        // reading it. `parsingFloorIsHeld` is the one test that pays it.
+        coordinator.parsingFloor = .zero
     }
 
     /// Nothing reaches the network.
@@ -350,6 +353,62 @@ struct CaptureCoordinatorTests {
         #expect(captures.count == 1)
         #expect(captures.first?.status == .failed)
         #expect(captures.first?.inputTokens == 0, "nothing came back to be charged for")
+    }
+
+    /// A fast parse blinked the sheet from Reading to Confirm with nothing
+    /// legible in between, and the user arrived at a filled-in form without
+    /// having seen where it came from.
+    @Test("A parse faster than the eye still shows the sheet it happened in")
+    func parsingFloorIsHeld() async throws {
+        coordinator.parsingFloor = .milliseconds(300)
+        stub(CaptureSamples.one)
+
+        let started = ContinuousClock.now
+        await coordinator.receive(data: image, filename: "one.png")
+        #expect(ContinuousClock.now - started >= .milliseconds(300))
+        #expect(coordinator.current != nil, "and it still ends up at the review")
+    }
+
+    /// Bad news is a screen to read and act on, not an animation to sit
+    /// through — so the wait is inside the success path only. Asserted as an
+    /// upper bound on the clock this would be a flaky test: the suite runs in
+    /// parallel and every one of these is main-actor bound, so wall time here
+    /// measures contention as much as anything the coordinator did. A lower
+    /// bound is safe, which is why the floor above is tested and its absence
+    /// here is only asserted by outcome.
+    @Test("A failure still arrives at the error screen with a floor set")
+    func failuresReachTheErrorScreen() async throws {
+        coordinator.parsingFloor = .milliseconds(300)
+        coordinator.extractor = { _, _, _ in throw CaptureError.refused }
+        await coordinator.receive(data: image, filename: "one.png")
+        #expect(failure() == .refused)
+    }
+
+    /// The dialog asks which of two desks to keep, and used to withhold the one
+    /// thing that decides it.
+    @Test("The clash dialog says where the desk it is asking about came from")
+    func clashNamesItsSource() async throws {
+        // The seeded 5 August booking came from a capture; the 12th was typed.
+        let typed = try #require(try bookings().first { $0.day == Day(2026, 8, 12) })
+        #expect(coordinator.provenance(of: typed) == "entered by hand")
+        #expect(
+            CaptureSheet.clashMessage(existing: "3C-114", provenance: "entered by hand")
+                == "This day already has desk 3C-114 at this office, entered by hand. "
+                    + "Only one desk is kept per office per day."
+        )
+
+        // A capture whose original is still on file dates itself.
+        stub([ParsedBooking(
+            officeName: "Coleman", day: Day(2026, 8, 20), deskID: "3C-200",
+            floor: "Level 3", zone: "C", startTime: nil, endTime: nil,
+            unsureFields: []
+        )])
+        await coordinator.receive(data: image, filename: "one.png")
+        coordinator.save(try #require(coordinator.current), to: SeedData.colemanID)
+
+        let captured = try #require(try bookings().first { $0.day == Day(2026, 8, 20) })
+        let provenance = try #require(coordinator.provenance(of: captured))
+        #expect(provenance.hasPrefix("read from an image on "))
     }
 
     // MARK: Helpers

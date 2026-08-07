@@ -305,9 +305,22 @@ struct CaptureSheet: View {
                 coordinator.advance()
             }
         } message: {
-            Text("This day already has desk \(existing?.deskID ?? "") at this office. "
-                 + "Only one desk is kept per office per day.")
+            Text(Self.clashMessage(
+                existing: existing?.deskID,
+                provenance: existing.flatMap { coordinator.provenance(of: $0) }
+            ))
         }
+    }
+
+    /// The dialog asks which of two desks to keep, so it has to say where the
+    /// one already held came from and when. Without that the question is which
+    /// of two identical-looking facts is newer, which the user has no way to
+    /// answer — the card above says it, and the dialog covers the card.
+    static func clashMessage(existing: String?, provenance: String?) -> String {
+        let desk = existing ?? "a desk"
+        let source = provenance.map { ", \($0)" } ?? ""
+        return "This day already has desk \(desk) at this office\(source). "
+            + "Only one desk is kept per office per day."
     }
 
     private func save(_ booking: ParsedBooking, to officeID: UUID?, chosen: Bool) {

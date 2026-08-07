@@ -31,6 +31,18 @@ final class CaptureCoordinator {
     }
 
     var phase: Phase = .idle
+
+    /// How long the parsing sheet stays up at minimum.
+    ///
+    /// The checklist is driven by real progress everywhere else, which is
+    /// right — a step that finishes instantly should not be held open to look
+    /// busy. But a fast parse blinked the sheet from Reading to Confirm with
+    /// nothing legible in between, and the user arrived at a filled-in form
+    /// without having seen where it came from. Half a second is one of the few
+    /// places a deliberate delay earns its keep. Settable so tests do not pay
+    /// it, and so it can be turned off entirely.
+    var parsingFloor: Duration = .milliseconds(500)
+
     /// Kept so `Try again` has something to retry with.
     private var lastInput: (data: Data, mediaType: String)?
     private var captureID: UUID?
@@ -128,12 +140,20 @@ final class CaptureCoordinator {
 
     private func run() async {
         guard let (data, mediaType) = lastInput else { return }
+        let started = ContinuousClock.now
         do {
             phase = .parsing(step: .finding)
             let (bookings, usage) = try await extractor(data, mediaType, .today)
             phase = .parsing(step: .matching)
 
             captureID = record(asset: data, status: .parsed, usage: usage)
+            // Only the success path waits. A failure is a screen the user has
+            // to read and act on, and holding it back would be delaying bad
+            // news for the sake of an animation.
+            let elapsed = ContinuousClock.now - started
+            if elapsed < parsingFloor {
+                try? await Task.sleep(for: parsingFloor - elapsed)
+            }
             phase = .review(bookings: bookings, index: 0, saved: [])
         } catch let error as CaptureError {
             record(asset: data, status: .failed, usage: nil)
@@ -196,6 +216,22 @@ final class CaptureCoordinator {
     func existingBooking(day: Day, officeID: UUID) -> DeskBooking? {
         (try? context.fetch(FetchDescriptor<DeskBooking>()))?
             .first { $0.officeID == officeID && $0.day == day }
+    }
+
+    /// Where the booking already held came from, in words: `entered by hand`,
+    /// `read from an image on 4 August`, or nothing knowable.
+    ///
+    /// The clash dialog asks which of two desks to keep and used to withhold
+    /// the one thing that decides it — which is newer, and where the old one
+    /// came from.
+    func provenance(of booking: DeskBooking) -> String? {
+        guard booking.source == .capture else { return "entered by hand" }
+        guard let captureID = booking.captureID,
+              let capture = (try? context.fetch(FetchDescriptor<Capture>()))?
+                  .first(where: { $0.id == captureID }) else {
+            return "read from an image"
+        }
+        return "read from an image on \(Day(of: capture.receivedAt).dayAndMonth)"
     }
 
     /// Commits this booking and moves on. Each save writes immediately rather
