@@ -214,14 +214,19 @@ struct ArrivalNotificationTests {
         #expect(!floorOnly.body.contains("Zone"))
     }
 
-    @Test("The unbooked prompt says so, and uses its own category")
+    /// The largest line iOS renders is worth a fact. With no desk to show, the
+    /// old title said "You're on site" — which the subtitle says again a line
+    /// later, in more detail — so the month position takes it instead.
+    @Test("The unbooked prompt puts the month position in the title")
     func unbooked() {
         let content = ArrivalNotifications.content(
             officeName: "Coleman", desk: nil,
             attended: 4, target: 7, monthName: "August"
         )
-        #expect(content.title == "You're on site")
+        #expect(content.title == "Day 4 of 7")
+        #expect(!content.title.contains("on site"), "the subtitle already says where")
         #expect(content.body.contains("No desk booked today."))
+        #expect(content.body.contains("Tap to make it 5."))
         #expect(content.category == .unbooked)
     }
 
@@ -237,6 +242,55 @@ struct ArrivalNotificationTests {
             ArrivalNotifications.dayCount(attended: 4.5, target: 7, monthName: "August")
                 == "Day 4.5 of 7 for August"
         )
+    }
+
+    /// The count alone reads as though turning up had already been counted,
+    /// which is the one thing this app never claims. The tail says what the
+    /// button will do about it.
+    @Test("The count names the consequence of the button under it")
+    func consequence() {
+        let content = ArrivalNotifications.content(
+            officeName: "Coleman", desk: booking(),
+            attended: 4, target: 7, monthName: "August"
+        )
+        #expect(content.body.contains("Day 4 of 7 for August — tap to make it 5"))
+        #expect(ArrivalNotifications.consequence(attended: 4.5) == "tap to make it 5.5")
+    }
+
+    /// Arriving at a second office on a day already recorded at the first. The
+    /// alert still fires — the acknowledgement is per office — but the button
+    /// under it will not move the count, so nothing promises that it will.
+    @Test("A day already recorded drops the tail rather than promising a fifth")
+    func alreadyRecordedDropsTheTail() {
+        let booked = ArrivalNotifications.content(
+            officeName: "Brussels", desk: booking(),
+            attended: 5, target: 7, monthName: "August", alreadyRecorded: true
+        )
+        #expect(booked.body.contains("Day 5 of 7 for August"))
+        #expect(!booked.body.contains("tap to make it"))
+
+        let unbooked = ArrivalNotifications.content(
+            officeName: "Brussels", desk: nil,
+            attended: 5, target: 7, monthName: "August", alreadyRecorded: true
+        )
+        #expect(unbooked.title == "Day 5 of 7", "still the fact worth the largest line")
+        #expect(!unbooked.body.contains("Tap to make it"))
+    }
+
+    /// A default-level notification under a Work Focus is silently held back,
+    /// and a Work Focus is exactly what is running when someone walks into an
+    /// office at nine. This is the line that makes the alert arrive.
+    @Test("The alert is Time Sensitive, so a Work Focus does not swallow it")
+    func timeSensitive() {
+        let request = ArrivalNotifications.request(
+            ArrivalNotifications.content(
+                officeName: "Coleman", desk: booking(),
+                attended: 4, target: 7, monthName: "August"
+            ),
+            officeID: UUID(), day: Day(2026, 8, 5), bookingID: nil,
+            at: Date(timeIntervalSince1970: 1_785_000_000)
+        )
+        #expect(request.content.interruptionLevel == .timeSensitive)
     }
 
     @Test("Both categories offer the confirm button")

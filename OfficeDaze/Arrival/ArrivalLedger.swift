@@ -88,7 +88,12 @@ final class ArrivalLedger {
             desk: desk,
             attended: snapshot?.result.attended ?? 0,
             target: snapshot?.result.target ?? 0,
-            monthName: monthName(day.month_)
+            monthName: monthName(day.month_),
+            // Recorded at another office earlier today. The rule stops the
+            // alert only for the office it was recorded at, so this one still
+            // fires — but "tap to make it 5" would be a promise the button
+            // cannot keep, because the day is already counted.
+            alreadyRecorded: snapshot?.attendedDays.contains(day) ?? false
         )
         post(ArrivalNotifications.request(
             content, officeID: office.id, day: day, bookingID: desk?.id, at: now

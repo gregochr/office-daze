@@ -42,7 +42,8 @@ struct ArrivalPreviewScreen: View {
             desk: desk,
             attended: snapshot?.result.attended ?? 0,
             target: snapshot?.result.target ?? 0,
-            monthName: String(Day.today.month_.text.split(separator: " ").first ?? "")
+            monthName: String(Day.today.month_.text.split(separator: " ").first ?? ""),
+            alreadyRecorded: snapshot?.attendedDays.contains(.today) ?? false
         )
     }
 
@@ -100,10 +101,16 @@ struct ArrivalPreviewScreen: View {
                 RoundedRectangle(cornerRadius: 4)
                     .fill(Palette.tint)
                     .frame(width: 16, height: 16)
-                Text("OFFICE DAZE")
+                // iOS draws the label itself on a Time Sensitive notification.
+                // It is here because the preview claims to show what lands, and
+                // the label is the visible half of the alert breaking through a
+                // Work Focus — the reason it arrives at all.
+                Text("OFFICE DAZE · TIME SENSITIVE")
                     .font(.system(size: 12, weight: .medium))
                     .kerning(0.4)
                     .foregroundStyle(.white.opacity(0.55))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
                 Spacer(minLength: 8)
                 Text("now")
                     .font(.system(size: 12))
