@@ -105,23 +105,14 @@ struct BookingEditorScreen: View {
             source: .manual,
             unsureFields: []
         )
-        // Editing a booking's date or office can move it onto a day that
-        // already has one. Deleting first keeps the merge from finding this
-        // very row and merging it with itself.
-        //
-        // Which means the row that comes back is a new one, so anything the
-        // candidate does not carry has to be carried by hand. The calendar
-        // event id is one: it is the only handle the app has on an event it
-        // cannot read back, so losing it over a corrected typo turns the next
-        // "Update calendar event" into an "Add to calendar" that writes a twin.
-        let eventID = booking?.calendarEventID
-        if let booking { context.delete(booking) }
-        let saved = try? BookingStore.upsert(candidate, in: context)
-        // Not over one the destination already holds: moving this booking onto
-        // a day that has its own event would otherwise orphan that one instead.
-        if let eventID, let saved, saved.calendarEventID == nil {
-            saved.calendarEventID = eventID
-            try? context.save()
+        // An edit cannot upsert in place — the merge would find the very row
+        // being edited and merge it with itself — so it goes through
+        // `replace`, which deletes first and carries across everything the
+        // candidate does not describe.
+        if let booking {
+            try? BookingStore.replace(booking, with: candidate, in: context)
+        } else {
+            try? BookingStore.upsert(candidate, in: context)
         }
         dismiss()
     }
