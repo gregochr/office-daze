@@ -18,14 +18,10 @@ struct HomeScreen: View {
 
     @State private var camera = false
 
-    /// The booking row currently swiped open, if any. One at a time, which is
-    /// why it lives here rather than in each row.
-    @State private var openRow: UUID?
-
     /// Which kind of manual entry the header's menu is adding, if any.
     @State private var adding: ManualEntry?
 
-    /// The booking a swipe sent to the editor, if any.
+    /// The booking a row's menu sent to the editor, if any.
     @State private var editing: DeskBooking?
 
     enum ManualEntry: String, Identifiable {
@@ -474,9 +470,7 @@ struct HomeScreen: View {
                 emptyBookings
             } else {
                 RowStack(items: monthEntries, inset: 38) { entry in
-                    SwipeActions(
-                        id: entry.id,
-                        open: $openRow,
+                    RowMenu(
                         // Only a booking has anything to edit. An attendance
                         // record is a day and an office, and the screen that
                         // takes those can only add another one.
