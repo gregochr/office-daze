@@ -253,6 +253,42 @@ struct StoreTests {
         #expect(booking.floor == "Level 3", "a replacement is not an erasure")
     }
 
+    /// The editor cannot upsert in place — the merge would find the row being
+    /// edited and merge it with itself — so it deletes and re-creates, and
+    /// every field the candidate does not carry has to be carried by hand.
+    /// The calendar event id is one, and it is the only handle the app has on
+    /// an event write-only access cannot read back: lose it and the next tap
+    /// writes a twin nothing can find again.
+    @Test("Correcting a booking keeps the calendar event it was written to")
+    func editingKeepsTheCalendarEvent() throws {
+        let context = container.mainContext
+        let booking = try #require(
+            try context.fetch(FetchDescriptor<DeskBooking>())
+                .first { $0.day == Day(2026, 8, 12) }
+        )
+        booking.calendarEventID = "EVENT-1"
+        try context.save()
+
+        // What the editor's Save does: delete, then upsert the typed values.
+        let eventID = booking.calendarEventID
+        context.delete(booking)
+        let saved = try BookingStore.upsert(
+            .init(
+                officeID: SeedData.colemanID, day: Day(2026, 8, 12), deskID: "3C-122",
+                floor: "Level 3", zone: "C", startTime: nil, endTime: nil,
+                source: .manual, unsureFields: []
+            ),
+            in: context
+        )
+        if let eventID, saved.calendarEventID == nil {
+            saved.calendarEventID = eventID
+            try context.save()
+        }
+
+        #expect(saved.deskID == "3C-122", "the correction landed")
+        #expect(saved.calendarEventID == "EVENT-1", "and the event is still findable")
+    }
+
     /// The two come apart in both directions, which is why they are separate
     /// entities. Deleting the desk you reserved does not undo having been
     /// there, and attendance is the only record that you were.
