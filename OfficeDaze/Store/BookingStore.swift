@@ -83,6 +83,12 @@ enum BookingStore {
     /// where that happens: a property added to `DeskBooking` that
     /// `BookingMerge.Candidate` does not carry needs a line below, or editing
     /// a booking will quietly drop it.
+    ///
+    /// A new row is also a new `id`, so anything holding the old one is left
+    /// pointing at nothing. Entities reference each other by UUID here, which
+    /// buys the clean separation the model comment argues for at the price of
+    /// there being no cascade — the links are re-made below, and a new one
+    /// added elsewhere needs re-making too.
     @discardableResult
     static func replace(
         _ booking: DeskBooking,
@@ -95,6 +101,7 @@ enum BookingStore {
         // booking corrected by hand does not lose.
         let calendarEventID = booking.calendarEventID
         let captureID = booking.captureID
+        let replaced = booking.id
         context.delete(booking)
         let saved = try upsert(incoming, in: context)
         // Never over what the destination already holds. An edit that moves
@@ -102,6 +109,23 @@ enum BookingStore {
         // would otherwise orphan that one in the course of saving this one.
         if saved.calendarEventID == nil { saved.calendarEventID = calendarEventID }
         if saved.captureID == nil { saved.captureID = captureID }
+        // The new row is a new id, and the days already attended still hold
+        // the old one. An attendance row's link says "this is the desk I had
+        // that day", which stays true only while the booking is still for that
+        // day and that office — so it follows the booking that far and no
+        // further. Beyond it the link is cleared rather than bent to fit,
+        // which leaves the day exactly as `delete` leaves it: one you turned
+        // up for with nothing booked. Which is what it now is.
+        //
+        // Attendance itself is never touched. Correcting a desk number does
+        // not undo having been there, and an edit that moves the booking to
+        // another day does not either.
+        for day in try context.fetch(FetchDescriptor<AttendanceDay>())
+        where day.bookingID == replaced {
+            let stillTheDeskForThatDay =
+                day.day == saved.day && day.officeID == saved.officeID
+            day.bookingID = stillTheDeskForThatDay ? saved.id : nil
+        }
         try context.save()
         return saved
     }
