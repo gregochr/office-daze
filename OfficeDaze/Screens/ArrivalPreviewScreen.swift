@@ -70,6 +70,17 @@ struct ArrivalPreviewScreen: View {
                     .foregroundStyle(Palette.secondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity)
+
+                    // The one setting between this alert and the mornings it
+                    // was written for. It sits under the preview because this
+                    // is the screen you are on when you wonder why the alert
+                    // did not arrive.
+                    Card(padding: EdgeInsets(top: 13, leading: 14, bottom: 13, trailing: 14)) {
+                        Text(ArrivalCopy.workFocus)
+                            .font(.system(size: 13))
+                            .foregroundStyle(Palette.rowLabel)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 } else {
                     Text("Add an office to see the alert.")
                         .font(.system(size: 15))
