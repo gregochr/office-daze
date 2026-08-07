@@ -79,6 +79,10 @@ nonisolated struct Day: Hashable, Comparable, Codable, Sendable, CustomStringCon
     /// `Wed 5 August`, the bookings list.
     var mediumText: String { formatted("EEE d MMMM") }
 
+    /// `5 August`, the gauge's date line — where the weekday is beside a count
+    /// of working days and would read as part of it.
+    var dayAndMonth: String { formatted("d MMMM") }
+
     private func formatted(_ template: String) -> String {
         let f = DateFormatter()
         f.calendar = Day.calendar

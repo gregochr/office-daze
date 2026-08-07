@@ -178,11 +178,24 @@ struct HomeScreen: View {
                 monthStepper
                 AttendanceGauge(
                     attended: snapshot?.result.attended ?? 0,
+                    booked: snapshot?.result.forecast ?? 0,
                     target: snapshot?.result.target ?? 0
                 )
                 .padding(.top, 2)
                 if let result = snapshot?.result {
-                    shortfallStrip(result).padding(.top, 4)
+                    // Where the month is, permanently. The app is entirely
+                    // about a deadline, and the only place the remaining month
+                    // appeared was the trailing half of the amber strip — which
+                    // rendered in one state out of four, so on track or met it
+                    // vanished. That is exactly when you want to know whether
+                    // you can stop, or whether the days you have booked still
+                    // have room to land.
+                    Text(Self.dateLine(result, month: month, today: .today))
+                        .font(.system(size: 13))
+                        .monospacedDigit()
+                        .foregroundStyle(Palette.secondary)
+                        .padding(.top, 6)
+                    shortfallStrip(result).padding(.top, 10)
                     // Tapping the sentence opens the thing it explains. The
                     // target moves because of leave, so leave is where the
                     // explanation should lead.
@@ -242,26 +255,49 @@ struct HomeScreen: View {
         .disabled(!enabled)
     }
 
+    /// `4 August · 18 working days left`, and the second half of the sentence
+    /// the dial is telling. Another month is not a deadline you are inside, so
+    /// it says how big it was rather than how much of it is left.
+    static func dateLine(_ result: Quota.Result, month: Month, today: Day) -> String {
+        guard month == today.month_ else {
+            return "\(result.workingDays) working days"
+        }
+        let left = result.daysToRun == 1 ? "1 working day left" : "\(result.daysToRun) working days left"
+        return "\(today.dayAndMonth) · \(left)"
+    }
+
+    /// All the judgement in the app, in one strip, from `Quota.Standing`.
+    ///
+    /// Four states rather than three. "On track" loses its green: green claimed
+    /// the month was done when it was only arranged, which is the same
+    /// conflation the whole AttendanceDay / DeskBooking split exists to
+    /// prevent. And red now means something — the target cannot be reached this
+    /// month — rather than being on screen for the first fortnight of every one.
     @ViewBuilder
     private func shortfallStrip(_ result: Quota.Result) -> some View {
         switch result.standing {
-        case .behind:
-            let text = Self.shortfallText(result)
-            StatusStrip(tone: .warning, leading: text.leading, trailing: text.trailing)
         case .met:
             StatusStrip(tone: .success, leading: "Target met", dot: true)
         case .onTrack:
-            // The gauge says 4 of 8; on its own that reads as behind. This is
-            // the line that explains why it is not — and it names the bookings
-            // it is counting on, because "on track" resting on four
-            // reservations is a different fact from four days worked.
             StatusStrip(
-                tone: .success,
+                tone: .neutral,
                 leading: "On track",
-                trailing: "\(number(result.forecast)) more booked",
-                dot: true
+                trailing: "\(number(result.forecast)) booked"
+            )
+        case .behind:
+            let text = Self.shortfallText(result)
+            StatusStrip(tone: .warning, leading: text.leading, trailing: text.trailing)
+        case .unreachable:
+            StatusStrip(
+                tone: .danger,
+                leading: "Can't reach \(result.target) this month",
+                trailing: Self.daysLeftText(result)
             )
         }
+    }
+
+    static func daysLeftText(_ result: Quota.Result) -> String {
+        result.daysAvailable == 1 ? "1 day left" : "\(result.daysAvailable) days left"
     }
 
     /// `Target 6 — 8 days less 2 for 5 days' leave`. The one line that says

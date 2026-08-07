@@ -3,7 +3,7 @@ import Testing
 @testable import OfficeDaze
 
 /// The dial is the centrepiece and the fiddliest thing in the app, so its
-/// angles are pinned here rather than judged by eye.
+/// angles and its segments are pinned here rather than judged by eye.
 @Suite("Gauge metrics")
 struct GaugeMetricsTests {
 
@@ -16,76 +16,105 @@ struct GaugeMetricsTests {
         #expect(GaugeMetrics.angle(at: 0.5) == 270, "half way is straight up")
     }
 
-    /// The mock draws 4 of 7 with the needle at rotate(377) from twelve
-    /// o'clock, which is 377 − 90 = 287 from east.
-    @Test("The needle lands where the mock puts it")
-    func needleMatchesTheMock() {
-        let cases: [(Double, Int, Double)] = [
-            (4, 7, 287),   // home screen
-            (1, 7, 184),   // behind
-            (6, 7, 356),   // close
-            (7, 7, 390),   // met
-        ]
-        for (attended, target, expected) in cases {
-            let angle = GaugeMetrics.angle(
-                at: GaugeMetrics.fraction(attended: attended, target: target)
-            )
-            #expect(abs(angle - expected) < 0.6, "\(attended) of \(target)")
+    /// The one thing that makes two months comparable. A target of six and a
+    /// target of eight used to draw an identical dial with a different end
+    /// label, so a hard month and an easy one filled at the same rate.
+    @Test("The scale is always eight, whatever this month's target is")
+    func fixedScale() {
+        #expect(GaugeMetrics.scale == 8)
+        #expect(GaugeMetrics.fraction(days: 4) == 0.5)
+        #expect(GaugeMetrics.fraction(days: 8) == 1)
+        // The same three days sit at the same angle in both months.
+        #expect(GaugeMetrics.fraction(days: 3) == 0.375)
+        #expect(GaugeMetrics.markerFraction(target: 6) == 0.75)
+        #expect(GaugeMetrics.markerFraction(target: 8) == 1)
+    }
+
+    /// The design's worked example: August 2026, five days' leave, so two days
+    /// off the target. Three attended, three booked, nothing left to find.
+    @Test("The four segments lay end to end and sum to eight")
+    func segments() {
+        let segments = GaugeMetrics.segments(attended: 3, booked: 3, target: 6)
+        #expect(segments.map(\.part) == [.attended, .booked, .off])
+        #expect(segments.map(\.days) == [3, 3, 2])
+        #expect(segments.first?.from == 0)
+        #expect(segments.last?.to == 8, "the arc is always full")
+
+        // Laid end to end, with no gaps between them.
+        for (a, b) in zip(segments, segments.dropFirst()) {
+            #expect(a.to == b.from)
         }
     }
 
-    @Test("The needle pins at maximum rather than running past the end")
-    func pinsAtMaximum() {
-        // A dial whose needle can leave the scale is not telling you anything.
-        #expect(GaugeMetrics.fraction(attended: 9, target: 7) == 1)
-        #expect(GaugeMetrics.angle(at: GaugeMetrics.fraction(attended: 99, target: 7)) == 390)
-        #expect(GaugeMetrics.overshoot(attended: 9, target: 7) == 2, "shown as its own label")
-        #expect(GaugeMetrics.overshoot(attended: 7, target: 7) == 0)
+    /// A month with something still to find. The gap is the distance from what
+    /// is arranged to the target, and the hatching is what leave took off.
+    @Test("The gap is what is owed and the hatching is what is not")
+    func gapAndOff() {
+        let short = GaugeMetrics.segments(attended: 2, booked: 1, target: 8)
+        #expect(short.map(\.part) == [.attended, .booked, .gap])
+        #expect(short.map(\.days) == [2, 1, 5], "nothing hatched: no leave, no relief")
+
+        let relieved = GaugeMetrics.segments(attended: 1, booked: 1, target: 4)
+        #expect(relieved.map(\.part) == [.attended, .booked, .gap, .off])
+        #expect(relieved.map(\.days) == [1, 1, 2, 4])
     }
 
-    /// Not the band the needle sits in: the bands turn green at 85%, but 6 of 7
-    /// is 86% of the way round and still amber in the design. Green means the
-    /// target is met, not nearly met.
-    @Test("Green means met, not nearly met")
-    func levels() {
-        #expect(GaugeMetrics.level(attended: 1, target: 7) == .behind)
-        #expect(GaugeMetrics.level(attended: 3, target: 7) == .behind, "3/7 is 43%")
-        #expect(GaugeMetrics.level(attended: 3.5, target: 7) == .close, "exactly half")
-        #expect(GaugeMetrics.level(attended: 6, target: 7) == .close, "86%, and still amber")
-        #expect(GaugeMetrics.level(attended: 7, target: 7) == .met)
-        #expect(GaugeMetrics.level(attended: 9, target: 7) == .met)
+    /// Days you did not owe. The right picture is the arc running on past the
+    /// marker into the hatching, not a needle pinned at the end of a scale.
+    @Test("Surplus runs past the marker and eats into the hatching")
+    func surplus() {
+        let over = GaugeMetrics.segments(attended: 7, booked: 1, target: 6)
+        #expect(over.map(\.part) == [.attended, .booked])
+        #expect(over.map(\.days) == [7, 1])
+        #expect(GaugeMetrics.overshoot(attended: 7, target: 6) == 1)
     }
 
-    @Test("One tick per whole day, at both ends and every day between")
-    func ticks() {
-        let ticks = GaugeMetrics.tickAngles(target: 7)
-        #expect(ticks.count == 8, "0 through 7 inclusive")
-        #expect(ticks.first == 150)
-        #expect(ticks.last == 390)
-        // Evenly spaced, or the scale lies about which day the needle is at.
-        let gaps = zip(ticks, ticks.dropFirst()).map { $1 - $0 }
-        #expect(gaps.allSatisfy { abs($0 - 240.0 / 7) < 0.0001 })
+    /// Beyond eight the arc is capped and the label carries the rest — a dial
+    /// that can leave its own scale is not telling you anything.
+    @Test("The arc stops at eight however good the month was")
+    func capsAtEight() {
+        let huge = GaugeMetrics.segments(attended: 11, booked: 2, target: 6)
+        #expect(huge.map(\.days) == [8])
+        #expect(huge.first?.part == .attended)
+        #expect(GaugeMetrics.overshoot(attended: 11, target: 6) == 5)
+        #expect(GaugeMetrics.fraction(days: 11) == 1)
     }
 
-    /// A month entirely on leave has a target of zero. Nothing here may divide
-    /// by it.
-    @Test("A target of zero does not divide by zero")
+    /// A month entirely on leave has a target of zero: nothing owed, everything
+    /// hatched. Nothing here may divide by it.
+    @Test("A target of zero hatches the whole arc rather than dividing by it")
     func emptyTarget() {
-        #expect(GaugeMetrics.fraction(attended: 0, target: 0) == 1)
-        #expect(GaugeMetrics.level(attended: 0, target: 0) == .met)
-        #expect(GaugeMetrics.tickAngles(target: 0) == [150, 390])
+        let none = GaugeMetrics.segments(attended: 0, booked: 0, target: 0)
+        #expect(none.map(\.part) == [.off])
+        #expect(none.map(\.days) == [8])
+        #expect(GaugeMetrics.markerFraction(target: 0) == 0)
     }
 
     @Test("Nothing attended is an empty arc, not a full one")
     func nothingAttended() {
-        #expect(GaugeMetrics.fraction(attended: 0, target: 8) == 0)
-        #expect(GaugeMetrics.level(attended: 0, target: 8) == .behind)
+        let empty = GaugeMetrics.segments(attended: 0, booked: 0, target: 8)
+        #expect(empty.map(\.part) == [.gap])
+        #expect(empty.map(\.days) == [8])
     }
 
-    @Test("Half days move the needle half a day")
+    @Test("Half days take half a segment")
     func halfDays() {
-        let half = GaugeMetrics.fraction(attended: 3.5, target: 7)
-        #expect(half == 0.5)
-        #expect(GaugeMetrics.angle(at: half) == 270)
+        let half = GaugeMetrics.segments(attended: 3.5, booked: 0, target: 7)
+        #expect(half.map(\.days) == [3.5, 3.5, 1])
+        #expect(half.map(\.part) == [.attended, .gap, .off])
+        #expect(GaugeMetrics.angle(at: GaugeMetrics.fraction(days: 4)) == 270)
+    }
+
+    /// The ticks are days, and a day is the same width in every month — which
+    /// is the fixed scale restated, and the reason they no longer take a
+    /// target.
+    @Test("Nine ticks, one per whole day, evenly spaced")
+    func ticks() {
+        let ticks = GaugeMetrics.tickAngles()
+        #expect(ticks.count == 9, "0 through 8 inclusive")
+        #expect(ticks.first == 150)
+        #expect(ticks.last == 390)
+        let gaps = zip(ticks, ticks.dropFirst()).map { $1 - $0 }
+        #expect(gaps.allSatisfy { abs($0 - 30) < 0.0001 })
     }
 }

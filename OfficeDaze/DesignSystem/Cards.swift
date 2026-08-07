@@ -148,23 +148,52 @@ struct RowStack<Item: Identifiable, Row: View>: View {
     }
 }
 
-/// The amber shortfall strip and the green confirmation, which are the same
-/// shape in two colours.
+/// The shortfall strip, the green confirmation, and the two states between
+/// them — one shape in four colours.
+///
+/// This is where all the judgement in the app lives, and the only place any of
+/// it does. The gauge above it is an inventory; red here means the target
+/// cannot be reached this month, and nothing else in the app is red.
 struct StatusStrip: View {
-    enum Tone { case warning, success }
+    enum Tone { case warning, success, neutral, danger }
 
     let tone: Tone
     let leading: String
     var trailing: String?
     var dot = false
 
-    private var surface: Color { tone == .warning ? Palette.warningSurface : Palette.successSurface }
-    private var text: Color { tone == .warning ? Palette.warningText : Palette.successText }
+    private var surface: Color {
+        switch tone {
+        case .warning: Palette.warningSurface
+        case .success: Palette.successSurface
+        case .neutral: Palette.neutralSurface
+        case .danger: Palette.dangerSurface
+        }
+    }
+
+    private var text: Color {
+        switch tone {
+        case .warning: Palette.warningText
+        case .success: Palette.successText
+        case .neutral: Palette.neutralText
+        case .danger: Palette.dangerText
+        }
+    }
+
     /// Follows the tone. It was amber whatever the strip was, which only went
     /// unnoticed while the green strip had nothing on its right.
     private var secondary: Color {
-        tone == .warning ? Palette.warningSecondary : Palette.successText
+        switch tone {
+        case .warning: Palette.warningSecondary
+        case .success: Palette.successText
+        case .neutral: Palette.secondary
+        case .danger: Palette.dangerText.opacity(0.75)
+        }
     }
+
+    /// The two loud states keep the card shape and the roomier padding; the two
+    /// quiet ones are a pill under the dial.
+    private var isLoud: Bool { tone == .success || tone == .danger }
 
     var body: some View {
         HStack(spacing: 10) {
@@ -172,7 +201,7 @@ struct StatusStrip: View {
                 Circle().fill(Palette.met).frame(width: 8, height: 8)
             }
             Text(leading)
-                .font(.system(size: tone == .warning ? 14 : 14, weight: dot ? .regular : .semibold))
+                .font(.system(size: 14, weight: dot ? .regular : .semibold))
                 .foregroundStyle(text)
             Spacer(minLength: 10)
             if let trailing {
@@ -186,10 +215,12 @@ struct StatusStrip: View {
         // worse than a slightly smaller whole one.
         .lineLimit(1)
         .minimumScaleFactor(0.8)
-        .padding(.vertical, tone == .warning ? 11 : 14)
-        .padding(.horizontal, tone == .warning ? 13 : 16)
+        .padding(.vertical, isLoud ? 14 : 11)
+        .padding(.horizontal, isLoud ? 16 : 13)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(surface)
-        .clipShape(RoundedRectangle(cornerRadius: tone == .warning ? Metrics.pillRadius : Metrics.cardRadius))
+        .clipShape(
+            RoundedRectangle(cornerRadius: isLoud ? Metrics.cardRadius : Metrics.pillRadius)
+        )
     }
 }

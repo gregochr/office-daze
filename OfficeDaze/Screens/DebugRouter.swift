@@ -33,6 +33,8 @@ struct DebugRouter: View {
                 ArrivalPreviewScreen()
             case "leave":
                 LeaveScreen(month: SeedData.month)
+            case "gauge":
+                GaugeStates()
             default:
                 HomeScreen()
             }
@@ -68,6 +70,47 @@ struct DebugRouter: View {
             }
             await capture.receive(data: CaptureSamples.pixel, filename: "week.png")
         }
+    }
+}
+
+/// The dial's states side by side, which is the only way to judge it: the
+/// point of a fixed scale is that two months are comparable, and a scale can
+/// only be compared with another one.
+///
+/// The same four the Xcode preview draws, put behind `-screen gauge` because a
+/// preview cannot be screenshotted from a script and the hatching is the
+/// fiddliest thing in the drawing.
+struct GaugeStates: View {
+    private let states: [(String, Double, Double, Int)] = [
+        ("Can't reach it · 2 of 8", 2, 1, 8),
+        ("On track · 3 of 6, two off for leave", 3, 3, 6),
+        ("Target met · 6 of 6", 6, 0, 6),
+        ("Over · 7 of 6", 7, 1, 6),
+        ("All month off · 0 of 0", 0, 0, 0),
+    ]
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: Metrics.cardGap) {
+                ForEach(states, id: \.0) { title, attended, booked, target in
+                    Card(padding: EdgeInsets(top: 12, leading: 8, bottom: 12, trailing: 8)) {
+                        VStack(spacing: 2) {
+                            Text(title)
+                                .font(.system(size: 13))
+                                .foregroundStyle(Palette.secondary)
+                            AttendanceGauge(
+                                attended: attended, booked: booked, target: target
+                            )
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                }
+            }
+            .padding(Metrics.screenPadding)
+        }
+        .background(Palette.ground)
+        .navigationTitle("Gauge")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 

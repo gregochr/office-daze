@@ -236,6 +236,51 @@ struct QuotaTests {
         #expect(result.standing == .behind)
     }
 
+    /// The fourth state, and the only red in the app. "Behind" was two facts
+    /// wearing one colour: short with three weeks to go is an errand, and short
+    /// by more days than the month has left is a different sentence entirely.
+    @Test("Short by more days than are left is unreachable, not merely behind")
+    func unreachable() {
+        // 27 August, a Thursday. Two working days left including today (the
+        // 31st is the bank holiday), one day attended, eight needed.
+        let result = Quota.calculate(.init(
+            month: august,
+            attendance: [.init(Day(2026, 8, 3))],
+            today: Day(2026, 8, 27)
+        ))
+        #expect(result.daysAvailable == 2, "today and Friday")
+        #expect(result.standing == .unreachable)
+
+        // The same month a fortnight earlier is short by exactly as much and is
+        // not a crisis: there is still room. This is the case the old bands got
+        // backwards — they read a fortnight of normality as red and the last
+        // week of an unreachable month as amber.
+        let early = Quota.calculate(.init(
+            month: august,
+            attendance: [.init(Day(2026, 8, 3))],
+            today: Day(2026, 8, 6)
+        ))
+        #expect(early.shortfall == early.shortfall, "same shortfall")
+        #expect(early.standing == .behind)
+    }
+
+    /// `daysToRun` excludes today, and testing reachability against it would
+    /// call a month lost on a morning it could still be finished.
+    @Test("The last working day still counts as a day it can be done in")
+    func todayIsStillAvailable() {
+        // Friday 28 August: the last working day of the month, seven attended,
+        // one still needed. It is reachable, by going in today.
+        let result = Quota.calculate(.init(
+            month: august,
+            attendance: (3...11).filter { $0 != 8 && $0 != 9 }.map { .init(Day(2026, 8, $0)) },
+            today: Day(2026, 8, 28)
+        ))
+        #expect(result.attended == 7)
+        #expect(result.daysToRun == 0, "nothing after today")
+        #expect(result.daysAvailable == 1, "today")
+        #expect(result.standing == .behind, "reachable, if you go in")
+    }
+
     /// A month with nothing required is met by having done nothing, which is
     /// the honest answer rather than a shortfall of zero reported as on track.
     @Test("A target of nothing is met, not merely on track")
