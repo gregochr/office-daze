@@ -318,6 +318,71 @@ struct StoreTests {
         )
     }
 
+    /// Nothing cascades: entities point at each other by UUID, so a row that
+    /// is re-created under a new id leaves every reference to the old one
+    /// pointing at nothing. The day was attended at the desk that was
+    /// corrected, and it is still that desk.
+    @Test("Correcting a booking leaves the day attended at it still pointing at it")
+    func editingRelinksTheDayAttended() throws {
+        let context = container.mainContext
+        let booking = try #require(
+            try context.fetch(FetchDescriptor<DeskBooking>()).first { $0.deskID == "3C-114" }
+        )
+        let attended = try #require(
+            try context.fetch(FetchDescriptor<AttendanceDay>())
+                .first { $0.bookingID == booking.id }
+        )
+
+        let saved = try BookingStore.replace(
+            booking,
+            with: .init(
+                officeID: SeedData.colemanID, day: Day(2026, 8, 5), deskID: "3C-115",
+                source: .manual
+            ),
+            in: context
+        )
+
+        #expect(saved.deskID == "3C-115")
+        #expect(attended.bookingID == saved.id, "the day follows the desk it was")
+        #expect(try context.fetchCount(FetchDescriptor<AttendanceDay>()) == 4, "and stands")
+    }
+
+    /// The limit of the link. An attendance row's booking id says "this is the
+    /// desk I had that day" — an edit that moves the booking to another day
+    /// makes that false, so it is cleared rather than bent to point at a desk
+    /// booked for a day you were somewhere else. Being there is not undone by
+    /// it: the day stays, exactly as it does when a booking is deleted.
+    @Test("An edit that moves a booking off a day unbooks that day, not the day itself")
+    func editingAwayUnbooksTheDay() throws {
+        let context = container.mainContext
+        let booking = try #require(
+            try context.fetch(FetchDescriptor<DeskBooking>()).first { $0.deskID == "3C-114" }
+        )
+        let attended = try #require(
+            try context.fetch(FetchDescriptor<AttendanceDay>())
+                .first { $0.bookingID == booking.id }
+        )
+
+        // The 5th was a typo for the 19th, which has nothing booked.
+        try BookingStore.replace(
+            booking,
+            with: .init(
+                officeID: SeedData.colemanID, day: Day(2026, 8, 19), deskID: "3C-114",
+                source: .manual
+            ),
+            in: context
+        )
+
+        #expect(attended.bookingID == nil, "not left pointing at a row that is gone")
+        #expect(attended.day == Day(2026, 8, 5), "the day you were there is untouched")
+        #expect(try context.fetchCount(FetchDescriptor<AttendanceDay>()) == 4)
+
+        let snapshot = try QuotaService.snapshot(
+            for: SeedData.month, today: Day(2026, 8, 6), in: context
+        )
+        #expect(snapshot.result.attended == 4, "and it still counts toward the month")
+    }
+
     /// The two come apart in both directions, which is why they are separate
     /// entities. Deleting the desk you reserved does not undo having been
     /// there, and attendance is the only record that you were.
