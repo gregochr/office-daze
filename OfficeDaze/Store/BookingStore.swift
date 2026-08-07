@@ -71,6 +71,41 @@ enum BookingStore {
         )
     }
 
+    /// Saves an edit to a booking that already exists.
+    ///
+    /// It cannot go through `upsert` alone. Editing a booking's date or office
+    /// can move it onto a day that already has one, and `upsert` — which finds
+    /// its match by office and day — would find the very row being edited and
+    /// merge it with itself. So the old row goes first.
+    ///
+    /// Which means the row that comes back is a new one, and every field the
+    /// candidate does not describe has to be carried across by hand. Here is
+    /// where that happens: a property added to `DeskBooking` that
+    /// `BookingMerge.Candidate` does not carry needs a line below, or editing
+    /// a booking will quietly drop it.
+    @discardableResult
+    static func replace(
+        _ booking: DeskBooking,
+        with incoming: BookingMerge.Candidate,
+        in context: ModelContext
+    ) throws -> DeskBooking {
+        // The calendar event id is the only handle the app has on an event
+        // that write-only access cannot read back; the capture id is what
+        // keeps "view original" working, which `upsert` already promises a
+        // booking corrected by hand does not lose.
+        let calendarEventID = booking.calendarEventID
+        let captureID = booking.captureID
+        context.delete(booking)
+        let saved = try upsert(incoming, in: context)
+        // Never over what the destination already holds. An edit that moves
+        // this booking onto a day with an event or a screenshot of its own
+        // would otherwise orphan that one in the course of saving this one.
+        if saved.calendarEventID == nil { saved.calendarEventID = calendarEventID }
+        if saved.captureID == nil { saved.captureID = captureID }
+        try context.save()
+        return saved
+    }
+
     /// Removes a booking.
     ///
     /// Attendance is deliberately left standing. It is the only record that a

@@ -253,40 +253,69 @@ struct StoreTests {
         #expect(booking.floor == "Level 3", "a replacement is not an erasure")
     }
 
-    /// The editor cannot upsert in place — the merge would find the row being
-    /// edited and merge it with itself — so it deletes and re-creates, and
-    /// every field the candidate does not carry has to be carried by hand.
-    /// The calendar event id is one, and it is the only handle the app has on
-    /// an event write-only access cannot read back: lose it and the next tap
-    /// writes a twin nothing can find again.
+    /// An edit deletes the row and re-creates it, so every field the candidate
+    /// does not describe has to be carried across. The calendar event id is
+    /// one, and it is the only handle the app has on an event write-only
+    /// access cannot read back: lose it and the next tap writes a twin nothing
+    /// can find again.
     @Test("Correcting a booking keeps the calendar event it was written to")
     func editingKeepsTheCalendarEvent() throws {
         let context = container.mainContext
+        let capture = UUID()
         let booking = try #require(
             try context.fetch(FetchDescriptor<DeskBooking>())
                 .first { $0.day == Day(2026, 8, 12) }
         )
         booking.calendarEventID = "EVENT-1"
+        booking.captureID = capture
         try context.save()
 
-        // What the editor's Save does: delete, then upsert the typed values.
-        let eventID = booking.calendarEventID
-        context.delete(booking)
-        let saved = try BookingStore.upsert(
-            .init(
+        let saved = try BookingStore.replace(
+            booking,
+            with: .init(
                 officeID: SeedData.colemanID, day: Day(2026, 8, 12), deskID: "3C-122",
-                floor: "Level 3", zone: "C", startTime: nil, endTime: nil,
-                source: .manual, unsureFields: []
+                floor: "Level 3", zone: "C", source: .manual
             ),
             in: context
         )
-        if let eventID, saved.calendarEventID == nil {
-            saved.calendarEventID = eventID
-            try context.save()
-        }
 
         #expect(saved.deskID == "3C-122", "the correction landed")
+        #expect(try context.fetchCount(FetchDescriptor<DeskBooking>()) == 4, "corrected, not twinned")
         #expect(saved.calendarEventID == "EVENT-1", "and the event is still findable")
+        #expect(saved.captureID == capture, "as is the screenshot it was read from")
+    }
+
+    /// The one case where the carry must not happen. Moving a booking onto a
+    /// day that already has one makes the merge land on that day's row rather
+    /// than a fresh one — and writing this booking's event id over it would
+    /// orphan the event that row already points at, which is the very thing
+    /// carrying the id across exists to prevent.
+    @Test("Moving a booking onto an occupied day leaves that day's event alone")
+    func replaceNeverOrphansTheDestinationsEvent() throws {
+        let context = container.mainContext
+        let bookings = try context.fetch(FetchDescriptor<DeskBooking>())
+        let moving = try #require(bookings.first { $0.day == Day(2026, 8, 12) })
+        let destination = try #require(bookings.first { $0.day == Day(2026, 8, 5) })
+        moving.calendarEventID = "EVENT-MOVED"
+        destination.calendarEventID = "EVENT-ALREADY-THERE"
+        try context.save()
+
+        // Same office, so the booking already on the 5th is what merges.
+        let saved = try BookingStore.replace(
+            moving,
+            with: .init(
+                officeID: SeedData.colemanID, day: Day(2026, 8, 5), deskID: "3C-122",
+                source: .manual
+            ),
+            in: context
+        )
+
+        #expect(try context.fetchCount(FetchDescriptor<DeskBooking>()) == 3, "the two days are one")
+        #expect(saved.deskID == "3C-122")
+        #expect(
+            saved.calendarEventID == "EVENT-ALREADY-THERE",
+            "one event orphaned rather than two"
+        )
     }
 
     /// The two come apart in both directions, which is why they are separate
