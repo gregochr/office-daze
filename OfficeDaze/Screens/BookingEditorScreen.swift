@@ -14,6 +14,49 @@ struct BookingEditorScreen: View {
 
     var booking: DeskBooking?
 
+    /// Which field a capture could not read.
+    ///
+    /// The editor opens with the cursor already in it, so the amber marker on
+    /// the list is one tap from the thing it is complaining about rather than
+    /// four and a hunt.
+    enum Field: Hashable {
+        case desk, floor, zone, startTime, endTime
+
+        /// The names the model uses in `unsureFields`, which are the schema's
+        /// own — this is the one place the two vocabularies meet.
+        init?(unsureField: String) {
+            switch unsureField {
+            case "deskId", "deskID": self = .desk
+            case "floor": self = .floor
+            case "zone": self = .zone
+            case "startTime": self = .startTime
+            case "endTime": self = .endTime
+            default: return nil
+            }
+        }
+
+        var label: String {
+            switch self {
+            case .desk: "Desk"
+            case .floor: "Floor"
+            case .zone: "Zone"
+            case .startTime: "From"
+            case .endTime: "Until"
+            }
+        }
+    }
+
+    /// `Zone`, or `Floor and zone` — what could not be read, named. A dot said
+    /// only that something could not be.
+    static func unreadFieldNames(_ unsureFields: [String]) -> String {
+        let names = unsureFields.compactMap { Field(unsureField: $0)?.label.lowercased() }
+        guard let first = names.first else { return "this booking" }
+        guard names.count > 1 else { return first }
+        return names.dropLast().joined(separator: ", ") + " and " + names[names.count - 1]
+    }
+
+    @FocusState private var focused: Field?
+
     @State private var officeID: UUID?
     @State private var date = Day.today.startOfDayUTC
     @State private var deskID = ""
@@ -44,19 +87,26 @@ struct BookingEditorScreen: View {
                 TextField("Desk", text: $deskID)
                     .textInputAutocapitalization(.characters)
                     .autocorrectionDisabled()
+                    .focused($focused, equals: .desk)
             }
 
             Section {
                 TextField("Floor", text: $floor)
+                    .focused($focused, equals: .floor)
                 TextField("Zone", text: $zone)
+                    .focused($focused, equals: .zone)
                 TextField("From", text: $startTime)
                     .keyboardType(.numbersAndPunctuation)
+                    .focused($focused, equals: .startTime)
                 TextField("Until", text: $endTime)
                     .keyboardType(.numbersAndPunctuation)
+                    .focused($focused, equals: .endTime)
             } header: {
                 Text("Optional")
             } footer: {
-                Text("A field left blank is stored as absent, not as unreadable — it will not be flagged for checking.")
+                Text(unread.isEmpty
+                     ? "A field left blank is stored as absent, not as unreadable — it will not be flagged for checking."
+                     : "\(Self.unreadFieldNames(unread).prefix(1).uppercased())\(Self.unreadFieldNames(unread).dropFirst()) could not be read from the image, so nothing was stored — it was never guessed at.")
             }
 
             if !isNew {
@@ -83,11 +133,18 @@ struct BookingEditorScreen: View {
                 zone = booking.zone ?? ""
                 startTime = booking.startTime ?? ""
                 endTime = booking.endTime ?? ""
+                // Straight into the field the capture could not read. Only the
+                // first: a keyboard opening on a screen the user has not
+                // finished looking at is worth it for one obvious next action
+                // and no more.
+                focused = unread.compactMap(Field.init(unsureField:)).first
             } else if offices.count == 1 {
                 officeID = offices.first?.id
             }
         }
     }
+
+    private var unread: [String] { booking?.unsureFields ?? [] }
 
     private func save() {
         guard let officeID else { return }

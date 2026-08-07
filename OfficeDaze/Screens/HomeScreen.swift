@@ -121,11 +121,13 @@ struct HomeScreen: View {
         ScrollView {
             VStack(spacing: 0) {
                 gaugeCard
-                // Two or more, because these exist to split the month between
-                // offices. With one there is nothing to split: the card says
-                // the same number the gauge has just said, with a name on it.
-                if offices.count > 1 {
-                    officeCards.padding(.top, Metrics.cardGap)
+                // Two or more, because this exists to split the month between
+                // offices. With one there is nothing to split: the bar would be
+                // one colour end to end, saying the number the gauge has just
+                // said with a name on it.
+                let shares = officeShares
+                if shares.count > 1 {
+                    officeSplit(shares).padding(.top, Metrics.cardGap)
                 }
                 bookingsSection.padding(.top, Metrics.sectionGap)
             }
@@ -198,15 +200,22 @@ struct HomeScreen: View {
                     shortfallStrip(result).padding(.top, 10)
                     // Tapping the sentence opens the thing it explains. The
                     // target moves because of leave, so leave is where the
-                    // explanation should lead.
+                    // explanation should lead — and it is the best answer in
+                    // the app to "why has my target moved", which is worth more
+                    // than twelve-point grey with nothing saying it is a link.
                     NavigationLink {
                         LeaveScreen(month: month)
                     } label: {
-                        Text(Self.targetExplanation(result))
-                            .font(.system(size: 12))
-                            .foregroundStyle(Palette.secondary)
-                            .multilineTextAlignment(.center)
-                            .padding(.top, 11)
+                        HStack(spacing: 3) {
+                            Text(Self.targetExplanation(result))
+                                .font(.system(size: 13))
+                                .foregroundStyle(Palette.tint)
+                                .multilineTextAlignment(.center)
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(Palette.tint.opacity(0.6))
+                        }
+                        .padding(.top, 11)
                     }
                     .buttonStyle(.plain)
                 }
@@ -362,64 +371,92 @@ struct HomeScreen: View {
 
     // MARK: Offices
 
-    private var officeCards: some View {
-        LazyVGrid(
-            columns: [GridItem(.adaptive(minimum: 130), spacing: 10)],
-            spacing: 10
-        ) {
-            ForEach(offices) { office in
-                Card(padding: EdgeInsets(top: 13, leading: 14, bottom: 13, trailing: 14)) {
-                    VStack(alignment: .leading, spacing: 7) {
-                        HStack(spacing: 7) {
-                            OfficeDot(colourHex: office.colourHex)
-                            Text(office.name)
+    /// How the gauge's own number divides between the buildings.
+    ///
+    /// It was two cards reading "London 3" and "Brussels 1" — three what, and
+    /// two cards read as two independent facts when they are one figure split
+    /// in two. A single bar says the true thing: this is the same number, and
+    /// this is where it went. The days are named, because a bare number on a
+    /// card was the other half of the problem.
+    private func officeSplit(_ shares: [(office: Office, days: Double)]) -> some View {
+        let total = shares.reduce(0) { $0 + $1.days }
+        return Card(padding: EdgeInsets(top: 13, leading: 14, bottom: 13, trailing: 14)) {
+            VStack(alignment: .leading, spacing: 9) {
+                GeometryReader { proxy in
+                    HStack(spacing: 2) {
+                        ForEach(shares, id: \.office.id) { share in
+                            Capsule()
+                                .fill(Color(officeHex: share.office.colourHex))
+                                .frame(width: max(4, proxy.size.width * share.days / total))
+                        }
+                    }
+                }
+                .frame(height: 10)
+
+                // Wrapping rather than one line: six offices is the palette's
+                // limit and four already overflow a narrow phone.
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 130), alignment: .leading)],
+                    alignment: .leading,
+                    spacing: 6
+                ) {
+                    ForEach(shares, id: \.office.id) { share in
+                        HStack(spacing: 6) {
+                            OfficeDot(colourHex: share.office.colourHex)
+                            Text(share.office.name)
                                 .font(.system(size: 13))
                                 .foregroundStyle(Palette.rowLabel)
                                 .lineLimit(1)
+                            Text(Self.dayCount(share.days))
+                                .font(.system(size: 13, weight: .medium))
+                                .monospacedDigit()
+                                .foregroundStyle(Palette.text)
                         }
-                        Text(number(snapshot?.attendedByOffice[office.id] ?? 0))
-                            .font(.system(size: 22, weight: .semibold))
-                            .monospacedDigit()
-                            .foregroundStyle(Palette.text)
                     }
                 }
             }
         }
     }
 
+    /// Offices with days against them this month, biggest first. An office with
+    /// nothing recorded has no share of the figure and no segment in the bar.
+    private var officeShares: [(office: Office, days: Double)] {
+        offices
+            .map { ($0, snapshot?.attendedByOffice[$0.id] ?? 0) }
+            .filter { $0.1 > 0 }
+            .sorted { $0.1 > $1.1 }
+    }
+
+    static func dayCount(_ days: Double) -> String {
+        "\(number(days)) \(days == 1 ? "day" : "days")"
+    }
+
     // MARK: Bookings
 
     private var bookingsSection: some View {
         VStack(spacing: 8) {
-            // Two ways in, named for what they are rather than for one "Add"
-            // that hides the interesting half. The picker is the only route to
-            // capture that does not go through the share sheet.
-            // Two icons rather than two labels: the pencil writes one down, the
-            // camera reads one off a screen. Both are one tap from the list
-            // they add to, which is worth more here than the words were —
-            // "+ Manually" and "+ From image" together took most of the row.
+            // One plus, three labelled ways in.
+            //
+            // It was two unlabelled icons side by side, and a camera in a list
+            // header reads as "photograph this list" rather than "read a
+            // booking off a screen". The menu labels were already written and
+            // already good; they just could not be seen until something was
+            // pressed. Scanning goes first because it is the fastest way in —
+            // the confirmation is nearly always on a monitor in front of you,
+            // and there is not even a shutter to press.
             SectionHeader(title: "This month") {
-                HStack(spacing: 6) {
-                    Menu {
-                        Button("Desk booking") { adding = .booking }
-                        Button("Day in the office") { adding = .attendance }
-                    } label: {
-                        headerIcon("square.and.pencil")
+                Menu {
+                    Button("Scan a booking", systemImage: "camera") { camera = true }
+                    Button("Desk booking", systemImage: "square.and.pencil") {
+                        adding = .booking
                     }
-                    .accessibilityLabel("Add a booking or a day by hand")
-
-                    // The confirmation is nearly always on a monitor in front
-                    // of you, so holding the phone up to it is the shortest way
-                    // in — there is not even a shutter to press. A screenshot
-                    // already in the library still arrives through the iOS
-                    // share sheet.
-                    Button {
-                        camera = true
-                    } label: {
-                        headerIcon("camera")
+                    Button("Day in the office", systemImage: "building.2") {
+                        adding = .attendance
                     }
-                    .accessibilityLabel("Scan a booking")
+                } label: {
+                    headerIcon("plus")
                 }
+                .accessibilityLabel("Add")
                 .foregroundStyle(Palette.tint)
             }
             if monthEntries.isEmpty {
@@ -438,12 +475,21 @@ struct HomeScreen: View {
                         VStack(spacing: 0) {
                             switch entry {
                             case .booking(let booking):
-                                NavigationLink {
-                                    BookingDetailScreen(booking: booking)
-                                } label: {
-                                    bookingRow(booking)
+                                HStack(spacing: 0) {
+                                    NavigationLink {
+                                        BookingDetailScreen(booking: booking)
+                                    } label: {
+                                        bookingRow(booking)
+                                    }
+                                    .buttonStyle(.plain)
+                                    // Outside the link, because it goes
+                                    // somewhere else: an amber dot that only
+                                    // said "something here could not be read"
+                                    // left the fixing four taps away.
+                                    if booking.needsChecking {
+                                        checkingButton(booking)
+                                    }
                                 }
-                                .buttonStyle(.plain)
                             case .attended(let record):
                                 // No detail screen: there is no desk, no floor
                                 // and no hours to show. The row is the whole
@@ -607,11 +653,6 @@ struct HomeScreen: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 8)
-            if booking.needsChecking {
-                Image(systemName: "exclamationmark.circle.fill")
-                    .font(.system(size: 13))
-                    .foregroundStyle(Palette.close)
-            }
             // Nothing while the question is up: the question is the status, and
             // "Booked" beside it reads as a settled fact when the whole point is
             // that the day is still open.
@@ -622,9 +663,32 @@ struct HomeScreen: View {
             }
         }
         .padding(.vertical, 13)
-        .padding(.horizontal, 16)
+        .padding(.leading, 16)
+        .padding(.trailing, booking.needsChecking ? 4 : 16)
         .frame(minHeight: Metrics.minimumRow)
         .contentShape(Rectangle())
+    }
+
+    /// The marker, and a way to act on it. It opens the editor on the field
+    /// that could not be read — the never-guess rule is the app's best idea,
+    /// and following it up deserves better than row, detail, Edit, then hunt
+    /// for which of five fields is blank.
+    private func checkingButton(_ booking: DeskBooking) -> some View {
+        Button {
+            editing = booking
+        } label: {
+            Image(systemName: "exclamationmark.circle.fill")
+                .font(.system(size: 15))
+                .foregroundStyle(Palette.close)
+                .padding(.vertical, 13)
+                .padding(.horizontal, 14)
+                .frame(minHeight: Metrics.minimumRow)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(
+            "Check \(BookingEditorScreen.unreadFieldNames(booking.unsureFields))"
+        )
     }
 
     private func bookingStatus(_ booking: DeskBooking, attended: Bool) -> String? {
