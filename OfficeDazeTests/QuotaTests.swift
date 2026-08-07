@@ -133,6 +133,34 @@ struct QuotaTests {
         )
     }
 
+    /// The app is entirely about a deadline, and the remaining month used to
+    /// appear only in the trailing half of the amber strip — so on track or met
+    /// it vanished, which is exactly when you want to know whether you can stop.
+    @Test("The date line says where the month is, in every state")
+    func dateLine() {
+        let result = Quota.calculate(.init(month: august, today: Day(2026, 8, 4)))
+        #expect(
+            HomeScreen.dateLine(result, month: august, today: Day(2026, 8, 4))
+                == "4 August · 18 working days left"
+        )
+
+        // A month you are not inside has no deadline to be counting down to,
+        // so it says how big it was rather than how much of it is left.
+        let september = Month(year: 2026, month: 9)
+        let ahead = Quota.calculate(.init(month: september, today: Day(2026, 8, 4)))
+        #expect(
+            HomeScreen.dateLine(ahead, month: september, today: Day(2026, 8, 4))
+                == "22 working days"
+        )
+
+        // One day is a day.
+        let last = Quota.calculate(.init(month: august, today: Day(2026, 8, 27)))
+        #expect(
+            HomeScreen.dateLine(last, month: august, today: Day(2026, 8, 27))
+                == "27 August · 1 working day left"
+        )
+    }
+
     /// A workshop you have not been to yet is as good a reason to expect a day
     /// on prem as a desk you have reserved. The target counts days, not desks.
     @Test("A planned day forecasts exactly as a booking does")
@@ -234,6 +262,51 @@ struct QuotaTests {
         ))
         #expect(result.shortfall == 6)
         #expect(result.standing == .behind)
+    }
+
+    /// The fourth state, and the only red in the app. "Behind" was two facts
+    /// wearing one colour: short with three weeks to go is an errand, and short
+    /// by more days than the month has left is a different sentence entirely.
+    @Test("Short by more days than are left is unreachable, not merely behind")
+    func unreachable() {
+        // 27 August, a Thursday. Two working days left including today (the
+        // 31st is the bank holiday), one day attended, eight needed.
+        let result = Quota.calculate(.init(
+            month: august,
+            attendance: [.init(Day(2026, 8, 3))],
+            today: Day(2026, 8, 27)
+        ))
+        #expect(result.daysAvailable == 2, "today and Friday")
+        #expect(result.standing == .unreachable)
+
+        // The same month a fortnight earlier is short by exactly as much and is
+        // not a crisis: there is still room. This is the case the old bands got
+        // backwards — they read a fortnight of normality as red and the last
+        // week of an unreachable month as amber.
+        let early = Quota.calculate(.init(
+            month: august,
+            attendance: [.init(Day(2026, 8, 3))],
+            today: Day(2026, 8, 6)
+        ))
+        #expect(early.shortfall == early.shortfall, "same shortfall")
+        #expect(early.standing == .behind)
+    }
+
+    /// `daysToRun` excludes today, and testing reachability against it would
+    /// call a month lost on a morning it could still be finished.
+    @Test("The last working day still counts as a day it can be done in")
+    func todayIsStillAvailable() {
+        // Friday 28 August: the last working day of the month, seven attended,
+        // one still needed. It is reachable, by going in today.
+        let result = Quota.calculate(.init(
+            month: august,
+            attendance: (3...11).filter { $0 != 8 && $0 != 9 }.map { .init(Day(2026, 8, $0)) },
+            today: Day(2026, 8, 28)
+        ))
+        #expect(result.attended == 7)
+        #expect(result.daysToRun == 0, "nothing after today")
+        #expect(result.daysAvailable == 1, "today")
+        #expect(result.standing == .behind, "reachable, if you go in")
     }
 
     /// A month with nothing required is met by having done nothing, which is

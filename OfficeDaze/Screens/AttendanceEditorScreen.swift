@@ -21,6 +21,12 @@ struct AttendanceEditorScreen: View {
 
     @State private var officeID: UUID?
     @State private var date = Day.today.startOfDayUTC
+    /// 1.0 or 0.5. `AttendanceDay.fraction` has held both from the start and
+    /// `Quota` has always summed it faithfully, but nothing could enter a half:
+    /// you could book half a day off in the holiday calendar and not record
+    /// half a day on. A field that can only arrive through a seeded fixture is
+    /// a trap for whoever reads the model next.
+    @State private var fraction: Double = 1.0
     @State private var loaded = false
 
     private var day: Day { Day(of: date) }
@@ -50,6 +56,17 @@ struct AttendanceEditorScreen: View {
                     }
                 }
                 DatePicker("Date", selection: $date, displayedComponents: .date)
+                // Only for a day already worked. A half-day intended is not a
+                // thing anyone knows in advance, and `PlannedDay` has no
+                // fraction to put it in — it forecasts a day on prem or it does
+                // not.
+                if !isAhead {
+                    Picker("Time on prem", selection: $fraction) {
+                        Text("Full day").tag(1.0)
+                        Text("Half day").tag(0.5)
+                    }
+                    .pickerStyle(.segmented)
+                }
             } footer: {
                 Text(footer)
             }
@@ -77,9 +94,13 @@ struct AttendanceEditorScreen: View {
                 ? "That day is already planned for this office."
                 : "That day is already recorded at this office."
         }
-        return isAhead
-            ? "A day still to come counts toward the forecast, the same as a booked desk does — it becomes a day attended when you turn up and say so."
-            : "A day you were there counts toward the month exactly as a booked day does, because the target counts days on prem rather than desks reserved."
+        if isAhead {
+            return "A day still to come counts toward the forecast, the same as a booked desk does — it becomes a day attended when you turn up and say so."
+        }
+        if fraction < 1 {
+            return "Half a day on prem counts as half a day toward the month — the same arithmetic as half a day's leave, in the other direction."
+        }
+        return "A day you were there counts toward the month exactly as a booked day does, because the target counts days on prem rather than desks reserved."
     }
 
     private func save() {
@@ -88,7 +109,8 @@ struct AttendanceEditorScreen: View {
             try? BookingStore.recordPlanned(day: day, officeID: officeID, in: context)
         } else {
             try? BookingStore.recordAttendance(
-                day: day, officeID: officeID, source: .manual, in: context
+                day: day, officeID: officeID, source: .manual,
+                fraction: fraction, in: context
             )
         }
         dismiss()

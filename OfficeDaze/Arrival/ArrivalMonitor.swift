@@ -172,18 +172,31 @@ extension ArrivalMonitor: UNUserNotificationCenterDelegate {
         didReceive response: UNNotificationResponse
     ) async {
         let info = response.notification.request.content.userInfo
-        guard response.actionIdentifier == ArrivalNotifications.Action.confirm.rawValue,
+        let action = ArrivalNotifications.Action(rawValue: response.actionIdentifier)
+        guard action == .confirm || action == .decline,
               let officeText = info[ArrivalNotifications.UserInfo.officeID] as? String,
               let officeID = UUID(uuidString: officeText),
               let dayText = info[ArrivalNotifications.UserInfo.day] as? String,
               let day = CapturedBooking.day(from: dayText) else { return }
 
         let bookingText = info[ArrivalNotifications.UserInfo.bookingID] as? String
+        let bookingID = bookingText.flatMap(UUID.init(uuidString:))
         await MainActor.run {
-            ledger.confirmAttendance(
-                officeID: officeID, day: day,
-                bookingID: bookingText.flatMap(UUID.init(uuidString:))
-            )
+            if action == .confirm {
+                ledger.confirmAttendance(
+                    officeID: officeID, day: day, bookingID: bookingID
+                )
+            } else if let bookingID {
+                // Only the evening question offers this, and only about a
+                // booking. A no is an answer worth storing: without it the row
+                // goes on asking and the notification comes back tomorrow about
+                // the same day.
+                ledger.declineAttendance(bookingID: bookingID)
+            }
+            // The evening question is decided when the app is awake and fires
+            // hours later, so answering one has to re-decide the next — or
+            // tonight's notification asks about the day just answered.
+            NudgeScheduler.refresh(in: context)
         }
     }
 }

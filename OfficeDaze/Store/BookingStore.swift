@@ -102,6 +102,8 @@ enum BookingStore {
         let calendarEventID = booking.calendarEventID
         let captureID = booking.captureID
         let replaced = booking.id
+        let answered = booking.notAttended
+        let answeredFor = booking.day
         context.delete(booking)
         let saved = try upsert(incoming, in: context)
         // Never over what the destination already holds. An edit that moves
@@ -109,6 +111,14 @@ enum BookingStore {
         // would otherwise orphan that one in the course of saving this one.
         if saved.calendarEventID == nil { saved.calendarEventID = calendarEventID }
         if saved.captureID == nil { saved.captureID = captureID }
+        // "Were you there?" was answered about the day, not about the desk id,
+        // so correcting a typo is no reason to ask it again. An edit that
+        // moves the booking to another day is exactly that reason: the day it
+        // has moved to has not been asked about, and carrying the answer over
+        // would be answering for the user. Only ever carried, never cleared —
+        // an answer is not taken back by an edit to the booking it was given
+        // for, whichever day the edit lands the booking on.
+        if answered && saved.day == answeredFor { saved.notAttended = true }
         // The new row is a new id, and the days already attended still hold
         // the old one. An attendance row's link says "this is the desk I had
         // that day", which stays true only while the booking is still for that
@@ -172,6 +182,27 @@ enum BookingStore {
         try context.save()
     }
 
+    /// Answers the row's question with a no.
+    ///
+    /// Writes nothing to attendance — there is nothing to write, a day not
+    /// worked being the absence of a record rather than a record of an absence.
+    /// What it stores is that the question has been answered, so a booking
+    /// gone unused stops asking. `unmark` exists because the answer can be
+    /// wrong, and a row that has stopped asking has no other way back.
+    static func markNotAttended(
+        _ booking: DeskBooking, _ value: Bool = true, in context: ModelContext
+    ) throws {
+        booking.notAttended = value
+        try context.save()
+    }
+
+    /// The same answer from a notification, where only the id came back.
+    static func markNotAttended(bookingID: UUID, in context: ModelContext) throws {
+        guard let booking = try context.fetch(FetchDescriptor<DeskBooking>())
+            .first(where: { $0.id == bookingID }) else { return }
+        try markNotAttended(booking, in: context)
+    }
+
     /// Removes a recorded day. The counterpart of `recordAttendance`, for a day
     /// entered by hand and then thought better of.
     static func deleteAttendance(_ day: AttendanceDay, in context: ModelContext) throws {
@@ -188,6 +219,7 @@ enum BookingStore {
     /// holding on whatever date the suite happens to run.
     static func recordAttendance(
         day: Day, officeID: UUID?, source: AttendanceSource,
+        fraction: Double = 1.0,
         bookingID: UUID? = nil, today: Day = .today, in context: ModelContext
     ) throws -> AttendanceDay? {
         // A day that has not happened cannot have been worked. The rule lives
@@ -204,9 +236,17 @@ enum BookingStore {
         guard !already else { return nil }
 
         let record = AttendanceDay(
-            day: day, officeID: officeID, source: source, bookingID: bookingID
+            day: day, officeID: officeID, source: source,
+            fraction: fraction, bookingID: bookingID
         )
         context.insert(record)
+        // A day answered "no" and then recorded after all. The answer was
+        // wrong, and leaving it set would show a row both attended and not.
+        if let bookingID {
+            try context.fetch(FetchDescriptor<DeskBooking>())
+                .first { $0.id == bookingID }?
+                .notAttended = false
+        }
         try context.save()
         return record
     }

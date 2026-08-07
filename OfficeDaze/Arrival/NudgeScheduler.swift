@@ -71,20 +71,68 @@ enum NudgeScheduler {
             tomorrow: tomorrow,
             isWorkingDay: tomorrow.isWeekday && !bankHolidays.contains(tomorrow),
             hasBookingTomorrow: bookings.contains { $0.day == tomorrow },
-            shortfall: snapshot?.result.shortfall ?? 0
+            shortfall: snapshot?.result.shortfall ?? 0,
+            unconfirmedToday: unconfirmed(today: today, bookings: bookings, in: context)
         )
 
-        guard EveningNudge.shouldNudge(input) else {
+        switch EveningNudge.decide(input) {
+        case .quiet:
             withdraw()
             return false
+
+        case .bookTomorrow:
+            let message = EveningNudge.message(
+                shortfall: input.shortfall, tomorrow: tomorrow
+            )
+            schedule(EveningNudge.request(
+                at: time, title: message.title, body: message.body
+            ))
+            return true
+
+        case .confirmToday(let unconfirmed):
+            let message = EveningNudge.confirmMessage(unconfirmed)
+            schedule(EveningNudge.request(
+                at: time, title: message.title, body: message.body,
+                answering: unconfirmed
+            ))
+            return true
+        }
+    }
+
+    /// Today's desk, if it was booked and nothing has been said about it.
+    ///
+    /// Answered either way — attended, or told no — and there is nothing left to
+    /// ask. Every booking today is tested rather than only the first one the
+    /// store hands back: two offices in one day is unusual but possible, a
+    /// fetch has no order to rely on, and testing the wrong one would decide
+    /// the whole day was answered on the strength of the other office's
+    /// attendance. That is the failure this feature exists to catch.
+    ///
+    /// The office name and desk id come along because the notification names
+    /// them, and by the time it fires there is no screen to fetch them.
+    private static func unconfirmed(
+        today: Day, bookings: [DeskBooking], in context: ModelContext
+    ) -> EveningNudge.Unconfirmed? {
+        let attendance = (try? context.fetch(FetchDescriptor<AttendanceDay>())) ?? []
+        func recorded(_ officeID: UUID) -> Bool {
+            attendance.contains { $0.day == today && $0.officeID == officeID }
         }
 
-        let message = EveningNudge.message(
-            shortfall: input.shortfall, tomorrow: tomorrow
+        let offices = (try? context.fetch(FetchDescriptor<Office>())) ?? []
+        // Sorted, so a day with two unanswered desks asks about the same one
+        // every evening rather than whichever the fetch happened to return.
+        guard let booking = bookings
+            .filter({ $0.day == today && !$0.notAttended && !recorded($0.officeID) })
+            .sorted(by: { $0.deskID < $1.deskID })
+            .first
+        else { return nil }
+
+        return EveningNudge.Unconfirmed(
+            day: today,
+            officeID: booking.officeID,
+            officeName: offices.first { $0.id == booking.officeID }?.name ?? "the office",
+            bookingID: booking.id,
+            deskID: booking.deskID
         )
-        schedule(EveningNudge.request(
-            at: time, title: message.title, body: message.body
-        ))
-        return true
     }
 }

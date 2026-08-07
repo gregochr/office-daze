@@ -36,6 +36,7 @@ struct BookingDetailScreen: View {
         ScrollView {
             VStack(spacing: Metrics.cardGap) {
                 headline
+                if booking.needsChecking { unread }
                 fields
                 if let attended {
                     StatusStrip(
@@ -95,6 +96,30 @@ struct BookingDetailScreen: View {
                 }
             }
         }
+    }
+
+    /// Names what could not be read, and goes straight to it.
+    ///
+    /// Never guessing is the best idea in the app, and a row that only said
+    /// something was missing left the user to work out which of five fields it
+    /// was. The strip says, and tapping it opens the editor with the cursor
+    /// already there.
+    private var unread: some View {
+        NavigationLink {
+            BookingEditorScreen(booking: booking)
+        } label: {
+            StatusStrip(
+                tone: .warning,
+                leading: "\(named) couldn't be read",
+                trailing: "Fill it in"
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var named: String {
+        let names = BookingEditorScreen.unreadFieldNames(booking.unsureFields)
+        return "\(names.prefix(1).uppercased())\(names.dropFirst())"
     }
 
     private var fields: some View {

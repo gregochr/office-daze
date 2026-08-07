@@ -174,6 +174,146 @@ struct StoreTests {
         #expect(unbooked.map(\.day) == [Day(2026, 8, 3), Day(2026, 8, 4)])
     }
 
+    /// The day the app is most likely to lose: booked, gone by, and never
+    /// confirmed. Every route into attendance needs the user to act, and one of
+    /// them is a geofence that can silently fail to fire — so a row that nobody
+    /// has said anything about has to say so itself.
+    @Test("A booked day gone by with nothing said about it is an open question")
+    func pastUnconfirmedRowsAsk() throws {
+        let context = container.mainContext
+        let attendance = try context.fetch(FetchDescriptor<AttendanceDay>())
+        let bookings = try context.fetch(FetchDescriptor<DeskBooking>())
+        let today = Day(2026, 8, 13)
+
+        func entry(_ day: Day) throws -> HomeScreen.Entry {
+            .booking(try #require(bookings.first { $0.day == day }))
+        }
+        func asks(_ entry: HomeScreen.Entry, today: Day = Day(2026, 8, 13)) -> Bool {
+            HomeScreen.isUnanswered(entry, attendance: attendance, today: today)
+        }
+
+        // 12 August: booked, in the past, and no attendance anywhere.
+        #expect(asks(try entry(Day(2026, 8, 12))))
+        // 5 August: booked and attended. Answered.
+        #expect(!asks(try entry(Day(2026, 8, 5))))
+        // The same 12 August, seen from the 12th. Still being worked, and both
+        // the arrival alert and the evening nudge have today covered.
+        #expect(!asks(try entry(Day(2026, 8, 12)), today: Day(2026, 8, 12)))
+
+        // Told no. The answer is stored, so the row stops asking — and it is
+        // not attendance, because a day not worked has nothing to record.
+        let unused = try #require(bookings.first { $0.day == Day(2026, 8, 12) })
+        try BookingStore.markNotAttended(unused, in: context)
+        #expect(!asks(.booking(unused)))
+        #expect(try context.fetchCount(FetchDescriptor<AttendanceDay>()) == 4)
+
+        // And answering yes after all clears it, or the row would read as both
+        // attended and not.
+        try BookingStore.recordAttendance(
+            day: unused.day, officeID: unused.officeID, source: .manual,
+            bookingID: unused.id, today: today, in: context
+        )
+        #expect(!unused.notAttended)
+    }
+
+    /// `AttendanceDay.fraction` held 1.0 or 0.5 from the start and `Quota`
+    /// summed it faithfully, but nothing could enter a half — you could book
+    /// half a day off and not record half a day on. A field only a fixture can
+    /// reach is a trap for whoever reads the model next.
+    @Test("Half a day on prem counts as half a day")
+    func halfDaysCanBeRecorded() throws {
+        let context = container.mainContext
+        let day = Day(2026, 8, 7)
+        let record = try #require(
+            try BookingStore.recordAttendance(
+                day: day, officeID: SeedData.brusselsID, source: .manual,
+                fraction: 0.5, today: day, in: context
+            )
+        )
+        #expect(record.fraction == 0.5)
+
+        let snapshot = try QuotaService.snapshot(for: SeedData.month, today: day, in: context)
+        #expect(snapshot.result.attended == 4.5, "four seeded days and a half")
+        #expect(snapshot.attendedByOffice[SeedData.brusselsID] == 1.5)
+    }
+
+    /// Editing replaces the row rather than mutating it — the merge would
+    /// otherwise find the booking being edited and merge it with itself — so
+    /// anything the candidate does not carry has to be carried by hand. "Were
+    /// you there?" was answered about the day, and correcting a typo in the
+    /// desk id is no reason to ask again.
+    @Test("Correcting a booking does not un-answer it")
+    func editingKeepsTheAnswer() throws {
+        let context = container.mainContext
+        let booking = try #require(
+            try context.fetch(FetchDescriptor<DeskBooking>())
+                .first { $0.day == Day(2026, 8, 12) }
+        )
+        try BookingStore.markNotAttended(booking, in: context)
+
+        let saved = try BookingStore.replace(
+            booking,
+            with: .init(
+                officeID: SeedData.colemanID, day: Day(2026, 8, 12), deskID: "3C-122",
+                floor: "Level 3", zone: "C", source: .manual
+            ),
+            in: context
+        )
+
+        #expect(saved.deskID == "3C-122")
+        #expect(saved.notAttended, "still answered")
+        #expect(
+            !HomeScreen.isUnanswered(
+                .booking(saved),
+                attendance: try context.fetch(FetchDescriptor<AttendanceDay>()),
+                today: Day(2026, 8, 13)
+            )
+        )
+    }
+
+    /// The limit of that. The answer was about the day, so a booking edited
+    /// onto a different day arrives at one nobody has been asked about — and
+    /// carrying the answer there would be answering for the user, which is the
+    /// one thing the question exists not to do.
+    @Test("An answer does not follow a booking onto a day it was not given for")
+    func theAnswerDoesNotMoveDays() throws {
+        let context = container.mainContext
+        let booking = try #require(
+            try context.fetch(FetchDescriptor<DeskBooking>())
+                .first { $0.day == Day(2026, 8, 12) }
+        )
+        try BookingStore.markNotAttended(booking, in: context)
+
+        // The 12th was a typo for the 19th, which has nothing booked.
+        let saved = try BookingStore.replace(
+            booking,
+            with: .init(
+                officeID: SeedData.colemanID, day: Day(2026, 8, 19), deskID: "3C-121",
+                source: .manual
+            ),
+            in: context
+        )
+
+        #expect(saved.day == Day(2026, 8, 19))
+        #expect(!saved.notAttended, "the 19th has not been asked about")
+    }
+
+    /// The never-guess rule is the app's best idea, and an amber dot saying
+    /// only that something could not be read was the worst way to report it.
+    @Test("What could not be read is named, not merely marked")
+    func unreadFieldsAreNamed() {
+        #expect(BookingEditorScreen.unreadFieldNames(["zone"]) == "zone")
+        #expect(BookingEditorScreen.unreadFieldNames(["floor", "zone"]) == "floor and zone")
+        #expect(
+            BookingEditorScreen.unreadFieldNames(["floor", "zone", "startTime"])
+                == "floor, zone and from"
+        )
+        // The schema's own names are what arrive; anything else is ignored
+        // rather than shown raw.
+        #expect(BookingEditorScreen.unreadFieldNames(["nonsense"]) == "this booking")
+        #expect(BookingEditorScreen.Field(unsureField: "deskId") == .desk)
+    }
+
     /// The mirror of the attendance guard: attendance refuses the future,
     /// planning refuses the past. Between them every day has exactly one record
     /// that fits it, and neither can be used to say the other's thing.

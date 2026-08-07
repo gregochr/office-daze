@@ -83,13 +83,19 @@ nonisolated enum Quota {
     /// separate entities. Calling that "Target met" claimed the second as the
     /// first, beside a dial reading `4 of 8` that said the opposite in the same
     /// card.
+    /// Four states rather than three, because "behind" was two facts wearing
+    /// one colour. Being short with three weeks to go is an errand; being short
+    /// with more days needed than the month has left is the only thing in this
+    /// app worth a red, and it shows up perhaps twice a year.
     enum Standing: Hashable, Sendable {
         /// The days worked reach the target on their own.
         case met
         /// Not yet, but everything needed is already booked.
         case onTrack
-        /// Short even with every booking honoured.
+        /// Short even with every booking honoured, and still reachable.
         case behind
+        /// Short by more days than there are left to work.
+        case unreachable
     }
 
     struct Result: Hashable, Sendable {
@@ -113,10 +119,20 @@ nonisolated enum Quota {
         /// same boundary `forecast` uses, so the two figures can't disagree
         /// about whether today is still in play.
         let daysToRun: Int
+        /// Days the target could still be met on: working days from today
+        /// onward, less the ones already worked and the ones booked off.
+        ///
+        /// Not `daysToRun`, which excludes today. The difference is the whole
+        /// last working day of the month, and testing reachability against
+        /// `daysToRun` would call a month unreachable on a morning it could
+        /// still be finished — a red that is wrong by default, which is exactly
+        /// what the bands were retired for.
+        let daysAvailable: Int
 
         var standing: Standing {
             if attended >= Double(target) { return .met }
-            return shortfall > 0 ? .behind : .onTrack
+            guard shortfall > 0 else { return .onTrack }
+            return Double(target) - attended > Double(daysAvailable) ? .unreachable : .behind
         }
     }
 
@@ -168,6 +184,18 @@ nonisolated enum Quota {
 
         let daysToRun = workingDaySet.filter { $0 > input.today }.count
 
+        // Today counts here where it does not in `daysToRun`: a day still being
+        // worked is a day the target can still be met on. A half-day of leave
+        // leaves half a day available and is counted as a whole, which errs
+        // toward saying the month is still reachable — the right direction for
+        // a figure whose only job is to decide whether to show a red.
+        let leaveDays = Set(input.leave.filter { $0.fraction >= 1 }.map(\.day))
+        let daysAvailable = workingDaySet
+            .filter { $0 >= input.today }
+            .subtracting(attendedDays)
+            .subtracting(leaveDays)
+            .count
+
         return Result(
             bankHolidays: bankHolidays,
             workingDays: workingDays,
@@ -178,7 +206,8 @@ nonisolated enum Quota {
             attended: attended,
             forecast: forecast,
             shortfall: shortfall,
-            daysToRun: daysToRun
+            daysToRun: daysToRun,
+            daysAvailable: daysAvailable
         )
     }
 }

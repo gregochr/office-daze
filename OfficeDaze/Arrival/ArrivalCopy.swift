@@ -28,4 +28,22 @@ nonisolated enum ArrivalCopy {
 
     /// The three of them, for the test that keeps them honest.
     static let all = [preview, officeEditor, officesSection]
+
+    /// Why the alert may not arrive at all, and the only thing that fixes it
+    /// here.
+    ///
+    /// The notification asks to be Time Sensitive, which is the level that
+    /// breaks through a Focus — but that level needs the Time Sensitive
+    /// Notifications capability, and a personal team cannot have it. iOS
+    /// ignores the request rather than failing, so the alert lands in the
+    /// Focus's holding pen on exactly the mornings it was written for. Adding
+    /// the app to the Focus by hand does the same job, once, for free.
+    ///
+    /// Deliberately not in `all`: those sentences are about *when* the alert
+    /// fires, and this is about whether it gets through.
+    static let workFocus = """
+        Arriving with a Work Focus on? iOS holds the alert back until you next \
+        pick up the phone. Add Office Daze to that Focus's allowed apps in \
+        Settings › Focus, and it will come through on arrival.
+        """
 }

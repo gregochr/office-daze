@@ -88,7 +88,12 @@ final class ArrivalLedger {
             desk: desk,
             attended: snapshot?.result.attended ?? 0,
             target: snapshot?.result.target ?? 0,
-            monthName: monthName(day.month_)
+            monthName: monthName(day.month_),
+            // Recorded at another office earlier today. The rule stops the
+            // alert only for the office it was recorded at, so this one still
+            // fires — but "tap to make it 5" would be a promise the button
+            // cannot keep, because the day is already counted.
+            alreadyRecorded: snapshot?.attendedDays.contains(day) ?? false
         )
         post(ArrivalNotifications.request(
             content, officeID: office.id, day: day, bookingID: desk?.id, at: now
@@ -104,6 +109,24 @@ final class ArrivalLedger {
             day: day, officeID: officeID, source: .geofence,
             bookingID: bookingID, today: today, in: context
         )
+    }
+
+    /// The evening question's `No`. Records the answer, not an absence — see
+    /// `BookingStore.markNotAttended`.
+    ///
+    /// Refuses to answer for a day already recorded. The nudge's content is
+    /// decided when the app was last awake and the notification fires hours
+    /// later, so a question can outlive its answer: confirm the day from the
+    /// arrival alert at nine, and the evening still asks. Tapping No there must
+    /// not overwrite a day that was worked — that record is the only copy.
+    func declineAttendance(bookingID: UUID) {
+        let bookings = (try? context.fetch(FetchDescriptor<DeskBooking>())) ?? []
+        guard let booking = bookings.first(where: { $0.id == bookingID }) else { return }
+        let recorded = ((try? context.fetch(FetchDescriptor<AttendanceDay>())) ?? [])
+            .contains { $0.day == booking.day && $0.officeID == booking.officeID }
+        guard !recorded else { return }
+
+        try? BookingStore.markNotAttended(booking, in: context)
     }
 
     // MARK: Reads

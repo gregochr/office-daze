@@ -22,6 +22,18 @@ enum Palette {
     /// Gauge ticks.
     static let tick = Color(hex: 0xD1D1D6)
 
+    /// The dial, and the whole of it: one hue plus greys, and no judgement in
+    /// any of them. Solid is counted, tint is promised, empty is owed, hatched
+    /// is not owed. A second colour here puts back the problem the bands had —
+    /// four things said in colour by three different rules on one card.
+    static let gaugeAttended = tint
+    static let gaugeBooked = Color(hex: 0xC2DEDB)
+    static let gaugeGap = Color(hex: 0xEFEFF4)
+    static let gaugeOff = Color(hex: 0xEDEDF2)
+    static let gaugeHatch = Color(hex: 0xCFCFD6)
+
+    /// The destructive swipe, which is iOS's own convention and not a judgement
+    /// about the month. Nothing on the gauge is this colour.
     static let behind = Color(hex: 0xE5484D)
     static let close = Color(hex: 0xF5A623)
     static let met = Color(hex: 0x2FA36B)
@@ -32,6 +44,17 @@ enum Palette {
 
     static let successSurface = Color(hex: 0xEAF7F0)
     static let successText = Color(hex: 0x1B6B47)
+
+    /// The one red in the app, and it means the target cannot be reached this
+    /// month — not that you are behind. It shows up perhaps twice a year, and
+    /// when it does it is a fact rather than a mood.
+    static let dangerSurface = Color(hex: 0xFDECEC)
+    static let dangerText = Color(hex: 0xA32126)
+
+    /// On track: everything needed is booked and none of it worked yet. Not
+    /// green, which would claim the month is done when it is only arranged.
+    static let neutralSurface = Color(hex: 0xEFEFF4)
+    static let neutralText = Color(hex: 0x3A3A3C)
 }
 
 extension Color {

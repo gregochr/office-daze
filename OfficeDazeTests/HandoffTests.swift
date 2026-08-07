@@ -76,12 +76,69 @@ struct EveningNudgeTests {
         )
     }
 
+    func unconfirmed() -> EveningNudge.Unconfirmed {
+        .init(
+            day: Day(2026, 8, 11), officeID: UUID(), officeName: "Coleman",
+            bookingID: UUID(), deskID: "3C-114"
+        )
+    }
+
     @Test("All three conditions, or nothing")
     func conditions() {
         #expect(EveningNudge.shouldNudge(input()))
         #expect(!EveningNudge.shouldNudge(input(working: false)), "a weekend")
         #expect(!EveningNudge.shouldNudge(input(booked: true)), "already booked")
         #expect(!EveningNudge.shouldNudge(input(shortfall: 0)), "month already met")
+
+        #expect(EveningNudge.decide(input()) == .bookTomorrow)
+        #expect(EveningNudge.decide(input(working: false)) == .quiet)
+    }
+
+    /// A day worked and never recorded is a fact on its way out of the app —
+    /// attendance is the only copy. A day not yet booked is a plan, and plans
+    /// keep until the morning.
+    @Test("Today unanswered outranks tomorrow unbooked")
+    func todayComesFirst() {
+        let today = unconfirmed()
+        var both = input()
+        both.unconfirmedToday = today
+        #expect(EveningNudge.decide(both) == .confirmToday(today))
+
+        // And it asks even on the evenings the other branch would stay quiet
+        // for: the month being met does not un-work the day.
+        var metMonth = input(shortfall: 0)
+        metMonth.unconfirmedToday = today
+        #expect(EveningNudge.decide(metMonth) == .confirmToday(today))
+    }
+
+    /// A question, and the reason for asking. It does not say the day was
+    /// worked — the desk was booked, which is a different thing, and assuming
+    /// would make the one record the app cannot reconstruct into a guess.
+    @Test("The question does not answer itself")
+    func confirmCopy() {
+        let message = EveningNudge.confirmMessage(unconfirmed())
+        #expect(message.title == "Were you at Coleman today?")
+        #expect(message.body.contains("Desk 3C-114 was booked for today"))
+        #expect(message.body.contains("only counts once you say"))
+    }
+
+    /// The buttons have to record from the lock screen, which means the same
+    /// user info the arrival alert carries — the handler behind them is the
+    /// one that already exists.
+    @Test("The question carries what its buttons need to write the record")
+    func confirmRequest() {
+        let asking = unconfirmed()
+        let request = EveningNudge.request(
+            at: DateComponents(hour: 18, minute: 0),
+            title: "t", body: "b", answering: asking
+        )
+        let content = request.content
+        #expect(content.categoryIdentifier == ArrivalNotifications.Category.nudgeConfirm.rawValue)
+        #expect(
+            content.userInfo[ArrivalNotifications.UserInfo.bookingID] as? String
+                == asking.bookingID.uuidString
+        )
+        #expect(content.userInfo[ArrivalNotifications.UserInfo.day] as? String == "2026-08-11")
     }
 
     @Test("The copy says what is true and stops")
@@ -160,6 +217,75 @@ struct NudgeSchedulerTests {
         // Friday 7 August: tomorrow is a Saturday.
         #expect(!NudgeScheduler.refresh(today: Day(2026, 8, 7), in: container.mainContext))
         #expect(calls.withdrawn == 1)
+    }
+
+    /// 12 August has a seeded Coleman booking and no attendance against it —
+    /// the day that would otherwise be lost.
+    @Test("A day booked and unanswered is asked about instead of tomorrow")
+    func asksAboutToday() throws {
+        let calls = recording()
+        #expect(NudgeScheduler.refresh(today: Day(2026, 8, 12), in: container.mainContext))
+        let request = try #require(calls.scheduled.first)
+        #expect(request.content.title == "Were you at Coleman today?")
+        #expect(
+            request.content.categoryIdentifier
+                == ArrivalNotifications.Category.nudgeConfirm.rawValue
+        )
+    }
+
+    /// 5 August is booked and already attended. Nothing left to ask, and the
+    /// evening falls back to the branch about tomorrow — which on the 5th has
+    /// a desk booked for the 6th, so it says nothing at all.
+    @Test("A day already recorded is not asked about")
+    func doesNotAskTwice() {
+        let calls = recording()
+        #expect(!NudgeScheduler.refresh(today: Day(2026, 8, 5), in: container.mainContext))
+        #expect(calls.scheduled.isEmpty)
+        #expect(calls.withdrawn == 1)
+    }
+
+    /// "No" is an answer, not an absence. Without storing it the question comes
+    /// back every evening about the same day.
+    @Test("An answer of no stops the question")
+    func answeredNoStopsAsking() throws {
+        let context = container.mainContext
+        let booking = try #require(
+            try context.fetch(FetchDescriptor<DeskBooking>())
+                .first { $0.day == Day(2026, 8, 12) }
+        )
+        try BookingStore.markNotAttended(booking, in: context)
+
+        let calls = recording()
+        #expect(NudgeScheduler.refresh(today: Day(2026, 8, 12), in: context))
+        #expect(calls.scheduled.first?.content.title == "No desk booked for tomorrow")
+    }
+
+    /// Two offices in one day is unusual but possible, a fetch has no order to
+    /// rely on, and testing the wrong booking would decide the whole day was
+    /// answered on the strength of the other office's attendance — losing
+    /// exactly the day this feature exists to catch.
+    @Test("A day with two desks asks about the one still unanswered")
+    func picksTheUnansweredDesk() throws {
+        let context = container.mainContext
+        let today = Day(2026, 8, 12)
+        // The 12th already has a Coleman booking. Add Brussels, and record
+        // Coleman as attended so only Brussels is still an open question.
+        try BookingStore.upsert(
+            .init(
+                officeID: SeedData.brusselsID, day: today, deskID: "2-099",
+                floor: nil, zone: nil, startTime: nil, endTime: nil,
+                source: .manual, unsureFields: []
+            ),
+            in: context
+        )
+        try BookingStore.recordAttendance(
+            day: today, officeID: SeedData.colemanID, source: .manual,
+            today: today, in: context
+        )
+
+        let calls = recording()
+        #expect(NudgeScheduler.refresh(today: today, in: context))
+        #expect(calls.scheduled.first?.content.title == "Were you at Brussels today?")
     }
 
     @Test("Switching it off withdraws whatever was pending")

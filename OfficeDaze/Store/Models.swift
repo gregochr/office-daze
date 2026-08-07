@@ -94,6 +94,14 @@ final class DeskBooking {
     /// value — that is the invariant the whole never-guess rule rests on.
     var unsureFields: [String] = []
     var captureID: UUID?
+    /// Asked whether the day was worked, and told no.
+    ///
+    /// Not the absence of an `AttendanceDay` — that is the state of not having
+    /// been asked yet, which is the one the row puts a question on. This is the
+    /// answer, and it is stored so the question is asked once rather than every
+    /// time the month is opened. Nothing counts it: a day not worked contributes
+    /// nothing to the eight whether it was booked or not.
+    var notAttended: Bool = false
     /// The EventKit identifier of the calendar entry this booking was written
     /// to, if it has been. Held because write-only access cannot read events
     /// back — without recording it here, a second tap of Add to calendar would

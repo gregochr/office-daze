@@ -39,6 +39,29 @@ struct SettingsScreen: View {
         return "\(count) \(days == 1 ? "day" : "days") this month"
     }
 
+    /// `Key saved · last used 4 August`, or the reason capture is off.
+    ///
+    /// Last use comes from the captures themselves rather than from anything
+    /// stored for the purpose — a parsed capture is proof the key worked, which
+    /// is the fact worth reporting, and the token counters below already prove
+    /// the plumbing exists.
+    private var keyStatus: (saved: Bool, symbol: String, text: String) {
+        guard !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return (false, "exclamationmark.circle", "No key — image reading is off")
+        }
+        let lastUsed = captures
+            .filter { $0.status == .parsed }
+            .map(\.receivedAt)
+            .max()
+        guard let lastUsed else {
+            return (true, "checkmark.circle.fill", "Key saved · not used yet")
+        }
+        return (
+            true, "checkmark.circle.fill",
+            "Key saved · last used \(Day(of: lastUsed).dayAndMonth)"
+        )
+    }
+
     var body: some View {
         Form {
             Section {
@@ -89,6 +112,18 @@ struct SettingsScreen: View {
                         // forget, and the Keychain is the only copy.
                         Keychain.apiKey = new.trimmingCharacters(in: .whitespacesAndNewlines)
                     }
+                // The field saves on every keystroke into a store nothing can
+                // read back, so there was no way to tell a saved key from a
+                // typo until a capture failed at the moment the key was needed.
+                // This says which of the two it is, and when it last worked.
+                HStack(spacing: 8) {
+                    Image(systemName: keyStatus.symbol)
+                        .font(.system(size: 14))
+                        .foregroundStyle(keyStatus.saved ? Palette.met : Palette.secondary)
+                    Text(keyStatus.text)
+                        .font(.system(size: 13))
+                        .foregroundStyle(Palette.secondary)
+                }
             } header: {
                 Text("Anthropic API key")
             } footer: {

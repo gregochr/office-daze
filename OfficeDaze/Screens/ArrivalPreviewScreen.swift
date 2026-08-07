@@ -42,7 +42,8 @@ struct ArrivalPreviewScreen: View {
             desk: desk,
             attended: snapshot?.result.attended ?? 0,
             target: snapshot?.result.target ?? 0,
-            monthName: String(Day.today.month_.text.split(separator: " ").first ?? "")
+            monthName: String(Day.today.month_.text.split(separator: " ").first ?? ""),
+            alreadyRecorded: snapshot?.attendedDays.contains(.today) ?? false
         )
     }
 
@@ -69,6 +70,17 @@ struct ArrivalPreviewScreen: View {
                     .foregroundStyle(Palette.secondary)
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: .infinity)
+
+                    // The one setting between this alert and the mornings it
+                    // was written for. It sits under the preview because this
+                    // is the screen you are on when you wonder why the alert
+                    // did not arrive.
+                    Card(padding: EdgeInsets(top: 13, leading: 14, bottom: 13, trailing: 14)) {
+                        Text(ArrivalCopy.workFocus)
+                            .font(.system(size: 13))
+                            .foregroundStyle(Palette.rowLabel)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 } else {
                     Text("Add an office to see the alert.")
                         .font(.system(size: 15))
@@ -100,6 +112,11 @@ struct ArrivalPreviewScreen: View {
                 RoundedRectangle(cornerRadius: 4)
                     .fill(Palette.tint)
                     .frame(width: 16, height: 16)
+                // No "TIME SENSITIVE" here, though the notification asks to be.
+                // iOS draws that label only when the entitlement backs it up,
+                // and a personal team cannot have that entitlement — see
+                // `ArrivalNotifications.request`. This screen is a preview of
+                // what lands, so it shows what lands.
                 Text("OFFICE DAZE")
                     .font(.system(size: 12, weight: .medium))
                     .kerning(0.4)

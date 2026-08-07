@@ -214,14 +214,19 @@ struct ArrivalNotificationTests {
         #expect(!floorOnly.body.contains("Zone"))
     }
 
-    @Test("The unbooked prompt says so, and uses its own category")
+    /// The largest line iOS renders is worth a fact. With no desk to show, the
+    /// old title said "You're on site" — which the subtitle says again a line
+    /// later, in more detail — so the month position takes it instead.
+    @Test("The unbooked prompt puts the month position in the title")
     func unbooked() {
         let content = ArrivalNotifications.content(
             officeName: "Coleman", desk: nil,
             attended: 4, target: 7, monthName: "August"
         )
-        #expect(content.title == "You're on site")
+        #expect(content.title == "Day 4 of 7")
+        #expect(!content.title.contains("on site"), "the subtitle already says where")
         #expect(content.body.contains("No desk booked today."))
+        #expect(content.body.contains("Tap to make it 5."))
         #expect(content.category == .unbooked)
     }
 
@@ -239,14 +244,72 @@ struct ArrivalNotificationTests {
         )
     }
 
-    @Test("Both categories offer the confirm button")
+    /// The count alone reads as though turning up had already been counted,
+    /// which is the one thing this app never claims. The tail says what the
+    /// button will do about it.
+    @Test("The count names the consequence of the button under it")
+    func consequence() {
+        let content = ArrivalNotifications.content(
+            officeName: "Coleman", desk: booking(),
+            attended: 4, target: 7, monthName: "August"
+        )
+        #expect(content.body.contains("Day 4 of 7 for August — tap to make it 5"))
+        #expect(ArrivalNotifications.consequence(attended: 4.5) == "tap to make it 5.5")
+    }
+
+    /// Arriving at a second office on a day already recorded at the first. The
+    /// alert still fires — the acknowledgement is per office — but the button
+    /// under it will not move the count, so nothing promises that it will.
+    @Test("A day already recorded drops the tail rather than promising a fifth")
+    func alreadyRecordedDropsTheTail() {
+        let booked = ArrivalNotifications.content(
+            officeName: "Brussels", desk: booking(),
+            attended: 5, target: 7, monthName: "August", alreadyRecorded: true
+        )
+        #expect(booked.body.contains("Day 5 of 7 for August"))
+        #expect(!booked.body.contains("tap to make it"))
+
+        let unbooked = ArrivalNotifications.content(
+            officeName: "Brussels", desk: nil,
+            attended: 5, target: 7, monthName: "August", alreadyRecorded: true
+        )
+        #expect(unbooked.title == "Day 5 of 7", "still the fact worth the largest line")
+        #expect(!unbooked.body.contains("Tap to make it"))
+    }
+
+    /// A default-level notification under a Work Focus is silently held back,
+    /// and a Work Focus is exactly what is running when someone walks into an
+    /// office at nine. This is the line that makes the alert arrive.
+    @Test("The alert is Time Sensitive, so a Work Focus does not swallow it")
+    func timeSensitive() {
+        let request = ArrivalNotifications.request(
+            ArrivalNotifications.content(
+                officeName: "Coleman", desk: booking(),
+                attended: 4, target: 7, monthName: "August"
+            ),
+            officeID: UUID(), day: Day(2026, 8, 5), bookingID: nil,
+            at: Date(timeIntervalSince1970: 1_785_000_000)
+        )
+        #expect(request.content.interruptionLevel == .timeSensitive)
+    }
+
+    @Test("Every category offers the confirm button")
     func categories() {
         let categories = ArrivalNotifications.categories
-        #expect(categories.count == 2)
+        #expect(categories.count == 3, "booked, unbooked, and the evening question")
         let confirmable = categories.allSatisfy { category in
             category.actions.contains { $0.identifier == ArrivalNotifications.Action.confirm.rawValue }
         }
         #expect(confirmable, "attendance must be recordable from the lock screen")
+
+        // The evening question is about a morning that has been and gone, so
+        // "I'm here" is the wrong tense — but the identifier is the same one,
+        // which is what lets it record through the handler that already exists.
+        let evening = categories.first {
+            $0.identifier == ArrivalNotifications.Category.nudgeConfirm.rawValue
+        }
+        let titles = evening?.actions.map(\.title) ?? []
+        #expect(titles == ["I was there", "No"])
     }
 
     @Test("The request carries what the confirm button needs to write the record")
@@ -344,6 +407,40 @@ struct ArrivalLedgerTests {
         let rows = try container.mainContext.fetch(FetchDescriptor<ArrivalAlert>())
         #expect(rows.count == 1)
         #expect(rows.first?.officeID == SeedData.colemanID)
+    }
+
+    /// The evening question is decided while the app is awake and fires hours
+    /// later, so it can outlive its own answer: confirm the day from the
+    /// arrival alert at nine and the six o'clock notification still asks. No
+    /// there must not overwrite a day that was worked — the attendance record
+    /// is the only copy there is.
+    @Test("No on a stale question cannot unrecord a day that was worked")
+    func declineRefusesAnAnsweredDay() throws {
+        let context = container.mainContext
+        let booking = try #require(
+            try context.fetch(FetchDescriptor<DeskBooking>())
+                .first { $0.day == unattended }
+        )
+        ledger.confirmAttendance(
+            officeID: SeedData.colemanID, day: unattended,
+            bookingID: booking.id, today: unattended
+        )
+
+        ledger.declineAttendance(bookingID: booking.id)
+        #expect(!booking.notAttended, "the day was worked; the question was stale")
+        #expect(
+            try context.fetch(FetchDescriptor<AttendanceDay>())
+                .contains { $0.day == unattended },
+            "and the record it was worked is still there"
+        )
+
+        // A day nothing has been said about still takes the answer.
+        let unanswered = try #require(
+            try context.fetch(FetchDescriptor<DeskBooking>())
+                .first { $0.day == Day(2026, 8, 11) }
+        )
+        ledger.declineAttendance(bookingID: unanswered.id)
+        #expect(unanswered.notAttended)
     }
 
     /// A day already recorded has nothing left to ask for, so the perimeter is
