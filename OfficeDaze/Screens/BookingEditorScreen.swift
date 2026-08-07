@@ -165,7 +165,8 @@ struct BookingEditorScreen: View {
         // An edit cannot upsert in place — the merge would find the very row
         // being edited and merge it with itself — so it goes through
         // `replace`, which deletes first and carries across everything the
-        // candidate does not describe.
+        // candidate does not describe. The answer to "were you there?" is one
+        // of those things; it is carried there, not here.
         if let booking {
             try? BookingStore.replace(booking, with: candidate, in: context)
         } else {

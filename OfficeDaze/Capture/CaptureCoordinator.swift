@@ -47,6 +47,15 @@ final class CaptureCoordinator {
     private var lastInput: (data: Data, mediaType: String)?
     private var captureID: UUID?
 
+    /// Which run the phase belongs to.
+    ///
+    /// A run has two suspension points — the model call and the floor above —
+    /// and the user can cancel or retry across either. Without this the run
+    /// that was abandoned still wakes up and writes its result: Cancel, then
+    /// half a second later the sheet reappears holding bookings from a capture
+    /// the user has already dismissed.
+    private var generation = 0
+
     /// Swapped in tests so nothing reaches the network.
     var extractor: (Data, String, Day) async throws -> ([ParsedBooking], HaikuClient.Usage) = {
         data, mediaType, today in
@@ -140,10 +149,13 @@ final class CaptureCoordinator {
 
     private func run() async {
         guard let (data, mediaType) = lastInput else { return }
+        generation += 1
+        let run = generation
         let started = ContinuousClock.now
         do {
             phase = .parsing(step: .finding)
             let (bookings, usage) = try await extractor(data, mediaType, .today)
+            guard run == generation else { return }
             phase = .parsing(step: .matching)
 
             captureID = record(asset: data, status: .parsed, usage: usage)
@@ -154,11 +166,14 @@ final class CaptureCoordinator {
             if elapsed < parsingFloor {
                 try? await Task.sleep(for: parsingFloor - elapsed)
             }
+            guard run == generation else { return }
             phase = .review(bookings: bookings, index: 0, saved: [])
         } catch let error as CaptureError {
+            guard run == generation else { return }
             record(asset: data, status: .failed, usage: nil)
             phase = .failed(error)
         } catch {
+            guard run == generation else { return }
             phase = .failed(.network(error.localizedDescription))
         }
     }
@@ -300,6 +315,9 @@ final class CaptureCoordinator {
     }
 
     func abort() {
+        // Anything still in flight belongs to a run the user has walked away
+        // from, and stays where it is when it wakes.
+        generation += 1
         phase = .idle
         lastInput = nil
         captureID = nil

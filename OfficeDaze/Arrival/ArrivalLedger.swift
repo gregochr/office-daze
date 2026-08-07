@@ -113,8 +113,20 @@ final class ArrivalLedger {
 
     /// The evening question's `No`. Records the answer, not an absence — see
     /// `BookingStore.markNotAttended`.
+    ///
+    /// Refuses to answer for a day already recorded. The nudge's content is
+    /// decided when the app was last awake and the notification fires hours
+    /// later, so a question can outlive its answer: confirm the day from the
+    /// arrival alert at nine, and the evening still asks. Tapping No there must
+    /// not overwrite a day that was worked — that record is the only copy.
     func declineAttendance(bookingID: UUID) {
-        try? BookingStore.markNotAttended(bookingID: bookingID, in: context)
+        let bookings = (try? context.fetch(FetchDescriptor<DeskBooking>())) ?? []
+        guard let booking = bookings.first(where: { $0.id == bookingID }) else { return }
+        let recorded = ((try? context.fetch(FetchDescriptor<AttendanceDay>())) ?? [])
+            .contains { $0.day == booking.day && $0.officeID == booking.officeID }
+        guard !recorded else { return }
+
+        try? BookingStore.markNotAttended(booking, in: context)
     }
 
     // MARK: Reads

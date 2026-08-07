@@ -409,6 +409,40 @@ struct ArrivalLedgerTests {
         #expect(rows.first?.officeID == SeedData.colemanID)
     }
 
+    /// The evening question is decided while the app is awake and fires hours
+    /// later, so it can outlive its own answer: confirm the day from the
+    /// arrival alert at nine and the six o'clock notification still asks. No
+    /// there must not overwrite a day that was worked — the attendance record
+    /// is the only copy there is.
+    @Test("No on a stale question cannot unrecord a day that was worked")
+    func declineRefusesAnAnsweredDay() throws {
+        let context = container.mainContext
+        let booking = try #require(
+            try context.fetch(FetchDescriptor<DeskBooking>())
+                .first { $0.day == unattended }
+        )
+        ledger.confirmAttendance(
+            officeID: SeedData.colemanID, day: unattended,
+            bookingID: booking.id, today: unattended
+        )
+
+        ledger.declineAttendance(bookingID: booking.id)
+        #expect(!booking.notAttended, "the day was worked; the question was stale")
+        #expect(
+            try context.fetch(FetchDescriptor<AttendanceDay>())
+                .contains { $0.day == unattended },
+            "and the record it was worked is still there"
+        )
+
+        // A day nothing has been said about still takes the answer.
+        let unanswered = try #require(
+            try context.fetch(FetchDescriptor<DeskBooking>())
+                .first { $0.day == Day(2026, 8, 11) }
+        )
+        ledger.declineAttendance(bookingID: unanswered.id)
+        #expect(unanswered.notAttended)
+    }
+
     /// A day already recorded has nothing left to ask for, so the perimeter is
     /// crossed and nothing happens. The 5th is seeded as attended at Coleman.
     @Test("An acknowledged day is silent")

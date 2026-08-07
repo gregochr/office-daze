@@ -260,6 +260,34 @@ struct NudgeSchedulerTests {
         #expect(calls.scheduled.first?.content.title == "No desk booked for tomorrow")
     }
 
+    /// Two offices in one day is unusual but possible, a fetch has no order to
+    /// rely on, and testing the wrong booking would decide the whole day was
+    /// answered on the strength of the other office's attendance — losing
+    /// exactly the day this feature exists to catch.
+    @Test("A day with two desks asks about the one still unanswered")
+    func picksTheUnansweredDesk() throws {
+        let context = container.mainContext
+        let today = Day(2026, 8, 12)
+        // The 12th already has a Coleman booking. Add Brussels, and record
+        // Coleman as attended so only Brussels is still an open question.
+        try BookingStore.upsert(
+            .init(
+                officeID: SeedData.brusselsID, day: today, deskID: "2-099",
+                floor: nil, zone: nil, startTime: nil, endTime: nil,
+                source: .manual, unsureFields: []
+            ),
+            in: context
+        )
+        try BookingStore.recordAttendance(
+            day: today, officeID: SeedData.colemanID, source: .manual,
+            today: today, in: context
+        )
+
+        let calls = recording()
+        #expect(NudgeScheduler.refresh(today: today, in: context))
+        #expect(calls.scheduled.first?.content.title == "Were you at Brussels today?")
+    }
+
     @Test("Switching it off withdraws whatever was pending")
     func withdrawsWhenDisabled() {
         let calls = recording()

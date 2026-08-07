@@ -237,6 +237,67 @@ struct StoreTests {
         #expect(snapshot.attendedByOffice[SeedData.brusselsID] == 1.5)
     }
 
+    /// Editing replaces the row rather than mutating it — the merge would
+    /// otherwise find the booking being edited and merge it with itself — so
+    /// anything the candidate does not carry has to be carried by hand. "Were
+    /// you there?" was answered about the day, and correcting a typo in the
+    /// desk id is no reason to ask again.
+    @Test("Correcting a booking does not un-answer it")
+    func editingKeepsTheAnswer() throws {
+        let context = container.mainContext
+        let booking = try #require(
+            try context.fetch(FetchDescriptor<DeskBooking>())
+                .first { $0.day == Day(2026, 8, 12) }
+        )
+        try BookingStore.markNotAttended(booking, in: context)
+
+        let saved = try BookingStore.replace(
+            booking,
+            with: .init(
+                officeID: SeedData.colemanID, day: Day(2026, 8, 12), deskID: "3C-122",
+                floor: "Level 3", zone: "C", source: .manual
+            ),
+            in: context
+        )
+
+        #expect(saved.deskID == "3C-122")
+        #expect(saved.notAttended, "still answered")
+        #expect(
+            !HomeScreen.isUnanswered(
+                .booking(saved),
+                attendance: try context.fetch(FetchDescriptor<AttendanceDay>()),
+                today: Day(2026, 8, 13)
+            )
+        )
+    }
+
+    /// The limit of that. The answer was about the day, so a booking edited
+    /// onto a different day arrives at one nobody has been asked about — and
+    /// carrying the answer there would be answering for the user, which is the
+    /// one thing the question exists not to do.
+    @Test("An answer does not follow a booking onto a day it was not given for")
+    func theAnswerDoesNotMoveDays() throws {
+        let context = container.mainContext
+        let booking = try #require(
+            try context.fetch(FetchDescriptor<DeskBooking>())
+                .first { $0.day == Day(2026, 8, 12) }
+        )
+        try BookingStore.markNotAttended(booking, in: context)
+
+        // The 12th was a typo for the 19th, which has nothing booked.
+        let saved = try BookingStore.replace(
+            booking,
+            with: .init(
+                officeID: SeedData.colemanID, day: Day(2026, 8, 19), deskID: "3C-121",
+                source: .manual
+            ),
+            in: context
+        )
+
+        #expect(saved.day == Day(2026, 8, 19))
+        #expect(!saved.notAttended, "the 19th has not been asked about")
+    }
+
     /// The never-guess rule is the app's best idea, and an amber dot saying
     /// only that something could not be read was the worst way to report it.
     @Test("What could not be read is named, not merely marked")

@@ -101,16 +101,15 @@ struct ArrivalPreviewScreen: View {
                 RoundedRectangle(cornerRadius: 4)
                     .fill(Palette.tint)
                     .frame(width: 16, height: 16)
-                // iOS draws the label itself on a Time Sensitive notification.
-                // It is here because the preview claims to show what lands, and
-                // the label is the visible half of the alert breaking through a
-                // Work Focus — the reason it arrives at all.
-                Text("OFFICE DAZE · TIME SENSITIVE")
+                // No "TIME SENSITIVE" here, though the notification asks to be.
+                // iOS draws that label only when the entitlement backs it up,
+                // and a personal team cannot have that entitlement — see
+                // `ArrivalNotifications.request`. This screen is a preview of
+                // what lands, so it shows what lands.
+                Text("OFFICE DAZE")
                     .font(.system(size: 12, weight: .medium))
                     .kerning(0.4)
                     .foregroundStyle(.white.opacity(0.55))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
                 Spacer(minLength: 8)
                 Text("now")
                     .font(.system(size: 12))

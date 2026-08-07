@@ -197,11 +197,20 @@ nonisolated enum ArrivalNotifications {
         notification.sound = .default
         // Anyone walking into an office at nine has a Work Focus running, and a
         // default-level notification under a Focus is silently held back — so
-        // the alert was least likely to arrive on precisely the mornings it was
+        // the alert is least likely to arrive on precisely the mornings it was
         // written for. Time Sensitive breaks through, iOS labels it in the
-        // header so the reason is visible, and the user can switch it off in one
-        // place if they disagree. It is also honest: this is useful for the two
-        // minutes between the door and the desk, and worthless an hour later.
+        // header so the reason is visible, and it is honest about itself: this
+        // is useful for the two minutes between the door and the desk and
+        // worthless an hour later.
+        //
+        // **It does not work on this build.** The level needs the Time
+        // Sensitive Notifications capability, and a personal team cannot have
+        // it — Xcode refuses to make a profile: "Personal development teams do
+        // not support the Time Sensitive Notifications capability." Without the
+        // entitlement iOS quietly ignores the level rather than failing, so the
+        // line is harmless and correct in waiting: adding the capability is all
+        // it takes on a paid account. The review said this needed no
+        // entitlement. It was wrong, and the app cannot have it today.
         notification.interruptionLevel = .timeSensitive
         notification.userInfo = [
             UserInfo.officeID: officeID.uuidString,

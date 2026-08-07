@@ -102,6 +102,8 @@ enum BookingStore {
         let calendarEventID = booking.calendarEventID
         let captureID = booking.captureID
         let replaced = booking.id
+        let answered = booking.notAttended
+        let answeredFor = booking.day
         context.delete(booking)
         let saved = try upsert(incoming, in: context)
         // Never over what the destination already holds. An edit that moves
@@ -109,6 +111,14 @@ enum BookingStore {
         // would otherwise orphan that one in the course of saving this one.
         if saved.calendarEventID == nil { saved.calendarEventID = calendarEventID }
         if saved.captureID == nil { saved.captureID = captureID }
+        // "Were you there?" was answered about the day, not about the desk id,
+        // so correcting a typo is no reason to ask it again. An edit that
+        // moves the booking to another day is exactly that reason: the day it
+        // has moved to has not been asked about, and carrying the answer over
+        // would be answering for the user. Only ever carried, never cleared —
+        // an answer is not taken back by an edit to the booking it was given
+        // for, whichever day the edit lands the booking on.
+        if answered && saved.day == answeredFor { saved.notAttended = true }
         // The new row is a new id, and the days already attended still hold
         // the old one. An attendance row's link says "this is the desk I had
         // that day", which stays true only while the booking is still for that

@@ -193,6 +193,10 @@ extension ArrivalMonitor: UNUserNotificationCenterDelegate {
                 // the same day.
                 ledger.declineAttendance(bookingID: bookingID)
             }
+            // The evening question is decided when the app is awake and fires
+            // hours later, so answering one has to re-decide the next — or
+            // tonight's notification asks about the day just answered.
+            NudgeScheduler.refresh(in: context)
         }
     }
 }

@@ -303,6 +303,17 @@ struct HomeScreen: View {
         switch result.standing {
         case .met:
             StatusStrip(tone: .success, leading: "Target met", dot: true)
+        case _ where month < Day.today.month_:
+            // A month that has finished is not a warning, whatever it came to.
+            // Every state below is written in the present tense about a
+            // deadline you are still inside, and "Can't reach 8 this month"
+            // under the heading July is both wrong and the app's one red — on
+            // screen for every month you ever fell short in.
+            StatusStrip(
+                tone: .neutral,
+                leading: "Fell \(number(Double(result.target) - result.attended)) short",
+                trailing: "\(number(result.attended)) of \(result.target)"
+            )
         case .onTrack:
             StatusStrip(
                 tone: .neutral,
@@ -621,6 +632,7 @@ struct HomeScreen: View {
         case .attended:
             break
         }
+        answered()
     }
 
     /// A booking keeps its row and stops asking — the desk was reserved, which
@@ -636,6 +648,14 @@ struct HomeScreen: View {
         case .attended:
             break
         }
+        answered()
+    }
+
+    /// The evening nudge may already be holding a question about the day just
+    /// answered — its content is decided while the app is awake and fires hours
+    /// later. Re-deciding here is what withdraws it.
+    private func answered() {
+        NudgeScheduler.refresh(in: context)
     }
 
     private func bookingRow(_ booking: DeskBooking) -> some View {

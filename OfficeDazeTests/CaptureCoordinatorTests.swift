@@ -384,6 +384,38 @@ struct CaptureCoordinatorTests {
         #expect(failure() == .refused)
     }
 
+    /// The floor turned a rare race into a reliable one: half a second in which
+    /// Cancel dismisses the sheet and the run then wakes up and fills it again,
+    /// with bookings from a capture the user has already walked away from.
+    /// Gated rather than timed: the suite runs in parallel and every test in it
+    /// is main-actor bound, so "sleep a bit, then cancel" cancels at an
+    /// unpredictable point. The extractor here holds the run at its suspension
+    /// point until the test has cancelled, which is the state the bug needs.
+    @Test("A capture cancelled while a run is in flight stays cancelled")
+    func abortDuringTheFloorStaysAborted() async throws {
+        coordinator.parsingFloor = .milliseconds(400)
+        let entered = AsyncStream<Void>.makeStream()
+        let release = AsyncStream<Void>.makeStream()
+        coordinator.extractor = { _, _, _ in
+            entered.continuation.yield()
+            for await _ in release.stream { break }
+            return (CaptureSamples.one, CaptureSamples.usage)
+        }
+
+        let running = Task { await coordinator.receive(data: image, filename: "one.png") }
+        for await _ in entered.stream { break }
+        coordinator.abort()
+        release.continuation.yield()
+
+        await running.value
+        #expect(!coordinator.isActive, "the sheet does not come back")
+        #expect(coordinator.current == nil)
+        #expect(
+            try container.mainContext.fetchCount(FetchDescriptor<Capture>()) == 0,
+            "and an abandoned run records nothing"
+        )
+    }
+
     /// The dialog asks which of two desks to keep, and used to withhold the one
     /// thing that decides it.
     @Test("The clash dialog says where the desk it is asking about came from")
