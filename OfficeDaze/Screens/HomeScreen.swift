@@ -383,26 +383,31 @@ struct HomeScreen: View {
                         edit: entry.booking.map { booking in { editing = booking } },
                         delete: { delete(entry) }
                     ) {
-                        switch entry {
-                        case .booking(let booking):
-                            NavigationLink {
-                                BookingDetailScreen(booking: booking)
-                            } label: {
-                                bookingRow(booking)
+                        VStack(spacing: 0) {
+                            switch entry {
+                            case .booking(let booking):
+                                NavigationLink {
+                                    BookingDetailScreen(booking: booking)
+                                } label: {
+                                    bookingRow(booking)
+                                }
+                                .buttonStyle(.plain)
+                            case .attended(let record):
+                                // No detail screen: there is no desk, no floor
+                                // and no hours to show. The row is the whole
+                                // record.
+                                deskless(
+                                    officeID: record.officeID, day: record.day,
+                                    status: "Attended", tone: Palette.met
+                                )
+                            case .planned(let record):
+                                deskless(
+                                    officeID: record.officeID, day: record.day,
+                                    status: unanswered(entry) ? nil : "Planned",
+                                    tone: Palette.secondary
+                                )
                             }
-                            .buttonStyle(.plain)
-                        case .attended(let record):
-                            // No detail screen: there is no desk, no floor and
-                            // no hours to show. The row is the whole record.
-                            deskless(
-                                officeID: record.officeID, day: record.day,
-                                status: "Attended", tone: Palette.met
-                            )
-                        case .planned(let record):
-                            deskless(
-                                officeID: record.officeID, day: record.day,
-                                status: "Planned", tone: Palette.secondary
-                            )
+                            if unanswered(entry) { wereYouThere(entry) }
                         }
                     }
                 }
@@ -431,6 +436,110 @@ struct HomeScreen: View {
         }
     }
 
+    // MARK: The question the app has to ask
+
+    /// A day gone by that nothing has been said about.
+    ///
+    /// Attendance is the only record that a day was worked on prem — there is
+    /// no other copy — and every route into it needs the user to act. One of
+    /// those routes is a geofence, and a geofence that does not fire (phone
+    /// off, Always quietly dropped, a different entrance, fifty metres too
+    /// tight) leaves a day worked, booked, and counting for nothing, with
+    /// nothing anywhere saying so. This is the question that catches it, put
+    /// where the user is already looking.
+    ///
+    /// Yesterday and earlier, not today: today is still being worked, and the
+    /// arrival alert and the evening nudge both have it covered.
+    ///
+    /// Static so the rule can be tested without a screen. The three cases are
+    /// not symmetric: a day already attended is answered, a booking carries its
+    /// own answer once given, and a planned day has nowhere to keep one — which
+    /// is why answering it no deletes it.
+    static func isUnanswered(
+        _ entry: Entry, attendance: [AttendanceDay], today: Day
+    ) -> Bool {
+        guard entry.day < today else { return false }
+        func recorded(_ day: Day, _ officeID: UUID?) -> Bool {
+            attendance.contains { $0.day == day && $0.officeID == officeID }
+        }
+        switch entry {
+        case .attended:
+            return false
+        case .booking(let booking):
+            return !booking.notAttended && !recorded(booking.day, booking.officeID)
+        case .planned(let record):
+            return !recorded(record.day, record.officeID)
+        }
+    }
+
+    private func unanswered(_ entry: Entry) -> Bool {
+        Self.isUnanswered(entry, attendance: attendance, today: .today)
+    }
+
+    /// One tap, no navigation. A day is either counted or it is not, and the
+    /// answer is worth exactly two buttons.
+    private func wereYouThere(_ entry: Entry) -> some View {
+        HStack(spacing: 10) {
+            Text("Were you there?")
+                .font(.system(size: 14))
+                .foregroundStyle(Palette.warningText)
+            Spacer(minLength: 8)
+            answerButton("Yes", weight: .semibold) { answerYes(entry) }
+            answerButton("No", weight: .regular) { answerNo(entry) }
+        }
+        .padding(.vertical, 9)
+        .padding(.horizontal, 16)
+        .frame(maxWidth: .infinity)
+        .background(Palette.warningSurface)
+    }
+
+    private func answerButton(
+        _ title: String, weight: Font.Weight, action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 14, weight: weight))
+                .foregroundStyle(Palette.warningText)
+                .padding(.vertical, 5)
+                .padding(.horizontal, 14)
+                .background(Palette.card.opacity(0.7))
+                .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func answerYes(_ entry: Entry) {
+        switch entry {
+        case .booking(let booking):
+            try? BookingStore.recordAttendance(
+                day: booking.day, officeID: booking.officeID,
+                source: .manual, bookingID: booking.id, in: context
+            )
+        case .planned(let record):
+            try? BookingStore.recordAttendance(
+                day: record.day, officeID: record.officeID,
+                source: .manual, in: context
+            )
+        case .attended:
+            break
+        }
+    }
+
+    /// A booking keeps its row and stops asking — the desk was reserved, which
+    /// happened whether or not the day was. An intention that came to nothing
+    /// leaves no trace worth keeping: it only ever counted toward the forecast,
+    /// and the forecast is days ahead.
+    private func answerNo(_ entry: Entry) {
+        switch entry {
+        case .booking(let booking):
+            try? BookingStore.markNotAttended(booking, in: context)
+        case .planned(let record):
+            try? BookingStore.deletePlanned(record, in: context)
+        case .attended:
+            break
+        }
+    }
+
     private func bookingRow(_ booking: DeskBooking) -> some View {
         let office = offices.first { $0.id == booking.officeID }
         let attended = isAttended(booking)
@@ -451,14 +560,25 @@ struct HomeScreen: View {
                     .font(.system(size: 13))
                     .foregroundStyle(Palette.close)
             }
-            Text(attended ? "Attended" : "Booked")
-                .font(.system(size: 12, weight: attended ? .semibold : .regular))
-                .foregroundStyle(attended ? Palette.met : Palette.secondary)
+            // Nothing while the question is up: the question is the status, and
+            // "Booked" beside it reads as a settled fact when the whole point is
+            // that the day is still open.
+            if let status = bookingStatus(booking, attended: attended) {
+                Text(status)
+                    .font(.system(size: 12, weight: attended ? .semibold : .regular))
+                    .foregroundStyle(attended ? Palette.met : Palette.secondary)
+            }
         }
         .padding(.vertical, 13)
         .padding(.horizontal, 16)
         .frame(minHeight: Metrics.minimumRow)
         .contentShape(Rectangle())
+    }
+
+    private func bookingStatus(_ booking: DeskBooking, attended: Bool) -> String? {
+        if attended { return "Attended" }
+        if booking.notAttended { return "Not attended" }
+        return unanswered(.booking(booking)) ? nil : "Booked"
     }
 
     /// An icon on its own is a small target, so it carries a tappable frame
@@ -474,7 +594,7 @@ struct HomeScreen: View {
     /// the desk id would be, rather than leaving a gap that reads as a booking
     /// half-read.
     private func deskless(
-        officeID: UUID?, day: Day, status: String, tone: Color
+        officeID: UUID?, day: Day, status: String?, tone: Color
     ) -> some View {
         let office = offices.first { $0.id == officeID }
         return HStack(spacing: 13) {
@@ -489,9 +609,11 @@ struct HomeScreen: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 8)
-            Text(status)
-                .font(.system(size: 12, weight: tone == Palette.met ? .semibold : .regular))
-                .foregroundStyle(tone)
+            if let status {
+                Text(status)
+                    .font(.system(size: 12, weight: tone == Palette.met ? .semibold : .regular))
+                    .foregroundStyle(tone)
+            }
         }
         .padding(.vertical, 13)
         .padding(.horizontal, 16)

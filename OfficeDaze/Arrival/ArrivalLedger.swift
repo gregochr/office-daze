@@ -111,6 +111,12 @@ final class ArrivalLedger {
         )
     }
 
+    /// The evening question's `No`. Records the answer, not an absence — see
+    /// `BookingStore.markNotAttended`.
+    func declineAttendance(bookingID: UUID) {
+        try? BookingStore.markNotAttended(bookingID: bookingID, in: context)
+    }
+
     // MARK: Reads
 
     private func office(_ id: UUID) -> Office? {

@@ -172,6 +172,27 @@ enum BookingStore {
         try context.save()
     }
 
+    /// Answers the row's question with a no.
+    ///
+    /// Writes nothing to attendance — there is nothing to write, a day not
+    /// worked being the absence of a record rather than a record of an absence.
+    /// What it stores is that the question has been answered, so a booking
+    /// gone unused stops asking. `unmark` exists because the answer can be
+    /// wrong, and a row that has stopped asking has no other way back.
+    static func markNotAttended(
+        _ booking: DeskBooking, _ value: Bool = true, in context: ModelContext
+    ) throws {
+        booking.notAttended = value
+        try context.save()
+    }
+
+    /// The same answer from a notification, where only the id came back.
+    static func markNotAttended(bookingID: UUID, in context: ModelContext) throws {
+        guard let booking = try context.fetch(FetchDescriptor<DeskBooking>())
+            .first(where: { $0.id == bookingID }) else { return }
+        try markNotAttended(booking, in: context)
+    }
+
     /// Removes a recorded day. The counterpart of `recordAttendance`, for a day
     /// entered by hand and then thought better of.
     static func deleteAttendance(_ day: AttendanceDay, in context: ModelContext) throws {
@@ -188,6 +209,7 @@ enum BookingStore {
     /// holding on whatever date the suite happens to run.
     static func recordAttendance(
         day: Day, officeID: UUID?, source: AttendanceSource,
+        fraction: Double = 1.0,
         bookingID: UUID? = nil, today: Day = .today, in context: ModelContext
     ) throws -> AttendanceDay? {
         // A day that has not happened cannot have been worked. The rule lives
@@ -204,9 +226,17 @@ enum BookingStore {
         guard !already else { return nil }
 
         let record = AttendanceDay(
-            day: day, officeID: officeID, source: source, bookingID: bookingID
+            day: day, officeID: officeID, source: source,
+            fraction: fraction, bookingID: bookingID
         )
         context.insert(record)
+        // A day answered "no" and then recorded after all. The answer was
+        // wrong, and leaving it set would show a row both attended and not.
+        if let bookingID {
+            try context.fetch(FetchDescriptor<DeskBooking>())
+                .first { $0.id == bookingID }?
+                .notAttended = false
+        }
         try context.save()
         return record
     }

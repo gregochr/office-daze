@@ -12,12 +12,20 @@ nonisolated enum ArrivalNotifications {
     enum Category: String {
         case booked = "arrival.booked"
         case unbooked = "arrival.unbooked"
+        /// The evening nudge asking about a day already gone. Same two actions,
+        /// wearing the past tense: "I'm here" is wrong at six in the evening
+        /// about a morning that has been and gone.
+        case nudgeConfirm = "nudge.confirm"
     }
 
     enum Action: String {
         /// Records the day. The geofence offers; the user confirms.
         case confirm = "arrival.confirm"
         case dismiss = "arrival.dismiss"
+        /// Answers the evening question with a no, which stores the answer
+        /// rather than nothing — so the row stops asking and the notification
+        /// does not come back tomorrow about the same day.
+        case decline = "nudge.decline"
     }
 
     enum UserInfo {
@@ -134,6 +142,18 @@ nonisolated enum ArrivalNotifications {
             title: "Not today",
             options: []
         )
+        // Same identifiers, past tense. The handler keys off the identifier, so
+        // the evening question records through exactly the same path.
+        let wasThere = UNNotificationAction(
+            identifier: Action.confirm.rawValue,
+            title: "I was there",
+            options: []
+        )
+        let wasNot = UNNotificationAction(
+            identifier: Action.decline.rawValue,
+            title: "No",
+            options: []
+        )
         return [
             UNNotificationCategory(
                 identifier: Category.booked.rawValue,
@@ -143,6 +163,11 @@ nonisolated enum ArrivalNotifications {
             UNNotificationCategory(
                 identifier: Category.unbooked.rawValue,
                 actions: [confirm, dismiss],
+                intentIdentifiers: []
+            ),
+            UNNotificationCategory(
+                identifier: Category.nudgeConfirm.rawValue,
+                actions: [wasThere, wasNot],
                 intentIdentifiers: []
             ),
         ]

@@ -174,6 +174,48 @@ struct StoreTests {
         #expect(unbooked.map(\.day) == [Day(2026, 8, 3), Day(2026, 8, 4)])
     }
 
+    /// The day the app is most likely to lose: booked, gone by, and never
+    /// confirmed. Every route into attendance needs the user to act, and one of
+    /// them is a geofence that can silently fail to fire — so a row that nobody
+    /// has said anything about has to say so itself.
+    @Test("A booked day gone by with nothing said about it is an open question")
+    func pastUnconfirmedRowsAsk() throws {
+        let context = container.mainContext
+        let attendance = try context.fetch(FetchDescriptor<AttendanceDay>())
+        let bookings = try context.fetch(FetchDescriptor<DeskBooking>())
+        let today = Day(2026, 8, 13)
+
+        func entry(_ day: Day) throws -> HomeScreen.Entry {
+            .booking(try #require(bookings.first { $0.day == day }))
+        }
+        func asks(_ entry: HomeScreen.Entry, today: Day = Day(2026, 8, 13)) -> Bool {
+            HomeScreen.isUnanswered(entry, attendance: attendance, today: today)
+        }
+
+        // 12 August: booked, in the past, and no attendance anywhere.
+        #expect(asks(try entry(Day(2026, 8, 12))))
+        // 5 August: booked and attended. Answered.
+        #expect(!asks(try entry(Day(2026, 8, 5))))
+        // The same 12 August, seen from the 12th. Still being worked, and both
+        // the arrival alert and the evening nudge have today covered.
+        #expect(!asks(try entry(Day(2026, 8, 12)), today: Day(2026, 8, 12)))
+
+        // Told no. The answer is stored, so the row stops asking — and it is
+        // not attendance, because a day not worked has nothing to record.
+        let unused = try #require(bookings.first { $0.day == Day(2026, 8, 12) })
+        try BookingStore.markNotAttended(unused, in: context)
+        #expect(!asks(.booking(unused)))
+        #expect(try context.fetchCount(FetchDescriptor<AttendanceDay>()) == 4)
+
+        // And answering yes after all clears it, or the row would read as both
+        // attended and not.
+        try BookingStore.recordAttendance(
+            day: unused.day, officeID: unused.officeID, source: .manual,
+            bookingID: unused.id, today: today, in: context
+        )
+        #expect(!unused.notAttended)
+    }
+
     /// The mirror of the attendance guard: attendance refuses the future,
     /// planning refuses the past. Between them every day has exactly one record
     /// that fits it, and neither can be used to say the other's thing.

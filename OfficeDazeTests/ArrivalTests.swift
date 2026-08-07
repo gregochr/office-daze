@@ -293,14 +293,23 @@ struct ArrivalNotificationTests {
         #expect(request.content.interruptionLevel == .timeSensitive)
     }
 
-    @Test("Both categories offer the confirm button")
+    @Test("Every category offers the confirm button")
     func categories() {
         let categories = ArrivalNotifications.categories
-        #expect(categories.count == 2)
+        #expect(categories.count == 3, "booked, unbooked, and the evening question")
         let confirmable = categories.allSatisfy { category in
             category.actions.contains { $0.identifier == ArrivalNotifications.Action.confirm.rawValue }
         }
         #expect(confirmable, "attendance must be recordable from the lock screen")
+
+        // The evening question is about a morning that has been and gone, so
+        // "I'm here" is the wrong tense — but the identifier is the same one,
+        // which is what lets it record through the handler that already exists.
+        let evening = categories.first {
+            $0.identifier == ArrivalNotifications.Category.nudgeConfirm.rawValue
+        }
+        let titles = evening?.actions.map(\.title) ?? []
+        #expect(titles == ["I was there", "No"])
     }
 
     @Test("The request carries what the confirm button needs to write the record")
