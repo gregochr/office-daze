@@ -175,13 +175,16 @@ struct EditorScreenTests {
     func candidateNormalisesTheForm() {
         let office = UUID()
         let candidate = BookingEditorScreen.candidate(
+            BookingEditorScreen.Draft(
+                officeID: office,
+                date: Day(2026, 8, 12).localNoon(in: Self.losAngeles),
+                deskID: "  4C-19  ",
+                floor: "  ",
+                zone: " C ",
+                startTime: "",
+                endTime: "\n"
+            ),
             officeID: office,
-            date: Day(2026, 8, 12).localNoon(in: Self.losAngeles),
-            deskID: "  4C-19  ",
-            floor: "  ",
-            zone: " C ",
-            startTime: "",
-            endTime: "\n",
             in: Self.losAngeles
         )
 
@@ -286,9 +289,12 @@ struct EditorScreenTests {
         )
 
         let candidate = BookingEditorScreen.candidate(
+            BookingEditorScreen.Draft(
+                officeID: office.id,
+                date: day.localNoon(in: Self.losAngeles),
+                deskID: "NEW"
+            ),
             officeID: office.id,
-            date: day.localNoon(in: Self.losAngeles),
-            deskID: "NEW", floor: "", zone: "", startTime: "", endTime: "",
             in: Self.losAngeles
         )
         let outcome = BookingEditorScreen.save(candidate) {
@@ -742,7 +748,7 @@ struct EditorScreenTests {
     /// builds and one that only looks as though it does.
     private func render(_ view: some View) -> UIView {
         let host = UIHostingController(rootView: view.modelContainer(container))
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        let window = ArrivalPreviewRenderTests.renderWindow()
         window.rootViewController = host
         window.makeKeyAndVisible()
         window.layoutIfNeeded()

@@ -800,7 +800,7 @@ struct LeaveScreenDerivationTests {
             rootView: NavigationStack { LeaveScreen(month: Month(year: 2026, month: 8)) }
                 .modelContainer(container)
         )
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        let window = ArrivalPreviewRenderTests.renderWindow()
         window.rootViewController = host
         window.makeKeyAndVisible()
         window.layoutIfNeeded()
@@ -826,7 +826,7 @@ struct LeaveScreenDerivationTests {
             rootView: NavigationStack { LeaveScreen(month: Month(year: 2026, month: 2)) }
                 .modelContainer(container)
         )
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        let window = ArrivalPreviewRenderTests.renderWindow()
         window.rootViewController = host
         window.makeKeyAndVisible()
         window.layoutIfNeeded()

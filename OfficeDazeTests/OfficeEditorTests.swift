@@ -1008,7 +1008,11 @@ struct OfficeEditorFailedSaveTests {
         )
 
         let told = try #require(whatTheUserIsTold(saved.outcome))
-        #expect(told == "The changes to Coleman could not be saved: The disk is full. The stored office is still as it was, so the arrival alert is still watching the old address — try Save again.")
+        #expect(told ==
+            "The changes to Coleman could not be saved: The disk is full. The stored office "
+            + "is still as it was, so the arrival alert is still watching the old address "
+            + "— try Save again."
+        )
 
         // Nothing of the correction reached the store: not the address, not the
         // point the geocoder found for it.
@@ -1491,7 +1495,7 @@ struct OfficeEditorRenderTests {
         let host = UIHostingController(
             rootView: view.modelContainer(container).environment(monitor)
         )
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 2400))
+        let window = ArrivalPreviewRenderTests.renderWindow(height: 2400)
         window.rootViewController = host
         window.makeKeyAndVisible()
         window.layoutIfNeeded()

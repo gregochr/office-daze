@@ -119,16 +119,20 @@ struct BookingEditorScreen: View {
 
     @FocusState private var focused: Field?
 
-    @State private var officeID: UUID?
+    /// The form itself, held as the one value `Draft` was written to be rather
+    /// than as seven separate `@State`s beside it.
+    ///
+    /// The same reasoning as the pre-fill above, applied to the other end: with
+    /// the fields apart, everything that read the form had to name all seven —
+    /// the pre-fill did, and so did the function that turns the form into a
+    /// booking — and each list was another place for `zone` to be handed to
+    /// `floor` with nothing to notice it. Whole, the form is passed on in one
+    /// piece and a field added to it is added once.
+    ///
     /// `localNoon` rather than `startOfDayUTC`: the picker below renders this
     /// instant in the device's zone, and midnight UTC on the 5th is the
     /// evening of the 4th anywhere west of Greenwich.
-    @State private var date = Day.today.localNoon()
-    @State private var deskID = ""
-    @State private var floor = ""
-    @State private var zone = ""
-    @State private var startTime = ""
-    @State private var endTime = ""
+    @State private var draft = Draft(officeID: nil, date: Day.today.localNoon())
     @State private var loaded = false
     /// Set only by a write that did not land. Non-nil holds the screen open.
     @State private var failure: String?
@@ -142,35 +146,35 @@ struct BookingEditorScreen: View {
         officeID != nil && !deskID.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
-    private var canSave: Bool { Self.canSave(officeID: officeID, deskID: deskID) }
+    private var canSave: Bool { Self.canSave(officeID: draft.officeID, deskID: draft.deskID) }
 
     var body: some View {
         Form {
             Section {
-                Picker("Office", selection: $officeID) {
+                Picker("Office", selection: $draft.officeID) {
                     Text("Choose").tag(UUID?.none)
                     ForEach(offices) { office in
                         Text(office.name).tag(UUID?.some(office.id))
                     }
                 }
                 DatePicker(
-                    "Date", selection: $date, displayedComponents: .date
+                    "Date", selection: $draft.date, displayedComponents: .date
                 )
-                TextField("Desk", text: $deskID)
+                TextField("Desk", text: $draft.deskID)
                     .textInputAutocapitalization(.characters)
                     .autocorrectionDisabled()
                     .focused($focused, equals: .desk)
             }
 
             Section {
-                TextField("Floor", text: $floor)
+                TextField("Floor", text: $draft.floor)
                     .focused($focused, equals: .floor)
-                TextField("Zone", text: $zone)
+                TextField("Zone", text: $draft.zone)
                     .focused($focused, equals: .zone)
-                TextField("From", text: $startTime)
+                TextField("From", text: $draft.startTime)
                     .keyboardType(.numbersAndPunctuation)
                     .focused($focused, equals: .startTime)
-                TextField("Until", text: $endTime)
+                TextField("Until", text: $draft.endTime)
                     .keyboardType(.numbersAndPunctuation)
                     .focused($focused, equals: .endTime)
             } header: {
@@ -208,14 +212,9 @@ struct BookingEditorScreen: View {
         .task {
             guard !loaded else { return }
             loaded = true
-            let draft = Self.draft(for: booking, offices: offices)
-            officeID = draft.officeID
-            date = draft.date
-            deskID = draft.deskID
-            floor = draft.floor
-            zone = draft.zone
-            startTime = draft.startTime
-            endTime = draft.endTime
+            draft = Self.draft(for: booking, offices: offices)
+            // The one field that cannot live in the value: `@FocusState` is
+            // owned by the view, and the draft only says where to put it.
             focused = draft.focused
         }
     }
@@ -229,24 +228,27 @@ struct BookingEditorScreen: View {
     /// they left out. That is why `unsureFields` leaves empty regardless of
     /// what the booking arrived carrying — editing a capture's amber row is
     /// precisely the act of answering it.
+    ///
+    /// It takes the `Draft` whole for the same reason the pre-fill hands one
+    /// back: spelled out field by field this was seven arguments of which five
+    /// were `String`, so `zone` and `floor` could swap places at the call site
+    /// and nothing — not the compiler, not a test of this function — would say
+    /// so. The office is named separately because a draft's is optional, and a
+    /// candidate with no office is not a thing this can return; the caller has
+    /// to have unwrapped it before asking.
     static func candidate(
+        _ draft: Draft,
         officeID: UUID,
-        date: Date,
-        deskID: String,
-        floor: String,
-        zone: String,
-        startTime: String,
-        endTime: String,
         in timeZone: TimeZone = .autoupdatingCurrent
     ) -> BookingMerge.Candidate {
         BookingMerge.Candidate(
             officeID: officeID,
-            day: Day(localOf: date, in: timeZone),
-            deskID: deskID.trimmingCharacters(in: .whitespaces),
-            floor: floor.blankAsNil,
-            zone: zone.blankAsNil,
-            startTime: startTime.blankAsNil,
-            endTime: endTime.blankAsNil,
+            day: Day(localOf: draft.date, in: timeZone),
+            deskID: draft.deskID.trimmingCharacters(in: .whitespaces),
+            floor: draft.floor.blankAsNil,
+            zone: draft.zone.blankAsNil,
+            startTime: draft.startTime.blankAsNil,
+            endTime: draft.endTime.blankAsNil,
             source: .manual,
             unsureFields: []
         )
@@ -306,16 +308,8 @@ struct BookingEditorScreen: View {
     }
 
     private func save() {
-        guard let officeID else { return }
-        let candidate = Self.candidate(
-            officeID: officeID,
-            date: date,
-            deskID: deskID,
-            floor: floor,
-            zone: zone,
-            startTime: startTime,
-            endTime: endTime
-        )
+        guard let officeID = draft.officeID else { return }
+        let candidate = Self.candidate(draft, officeID: officeID)
         // An edit cannot upsert in place — the merge would find the very row
         // being edited and merge it with itself — so it goes through
         // `replace`, which deletes first and carries across everything the
@@ -361,5 +355,8 @@ extension String {
 
 #Preview {
     NavigationStack { BookingEditorScreen() }
+        // In-memory, built fresh for the canvas. A preview that cannot open its
+        // own store has nothing to show, and there is no user to tell.
+        // swiftlint:disable:next force_try
         .modelContainer(try! Store.makeInMemoryContainer(seeded: true))
 }

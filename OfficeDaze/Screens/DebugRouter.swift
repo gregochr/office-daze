@@ -141,25 +141,25 @@ struct GaugeStates: View {
     /// and the only part with no month in the sample data to exercise it —
     /// stops being looked at, and the page still renders four perfectly good
     /// dials that say nothing is wrong.
-    static let states: [(title: String, attended: Double, booked: Double, target: Int)] = [
-        ("Can't reach it · 2 of 8", 2, 1, 8),
-        ("On track · 3 of 6, two off for leave", 3, 3, 6),
-        ("Target met · 6 of 6", 6, 0, 6),
-        ("Over · 7 of 6", 7, 1, 6),
-        ("All month off · 0 of 0", 0, 0, 0),
+    static let states: [GaugeSample] = [
+        GaugeSample(title: "Can't reach it · 2 of 8", attended: 2, booked: 1, target: 8),
+        GaugeSample(title: "On track · 3 of 6, two off for leave", attended: 3, booked: 3, target: 6),
+        GaugeSample(title: "Target met · 6 of 6", attended: 6, booked: 0, target: 6),
+        GaugeSample(title: "Over · 7 of 6", attended: 7, booked: 1, target: 6),
+        GaugeSample(title: "All month off · 0 of 0", attended: 0, booked: 0, target: 0),
     ]
 
     var body: some View {
         ScrollView {
             VStack(spacing: Metrics.cardGap) {
-                ForEach(Self.states, id: \.title) { title, attended, booked, target in
+                ForEach(Self.states, id: \.title) { state in
                     Card(padding: EdgeInsets(top: 12, leading: 8, bottom: 12, trailing: 8)) {
                         VStack(spacing: 2) {
-                            Text(title)
+                            Text(state.title)
                                 .font(.system(size: 13))
                                 .foregroundStyle(Palette.secondary)
                             AttendanceGauge(
-                                attended: attended, booked: booked, target: target
+                                attended: state.attended, booked: state.booked, target: state.target
                             )
                         }
                         .frame(maxWidth: .infinity)

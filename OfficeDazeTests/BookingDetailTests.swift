@@ -879,7 +879,7 @@ struct BookingDetailRenderTests {
         let host = UIHostingController(
             rootView: BookingDetailScreen(booking: booking).modelContainer(container)
         )
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        let window = ArrivalPreviewRenderTests.renderWindow()
         window.rootViewController = host
         window.makeKeyAndVisible()
         host.view.setNeedsLayout()

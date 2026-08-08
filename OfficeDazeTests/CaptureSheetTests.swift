@@ -598,7 +598,7 @@ struct CaptureSheetTests {
     /// nothing and every assertion after it passes for the wrong reason — which
     /// is the exact class of test this whole review exists to remove.
     private func render(_ sheet: CaptureSheet, in store: ModelContainer? = nil) {
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        let window = ArrivalPreviewRenderTests.renderWindow()
         window.rootViewController = UIHostingController(
             rootView: sheet.modelContainer(store ?? container)
         )

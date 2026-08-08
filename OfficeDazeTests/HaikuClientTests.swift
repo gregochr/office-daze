@@ -407,10 +407,18 @@ struct HaikuDecodeTests {
     /// leading with a thinking block fails.
     @Test("A text block behind a thinking block is still the one that is read")
     func findsTheTextBlockBehindAnother() throws {
+        // The text block's payload is a JSON *string* holding a whole JSON
+        // document, and a JSON string cannot contain a real newline — so the
+        // long ones here are folded with `\#` line continuations, which join
+        // back to one line and leave the bytes exactly as the API sent them.
+        // Dropping a continuation puts a newline inside the string and the
+        // fixture stops being JSON, which the decode assertion below catches.
         let leadingThinking = Data(#"""
         {"stop_reason":"end_turn","usage":{"input_tokens":11,"output_tokens":22},"content":[
           {"type":"thinking","thinking":"reading the table"},
-          {"type":"text","text":"{\"bookings\":[{\"office\":\"Coleman\",\"date\":\"2026-08-04\",\"deskId\":\"CO03A424\",\"floor\":\"03\",\"zone\":null,\"startTime\":\"08:00\",\"endTime\":\"17:00\",\"unsureFields\":[\"zone\"]}]}"}
+          {"type":"text","text":"{\"bookings\":[{\"office\":\"Coleman\",\"date\":\"2026-08-04\",\#
+        \"deskId\":\"CO03A424\",\"floor\":\"03\",\"zone\":null,\"startTime\":\"08:00\",\#
+        \"endTime\":\"17:00\",\"unsureFields\":[\"zone\"]}]}"}
         ]}
         """#.utf8)
         let (bookings, usage) = try HaikuClient.decode(leadingThinking)
@@ -460,8 +468,13 @@ struct HaikuDecodeTests {
             try HaikuClient.decode(noRows)
         }
 
+        // Folded with `\#` continuations for the same reason as above: every
+        // field is present and null, which is the point of the fixture, and
+        // that is a lot of characters that have to stay on one logical line.
         let nothingReadable = Data(#"""
-        {"stop_reason":"end_turn","usage":{},"content":[{"type":"text","text":"{\"bookings\":[{\"office\":null,\"date\":null,\"deskId\":null,\"floor\":null,\"zone\":null,\"startTime\":null,\"endTime\":null,\"unsureFields\":[\"date\",\"deskId\"]}]}"}]}
+        {"stop_reason":"end_turn","usage":{},"content":[{"type":"text","text":"{\"bookings\":[\#
+        {\"office\":null,\"date\":null,\"deskId\":null,\"floor\":null,\"zone\":null,\#
+        \"startTime\":null,\"endTime\":null,\"unsureFields\":[\"date\",\"deskId\"]}]}"}]}
         """#.utf8)
         #expect(
             throws: CaptureError.modelReturnedNothingUsable(

@@ -20,6 +20,10 @@ struct OfficeDazeApp: App {
     @State private var arrival: ArrivalMonitor
 
     init() {
+        // The `try!` is the documented decision above, not an oversight: there
+        // is no app without its store, and a placeholder failure screen is a
+        // later stage's problem.
+        // swiftlint:disable:next force_try
         let container = try! Store.makeContainer()
         self.container = container
         _capture = State(initialValue: CaptureCoordinator(context: container.mainContext))

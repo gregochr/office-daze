@@ -1,5 +1,6 @@
 import CoreLocation
 import Foundation
+import MapKit
 
 /// Turns a postcode into coordinates, once, when an office is saved.
 ///
@@ -34,10 +35,44 @@ nonisolated enum Geocoding {
     /// Nil when the postcode means nothing to Apple, which is a normal answer
     /// rather than an error — the office still saves, it just cannot be
     /// monitored until the address is corrected.
+    ///
+    /// MapKit's `MKGeocodingRequest` rather than `CLGeocoder`, which deprecated
+    /// `geocodeAddressString` in iOS 26. Deliberately the same shape as before:
+    /// one string in, the first result out, nil for everything else. There are
+    /// now three ways to reach that nil — a blank query, a string MapKit will
+    /// not build a request from, and a request that fails or comes back with no
+    /// results — and all three are the same answer to the caller, because the
+    /// caller only ever asked whether this office can be located.
+    ///
+    /// The failable initialiser is the one genuinely new branch, and it is
+    /// refused rather than force-unwrapped: `query` has already filtered out
+    /// everything blank, so we do not expect to see it, and a crash on save
+    /// would be a far worse answer to an address MapKit dislikes than an office
+    /// with no perimeter.
     static func coordinates(postcode: String, address: String) async -> CLLocationCoordinate2D? {
         guard let query = query(postcode: postcode, address: address) else { return nil }
+        return await lookUp(query)
+    }
 
-        let placemarks = try? await CLGeocoder().geocodeAddressString(query)
-        return placemarks?.first?.location?.coordinate
+    /// `@concurrent` rather than a bare `nonisolated`, and the attribute is what
+    /// makes this compile at all. The project builds with
+    /// `SWIFT_APPROACHABLE_CONCURRENCY`, so `nonisolated func … async` means
+    /// *nonisolated(nonsending)*: the body runs on the caller's executor, which
+    /// here is the office editor on the main actor. `MKGeocodingRequest` is not
+    /// `Sendable` and its `mapItems` is nonisolated, so a request built in that
+    /// inherited context cannot be handed to it — the same reason `CLGeocoder`
+    /// needed no such attribute is that Apple marked it `Sendable` and MapKit
+    /// has not. Splitting the lookup out rather than marking `coordinates`
+    /// itself keeps the isolation of the function callers already await exactly
+    /// as it was, and confines the hop to the one call that needs it.
+    ///
+    /// The request is built here rather than passed in for the same reason: it
+    /// has to be created and consumed in one context, and it never crosses.
+    @concurrent
+    private static func lookUp(_ query: String) async -> CLLocationCoordinate2D? {
+        guard let request = MKGeocodingRequest(addressString: query) else { return nil }
+
+        let items = try? await request.mapItems
+        return items?.first?.location.coordinate
     }
 }
