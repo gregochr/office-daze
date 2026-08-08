@@ -370,7 +370,7 @@ struct ArrivalPreviewRenderTests {
         // In a window and made key: a hosting controller laid out on its own
         // never evaluates the body, so the same test written without this
         // measures nothing at all.
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        let window = ArrivalPreviewRenderTests.renderWindow()
         window.rootViewController = UIHostingController(
             rootView: ArrivalPreviewScreen().modelContainer(container)
         )
@@ -417,6 +417,36 @@ struct ArrivalPreviewRenderTests {
     enum HeldContainers {
         static var all: [ModelContainer] = []
         static func hold(_ container: ModelContainer) { all.append(container) }
+    }
+
+    /// A window to render into, built the way iOS 26 wants one.
+    ///
+    /// `UIWindow(frame:)` is deprecated: a window belongs to a scene, and the
+    /// frame-only initialiser guesses which. The tests run inside the real app
+    /// as their host, so there is a genuine `UIWindowScene` to hand — asking
+    /// for it is both what stops the deprecation warning and what makes the
+    /// window a real one rather than one attached to whichever scene UIKit
+    /// picked.
+    ///
+    /// Built here rather than in each suite because ten of them wanted the same
+    /// thing, and because the scene lookup is the sort of line that gets copied
+    /// wrong once and then copied wrong nine more times.
+    @MainActor
+    static func renderWindow(height: CGFloat = 852) -> UIWindow {
+        let frame = CGRect(x: 0, y: 0, width: 393, height: height)
+        guard let scene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .first
+        else {
+            // The host app always has one. If that ever stops being true a
+            // render test cannot mean anything anyway, so this says so rather
+            // than quietly falling back to a window with no scene and leaving
+            // someone to wonder why `body` never ran.
+            fatalError("No UIWindowScene in the test host — a render test needs one.")
+        }
+        let window = UIWindow(windowScene: scene)
+        window.frame = frame
+        return window
     }
 
     static func dismantle(_ window: UIWindow, holding container: ModelContainer? = nil) {

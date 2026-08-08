@@ -1080,6 +1080,19 @@ struct CaptureCoordinatorTests {
     }
 }
 
+/// The four values of a `.captureCost` aside, as a type rather than as a tuple.
+/// Four members is where a tuple stops documenting itself: the two `Int`s are
+/// interchangeable to the compiler, so a reader checking an assertion has to
+/// count positions to know whether they are looking at what was sent or what
+/// came back. The labels here are the same ones the case uses, so every existing
+/// assertion reads unchanged.
+struct CaptureCostAside {
+    var id: UUID
+    var status: CaptureStatus
+    var inputTokens: Int
+    var outputTokens: Int
+}
+
 /// Reading an aside's payload without a `case let` and a `guard` at every use.
 /// Nil for the other case, which is also how a test says "not that kind".
 extension CaptureCoordinator.Aside {
@@ -1088,10 +1101,12 @@ extension CaptureCoordinator.Aside {
         return (name, officeID)
     }
 
-    var captureCost: (id: UUID, status: CaptureStatus, inputTokens: Int, outputTokens: Int)? {
+    var captureCost: CaptureCostAside? {
         guard case .captureCost(let id, let status, let input, let output) = self else {
             return nil
         }
-        return (id, status, input, output)
+        return CaptureCostAside(
+            id: id, status: status, inputTokens: input, outputTokens: output
+        )
     }
 }

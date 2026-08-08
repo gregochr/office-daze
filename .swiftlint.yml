@@ -40,28 +40,36 @@ opt_in_rules:
   - unneeded_parentheses_in_closure_argument
   - yoda_condition
 
-# The severities below are the adoption story, not a permanent verdict. A rule
-# the codebase already satisfies is left at error, so CI blocks the first
-# regression. A rule the codebase currently violates is set to warning, so it
-# shows up as an annotation on every PR without failing a build for debt that
-# was there before the pipeline was. Promote each one back to error as its
-# violations reach zero; `swiftlint lint --strict` locally is the burn-down list.
+# The burn-down is done. CI runs `swiftlint lint --strict`, which turns every
+# warning into a failure, so the severities below no longer decide whether a
+# build goes red — the thresholds do, and they are now the standard rather than
+# a record of how much debt there was. The count reached zero on the commit that
+# added --strict; keep it there.
+#
+# What that means in practice: a violation is not something to look at later. It
+# fails the build, and the two honest answers are to fix the code or to argue
+# here for the threshold being wrong. A third answer — a per-line
+# `// swiftlint:disable:next` with a comment saying why — exists for the handful
+# of places where the rule is right in general and wrong in one spot. There are
+# five in the codebase, all `force_try`, all in a #Preview or in App.init.
 
-# Every remaining violation of this rule is a string literal, not code: screen
-# copy in a `Text(...)`, or a JSON fixture in a test. Interpolated ones are
-# ignored outright — you cannot wrap `\(day.dayAndMonth)` without hiding it.
-# The plain ones stay visible as warnings rather than being wrapped with `\`
-# continuations, where a missed backslash puts a real newline in the UI.
+# Interpolated lines are ignored outright — you cannot wrap `\(day.dayAndMonth)`
+# without hiding it. Everything else wraps: prose in a `Text(...)` concatenates
+# with `+` across lines rather than `\` continuations, where a missed backslash
+# puts a real newline in the UI.
 line_length:
   warning: 140
+  error: 140
   ignores_comments: true
   ignores_urls: true
   ignores_interpolated_strings: true
 
-# `try!` here is deliberate and documented at each site: the app init cannot
-# proceed without its store, and the #Preview containers are in-memory.
+# `try!` is deliberate and documented at each of the five sites that keep it:
+# App.init cannot proceed without its store, and the #Preview containers are
+# in-memory. Each carries its own `disable:next` and its own reason, so a new
+# one has to be argued for rather than inherited.
 force_try:
-  severity: warning
+  severity: error
 
 # Three-member tuples are the honest return type for a couple of the geometry
 # and calendar helpers. Four is where it should have been a struct.
@@ -70,17 +78,31 @@ large_tuple:
   error: 4
 
 # SwiftUI view bodies and the screens that hold them are legitimately long.
-# These thresholds are set where a file stops being one idea, not at the
-# default that flags every screen in the app.
-# Warning level only — no error threshold. HomeScreen.swift is 1097 lines and
-# the bigger test files pass 1200, so any error ceiling worth setting would be
-# above what is already here and would therefore never fire. These annotate
-# every PR instead, and get an error level back once the long files are split.
+# These thresholds are set where a file stops being one idea, not at the default
+# that flags every screen in the app.
+#
+# The three that used to exceed them — HomeScreen at 1097 lines, OfficeEditor at
+# 797, Settings at 692 — are split now, and the seam was already there in each:
+# every one of those screens keeps its decisions in `static`s so they can be
+# tested without a screen, and those statics are what moved into a sibling
+# `extension` file. Nothing was cut to fit, and no call site changed, because an
+# extension in the same module resolves exactly as the type did.
+#
+# `type_body_length` counts the type's own body, so the same move satisfies it:
+# an extension's members are not counted against the struct they extend. That is
+# also why the split has to follow the seam rather than a line count — moving an
+# arbitrary 300 lines out would satisfy the linter and leave the file harder to
+# read, which is the opposite of what the rule is for.
+#
+# Test files are exempt from both in OfficeDazeTests/.swiftlint.yml: a test file
+# grows one @Test at a time and is read one @Test at a time.
 file_length:
   warning: 600
+  error: 600
 
 type_body_length:
   warning: 400
+  error: 400
 
 function_body_length:
   warning: 100

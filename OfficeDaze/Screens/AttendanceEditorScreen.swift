@@ -171,12 +171,15 @@ struct AttendanceEditorScreen: View {
                 : "That day is already recorded at this office."
         }
         if ahead {
-            return "A day still to come counts toward the forecast, the same as a booked desk does — it becomes a day attended when you turn up and say so."
+            return "A day still to come counts toward the forecast, the same as a booked "
+                + "desk does — it becomes a day attended when you turn up and say so."
         }
         if fraction < fullDay {
-            return "Half a day on prem counts as half a day toward the month — the same arithmetic as half a day's leave, in the other direction."
+            return "Half a day on prem counts as half a day toward the month — the same "
+                + "arithmetic as half a day's leave, in the other direction."
         }
-        return "A day you were there counts toward the month exactly as a booked day does, because the target counts days on prem rather than desks reserved."
+        return "A day you were there counts toward the month exactly as a booked day does, "
+            + "because the target counts days on prem rather than desks reserved."
     }
 
     /// What a save did. `refused` is the case that used to be invisible: both
@@ -283,5 +286,8 @@ struct AttendanceEditorScreen: View {
 
 #Preview {
     NavigationStack { AttendanceEditorScreen() }
+        // In-memory, built fresh for the canvas. A preview that cannot open its
+        // own store has nothing to show, and there is no user to tell.
+        // swiftlint:disable:next force_try
         .modelContainer(try! Store.makeInMemoryContainer(seeded: true))
 }

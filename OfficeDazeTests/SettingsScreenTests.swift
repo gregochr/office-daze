@@ -593,7 +593,10 @@ struct SettingsDeleteTests {
 
         let wiped = wipe(.everything)
 
-        #expect(wiped.failure == "The delete didn't finish: the volume is full. Some of your data is still here, and the Anthropic key has not been forgotten. Nothing is safely gone — try again.")
+        #expect(wiped.failure ==
+            "The delete didn't finish: the volume is full. Some of your data is still here, "
+            + "and the Anthropic key has not been forgotten. Nothing is safely gone — try again."
+        )
         // Everything the old code went on to report as though the delete had
         // happened, now checked against what actually happened.
         #expect(try container.mainContext.fetchCount(FetchDescriptor<Office>()) == 2)
@@ -616,7 +619,10 @@ struct SettingsDeleteTests {
 
         let wiped = wipe(.records)
 
-        #expect(wiped.failure == "The delete didn't finish: the volume is full. Some of your bookings, attendance and leave are still here. Nothing is safely gone — try again.")
+        #expect(wiped.failure ==
+            "The delete didn't finish: the volume is full. Some of your bookings, "
+            + "attendance and leave are still here. Nothing is safely gone — try again."
+        )
         #expect(wiped.failure?.contains("Anthropic") == false,
                 "the narrower delete never went near the key, so its failure must not mention it")
         #expect(erasures.scopes == [.records])
@@ -1019,7 +1025,7 @@ struct SettingsScreenRenderTests {
         NudgeScheduler.schedule = { _ in }
         NudgeScheduler.withdraw = {}
 
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        let window = ArrivalPreviewRenderTests.renderWindow()
         window.rootViewController = UIHostingController(
             rootView: AnyView(
                 NavigationStack { SettingsScreen() }

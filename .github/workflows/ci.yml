@@ -27,11 +27,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Lint
-        # Not --strict, deliberately. Severities are set per-rule in
-        # .swiftlint.yml: rules the codebase already satisfies are errors and
-        # fail this job, the 29 pre-existing violations are warnings and show
-        # as PR annotations. Add --strict once that count is zero.
-        run: swiftlint lint --reporter github-actions-logging
+        # --strict: every warning is a failure. The count is zero as of the
+        # commit that added this flag, and the point of the flag is that it
+        # cannot drift back up without someone noticing — a violation now stops
+        # the build rather than adding one more annotation to a list nobody
+        # reads. Where a rule is right in general and wrong in one place, the
+        # answer is a per-line `// swiftlint:disable:next` carrying its reason,
+        # not a threshold moved to make the number go away.
+        run: swiftlint lint --strict --reporter github-actions-logging
 
   test:
     name: Build & Test

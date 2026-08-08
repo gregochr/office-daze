@@ -238,26 +238,48 @@ struct AttendanceGauge: View {
     }
 }
 
+// MARK: - Sample states
+
+/// One row of the sheet of dials — a caption and the three numbers that draw it.
+///
+/// A named type rather than a tuple because there are four fields and two of
+/// them are `Double`s that mean different things: `(3, 3, 6)` and `(3, 6, 3)`
+/// both compile, and the second one is a month that is over target rather than
+/// halfway through it. Nothing in a screenshot would say which you had written.
+///
+/// It lives beside the gauge rather than beside either of its callers because
+/// both the Xcode preview below and the `-screen gauge` page in `DebugRouter`
+/// draw the same sheet, and the sheet is a property of the dial: the fixed
+/// scale only means anything if the states are compared with each other.
+struct GaugeSample {
+    let title: String
+    let attended: Double
+    let booked: Double
+    let target: Int
+}
+
 // MARK: - Previews
 
 /// The states from the review, so the dial can be judged on its own before it
 /// is embedded in anything. The point of the fixed scale is that these are
 /// comparable with each other — the same day is the same width in all of them.
 #Preview("Four states") {
-    let states: [(String, Double, Double, Int)] = [
-        ("Can't reach it · 2 of 8, +1 booked", 2, 1, 8),
-        ("On track · 3 of 6, +3 booked", 3, 3, 6),
-        ("Target met · 6 of 6", 6, 0, 6),
-        ("Over · 7 of 6", 7, 1, 6),
+    let states = [
+        GaugeSample(title: "Can't reach it · 2 of 8, +1 booked", attended: 2, booked: 1, target: 8),
+        GaugeSample(title: "On track · 3 of 6, +3 booked", attended: 3, booked: 3, target: 6),
+        GaugeSample(title: "Target met · 6 of 6", attended: 6, booked: 0, target: 6),
+        GaugeSample(title: "Over · 7 of 6", attended: 7, booked: 1, target: 6),
     ]
     return ScrollView {
         VStack(spacing: Metrics.cardGap) {
-            ForEach(states, id: \.0) { title, attended, booked, target in
+            ForEach(states, id: \.title) { state in
                 VStack(spacing: 2) {
-                    Text(title)
+                    Text(state.title)
                         .font(.system(size: 13))
                         .foregroundStyle(Palette.secondary)
-                    AttendanceGauge(attended: attended, booked: booked, target: target)
+                    AttendanceGauge(
+                        attended: state.attended, booked: state.booked, target: state.target
+                    )
                 }
                 .padding(.vertical, 12)
                 .frame(maxWidth: .infinity)

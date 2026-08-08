@@ -284,7 +284,8 @@ struct HomeScreenTests {
             HomeScreen.refusal(
                 day: twelfth, officeID: SeedData.colemanID,
                 attendance: try context.fetch(FetchDescriptor<AttendanceDay>())
-            ) == "12 August already has a whole day recorded at another office, and a whole day here would take it over one. Remove that day first if it is wrong."
+            ) == "12 August already has a whole day recorded at another office, and a whole "
+            + "day here would take it over one. Remove that day first if it is wrong."
         )
 
         // The row is unchanged by the refusal: still asking, still answerable
@@ -516,7 +517,8 @@ struct HomeScreenTests {
         let half = try context.fetch(FetchDescriptor<AttendanceDay>())
         #expect(
             HomeScreen.refusal(day: day, officeID: SeedData.colemanID, attendance: half) ==
-            "12 August already has half a day recorded at another office, and a whole day here would take it over one. Remove that day first if it is wrong."
+            "12 August already has half a day recorded at another office, and a whole "
+            + "day here would take it over one. Remove that day first if it is wrong."
         )
 
         // And the same office, which is a different sentence: nothing is over
@@ -602,7 +604,7 @@ struct HomeScreenRenderTests {
                 .environment(CaptureCoordinator(context: container.mainContext))
                 .modelContainer(container)
         )
-        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 393, height: 852))
+        let window = ArrivalPreviewRenderTests.renderWindow()
         window.rootViewController = host
         window.makeKeyAndVisible()
         window.layoutIfNeeded()
