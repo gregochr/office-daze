@@ -1,0 +1,79 @@
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # Weekly, so a rule added upstream after a PR merged still meets the code.
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Gitleaks scans history, not just the working tree. A key that was
+          # committed and then deleted is still a leaked key — this is the
+          # check that matters most here, because the app talks to the
+          # Anthropic API and an `sk-ant-` string has to never reach a commit.
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Free for personal accounts. An organisation-owned repo needs a
+          # GITLEAKS_LICENSE secret, so this step changes if office-daze
+          # ever moves under an org.
+
+  sast:
+    name: Semgrep
+    runs-on: ubuntu-latest
+    container: semgrep/semgrep
+    steps:
+      - uses: actions/checkout@v5
+      - name: Scan
+        run: |
+          semgrep scan \
+            --config=r/swift \
+            --config=p/secrets \
+            --error \
+            --metrics=off
+
+  # CodeQL is the deeper analysis, and it does support Swift. Results upload to
+  # code scanning free of charge because this repo is public; if it were ever
+  # made private again this job would start failing on the upload with a 403,
+  # and would need GitHub Advanced Security to work.
+  codeql:
+    name: CodeQL
+    runs-on: macos-26
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: swift
+          queries: security-extended
+
+      - name: Build
+        # CodeQL builds the code itself to watch the compiler; autobuild would
+        # probably find the scheme, but naming it means a second scheme added
+        # later cannot quietly become the thing being analysed.
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project OfficeDaze.xcodeproj \
+            -scheme OfficeDaze \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            | xcbeautify --renderer github-actions
+
+      - uses: github/codeql-action/analyze@v3

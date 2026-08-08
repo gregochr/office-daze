@@ -837,4 +837,3 @@ struct LeaveScreenDerivationTests {
         #expect(try container.mainContext.fetchCount(FetchDescriptor<LeaveDay>()) == 0)
     }
 }
-

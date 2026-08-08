@@ -151,7 +151,6 @@ struct ArrivalNotificationTests {
         }
     }
 
-
     func booking(floor: String? = "Level 3", zone: String? = "C") -> ArrivalRule.Booking {
         .init(
             id: UUID(), officeID: UUID(), day: Day(2026, 8, 5),

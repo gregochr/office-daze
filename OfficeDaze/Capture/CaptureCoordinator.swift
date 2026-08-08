@@ -57,8 +57,7 @@ final class CaptureCoordinator {
     private var generation = 0
 
     /// Swapped in tests so nothing reaches the network.
-    var extractor: (Data, String, Day) async throws -> ([ParsedBooking], HaikuClient.Usage) = {
-        data, mediaType, today in
+    var extractor: (Data, String, Day) async throws -> ([ParsedBooking], HaikuClient.Usage) = { data, mediaType, today in
         guard let key = Keychain.apiKey, !key.isEmpty else { throw CaptureError.noAPIKey }
         return try await HaikuClient(apiKey: key).extract(
             image: data, mediaType: mediaType, today: today
