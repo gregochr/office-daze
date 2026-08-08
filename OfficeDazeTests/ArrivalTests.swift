@@ -324,14 +324,31 @@ struct ArrivalNotificationTests {
         #expect(request.content.interruptionLevel == .timeSensitive)
     }
 
-    @Test("Every category offers the confirm button")
+    @Test("Every category that asks a question offers the confirm button")
     func categories() {
         let categories = ArrivalNotifications.categories
-        #expect(categories.count == 3, "booked, unbooked, and the evening question")
-        let confirmable = categories.allSatisfy { category in
+        #expect(
+            categories.count == 4,
+            "booked, unbooked, the evening question, and the follow-up that asks nothing"
+        )
+        let asking = categories.filter {
+            $0.identifier != ArrivalNotifications.Category.followUp.rawValue
+        }
+        let confirmable = asking.allSatisfy { category in
             category.actions.contains { $0.identifier == ArrivalNotifications.Action.confirm.rawValue }
         }
         #expect(confirmable, "attendance must be recordable from the lock screen")
+
+        // Registered, and registered with nothing on it. Leaving the identifier
+        // unregistered would produce the same bare notification, which is the
+        // problem: a typo and a decision would look identical on the lock
+        // screen. And a button here would be a second promise from the alert
+        // that has just admitted it could not keep the first.
+        let followUp = categories.first {
+            $0.identifier == ArrivalNotifications.Category.followUp.rawValue
+        }
+        #expect(followUp != nil)
+        #expect(followUp?.actions.isEmpty == true)
 
         // The evening question is about a morning that has been and gone, so
         // "I'm here" is the wrong tense — but the identifier is the same one,
@@ -359,6 +376,110 @@ struct ArrivalNotificationTests {
         #expect(info[ArrivalNotifications.UserInfo.officeID] as? String == officeID.uuidString)
         #expect(info[ArrivalNotifications.UserInfo.day] as? String == "2026-08-05")
         #expect(info[ArrivalNotifications.UserInfo.bookingID] as? String == desk.id.uuidString)
+    }
+
+    /// The lock screen is the only surface a tapped button has: the
+    /// notification carrying it is gone the instant it is pressed, so a write
+    /// that did not land has to arrive as another notification or not at all.
+    ///
+    /// Whether it brings the button back is not a matter of taste.
+    /// `answer(to:userInfo:delivered:)` refuses any payload whose day is not the
+    /// day it was delivered on, so a button offered for a day gone by would be a
+    /// button that silently did nothing — the very defect this alert exists to
+    /// report.
+    @Test("The follow-up offers the button again only when a button could answer it")
+    func retryOnlyWhereItCouldWork() {
+        let today = ArrivalNotifications.notRecorded(
+            officeName: "Coleman", day: Day(2026, 8, 12),
+            why: "That day couldn't be saved.", retry: true
+        )
+        #expect(today.title == "Not recorded")
+        #expect(today.subtitle == "12 August at Coleman")
+        #expect(today.body.contains("That day couldn't be saved."))
+        #expect(today.body.contains("Tap I'm here to try again."))
+        #expect(
+            today.category != .followUp,
+            "the retry needs a category that carries the confirm action"
+        )
+        #expect(
+            ArrivalNotifications.categories
+                .first { $0.identifier == today.category.rawValue }?
+                .actions.contains { $0.identifier == ArrivalNotifications.Action.confirm.rawValue }
+                == true
+        )
+
+        let gone = ArrivalNotifications.notRecorded(
+            officeName: "Coleman", day: Day(2026, 8, 12),
+            why: "That day couldn't be saved.", retry: false
+        )
+        #expect(gone.category == .followUp, "a button here could not answer for that day")
+        #expect(gone.body.contains("Open Office Daze to record the day."))
+        #expect(!gone.body.contains("Tap I'm here"))
+    }
+
+    /// The store refusing a day that is already worth a whole day is not a
+    /// failure — the day is on the gauge, which is what the tap was for. Wearing
+    /// the same title as a disk that would not write would send someone hunting
+    /// for a problem that is not there.
+    @Test("A day already counted is told as reassurance, not as an error")
+    func alreadyCountedIsNotAnError() {
+        let content = ArrivalNotifications.alreadyCounted(
+            officeName: "Brussels", day: Day(2026, 8, 4),
+            why: "4 August is already counted as a whole day at another office."
+        )
+        #expect(content.title == "Already counted")
+        #expect(!content.title.localizedCaseInsensitiveContains("not"))
+        #expect(content.subtitle == "4 August at Brussels")
+        #expect(content.body.contains("already counted as a whole day"))
+        #expect(content.category == .followUp, "nothing left to press")
+    }
+
+    /// "Not recorded" over a declined day says the opposite of what happened:
+    /// it reads as the app confirming the day was marked as one you were not
+    /// there for, which is precisely the write that failed.
+    @Test("A lost No does not announce itself as a day recorded")
+    func notAnsweredHasItsOwnTitle() {
+        let content = ArrivalNotifications.notAnswered(
+            officeName: "Brussels", day: Day(2026, 8, 11),
+            why: "That answer couldn't be saved: the disk is full."
+        )
+        #expect(content.title == "Not saved")
+        #expect(content.title != "Not recorded")
+        #expect(content.body.contains("the disk is full"))
+        #expect(content.body.contains("still unanswered"))
+        #expect(content.category == .followUp)
+    }
+
+    /// A follow-up posted in the same second as the arrival it answers would
+    /// share that arrival's identifier, and iOS reads a repeated identifier as
+    /// an edit of the notification already on screen.
+    @Test("A follow-up cannot be mistaken for an edit of the alert it answers")
+    func followUpHasItsOwnIdentifier() {
+        let officeID = UUID()
+        let day = Day(2026, 8, 12)
+        let at = Date(timeIntervalSince1970: 1_785_000_000)
+
+        let arrival = ArrivalNotifications.identifier(officeID: officeID, day: day, at: at)
+        let followUp = ArrivalNotifications.followUpIdentifier(
+            officeID: officeID, day: day, at: at
+        )
+        #expect(arrival != followUp, "the same second must not collide")
+
+        let request = ArrivalNotifications.request(
+            ArrivalNotifications.alreadyCounted(officeName: "Coleman", day: day, why: "w"),
+            officeID: officeID, day: day, bookingID: nil, at: at, identifier: followUp
+        )
+        #expect(request.identifier == followUp)
+        // The default is still the arrival's own, so nothing else moved.
+        #expect(
+            ArrivalNotifications.request(
+                ArrivalNotifications.content(
+                    officeName: "Coleman", desk: nil, attended: 4, target: 7,
+                    monthName: "August"
+                ),
+                officeID: officeID, day: day, bookingID: nil, at: at
+            ).identifier == arrival
+        )
     }
 
     /// iOS reads a repeated identifier as an edit of the notification already
@@ -822,6 +943,9 @@ struct ArrivalLedgerTests {
     /// is the only copy there is.
     @Test("No on a stale question cannot unrecord a day that was worked")
     func declineRefusesAnAnsweredDay() throws {
+        // The refusal now says so on the lock screen, so this needs the seam
+        // even though the notification is not what it is about.
+        _ = recording()
         let context = container.mainContext
         let booking = try #require(
             try context.fetch(FetchDescriptor<DeskBooking>())
@@ -988,5 +1112,463 @@ struct ArrivalLedgerTests {
         #expect(ledger.handleEntry(officeID: office.id, day: Day(2026, 8, 5)) == .disabled)
         #expect(posted.requests.isEmpty)
         #expect(try container.mainContext.fetchCount(FetchDescriptor<ArrivalAlert>()) == 0)
+    }
+}
+
+/// The lock screen has no alert to raise and no form to hold open, and the
+/// notification carrying the button is taken away by iOS the instant it is
+/// pressed. So every one of these is about the same question: when the write
+/// did not land, how does the user ever find out?
+///
+/// Before this suite the answer was that they did not. `try?` on a store call
+/// that answers a refusal with nil rather than a throw collapsed a disk error, a
+/// refusal and a success into one silent `Void` — the day was not recorded,
+/// nothing was said, and the notification that offered the button was gone.
+@Suite("What a tapped button does when the write does not land")
+@MainActor
+struct ArrivalLedgerFailureTests {
+
+    let container: ModelContainer
+    let ledger: ArrivalLedger
+    let posted: Posted
+
+    init() throws {
+        container = try Store.makeInMemoryContainer(seeded: true)
+        ledger = ArrivalLedger(context: container.mainContext)
+        posted = Posted()
+        ledger.post = { [posted] in posted.requests.append($0) }
+        ledger.withdraw = { _ in }
+    }
+
+    final class Posted: @unchecked Sendable {
+        var requests: [UNNotificationRequest] = []
+    }
+
+    /// What a full disk feels like from here. `LocalizedError` so the sentence
+    /// the user is shown can be asserted on rather than guessed at.
+    struct DiskFull: Error, LocalizedError {
+        var errorDescription: String? { "the disk is full" }
+    }
+
+    /// Records the context it was handed and then refuses to write.
+    ///
+    /// It records rather than merely counting because the thing worth pinning is
+    /// *which* context the ledger writes: a seam that quietly saved a second,
+    /// empty context would look identical from out here, and would be exactly
+    /// the kind of double that proves nothing.
+    final class Saves: @unchecked Sendable {
+        var contexts: [ObjectIdentifier] = []
+        var failing = true
+
+        func callAsFunction(_ context: ModelContext) throws {
+            contexts.append(ObjectIdentifier(context))
+            if failing { throw DiskFull() }
+            try context.save()
+        }
+    }
+
+    /// The `I'm here` write, recording what it was asked to write.
+    final class Attempts: @unchecked Sendable {
+        struct Attempt: Equatable {
+            let day: Day
+            let officeID: UUID
+            let bookingID: UUID?
+            let today: Day
+        }
+        var attempts: [Attempt] = []
+        var answer: Result<Bool, DiskFull> = .success(true)
+
+        func callAsFunction(
+            _ day: Day, _ officeID: UUID, _ bookingID: UUID?, _ today: Day
+        ) throws -> Bool {
+            attempts.append(.init(day: day, officeID: officeID, bookingID: bookingID, today: today))
+            return try answer.get()
+        }
+    }
+
+    /// The `No` write, recording the booking it was handed.
+    ///
+    /// It sets the flag *and then* fails, in that order, because that is the
+    /// order `BookingStore.markNotAttended` does it in — the property first, the
+    /// save second. A double that only threw would leave nothing behind, and the
+    /// half of this failure worth catching is precisely what is left behind: an
+    /// answer sitting in the context that the store never took.
+    final class Declines: @unchecked Sendable {
+        var bookings: [UUID] = []
+
+        func callAsFunction(_ booking: DeskBooking) throws {
+            bookings.append(booking.id)
+            booking.notAttended = true
+            throw DiskFull()
+        }
+    }
+
+    let coleman = SeedData.colemanID
+    let brussels = SeedData.brusselsID
+    /// Booked at Coleman, not attended. The 5th is both, and the 4th is attended
+    /// at Brussels — which is where "already a whole day elsewhere" comes from.
+    let unattended = Day(2026, 8, 12)
+    /// A working day with nothing seeded against it at all.
+    let free = Day(2026, 8, 20)
+
+    func booking(on day: Day) throws -> DeskBooking {
+        try #require(
+            try container.mainContext.fetch(FetchDescriptor<DeskBooking>())
+                .first { $0.day == day }
+        )
+    }
+
+    func attendance() throws -> [AttendanceDay] {
+        try container.mainContext.fetch(FetchDescriptor<AttendanceDay>())
+    }
+
+    // MARK: The write that lands
+
+    /// The case a noisy fix would break, and it would be a worse bug than the
+    /// one being fixed: a "saved!" notification for every arrival doubles the
+    /// alerts to say what the gauge already says, and an app that talks on the
+    /// happy path is one whose warnings stop being read.
+    @Test("A write that lands says nothing, and records the day the notification named")
+    func successIsStillSilent() throws {
+        let desk = try booking(on: unattended)
+
+        let outcome = ledger.confirmAttendance(
+            officeID: coleman, day: unattended, bookingID: desk.id, today: unattended
+        )
+
+        #expect(outcome == .recorded)
+        #expect(posted.requests.isEmpty, "a button that worked has nothing to say")
+
+        let written = try #require(try attendance().first { $0.day == unattended })
+        #expect(written.officeID == coleman)
+        #expect(written.source == .geofence, "the geofence offered it; the user confirmed")
+        #expect(written.bookingID == desk.id)
+        #expect(written.fraction == 1.0)
+    }
+
+    /// An alert can sit unanswered on a lock screen for days, and Monday's
+    /// arrival tapped on Wednesday still records Monday. The store call has to be
+    /// handed the day the notification named, not the day the tap happened on —
+    /// which is only visible by looking at what it was handed.
+    @Test("The store is asked for the day the alert named, not for today")
+    func forwardsTheNotificationsDay() throws {
+        let attempts = Attempts()
+        ledger.attend = attempts.callAsFunction
+        let desk = try booking(on: unattended)
+
+        let outcome = ledger.confirmAttendance(
+            officeID: coleman, day: unattended, bookingID: desk.id, today: free
+        )
+
+        #expect(outcome == .recorded)
+        #expect(posted.requests.isEmpty)
+        #expect(
+            attempts.attempts == [
+                .init(day: unattended, officeID: coleman, bookingID: desk.id, today: free)
+            ]
+        )
+    }
+
+    // MARK: The refusal
+
+    /// The reachable refusal, and the one that used to be perfectly silent. The
+    /// 4th is seeded as a whole day at Brussels; arriving at Coleman on the same
+    /// day still alerts, because the acknowledgement is per office — so the
+    /// button is there to be pressed and the store will not honour it.
+    @Test("A day already counted at another office says so rather than doing nothing")
+    func alreadyCountedElsewhere() throws {
+        let before = try attendance().count
+
+        let outcome = ledger.confirmAttendance(
+            officeID: coleman, day: Day(2026, 8, 4), bookingID: nil, today: Day(2026, 8, 4)
+        )
+
+        guard case .alreadyCounted(let why) = outcome else {
+            Issue.record("expected the day to be already counted, got \(outcome)")
+            return
+        }
+        #expect(why.contains("4 August"))
+        #expect(why.contains("another office"))
+        #expect(try attendance().count == before, "and nothing was written")
+
+        let request = try #require(posted.requests.first)
+        #expect(posted.requests.count == 1)
+        #expect(request.content.title == "Already counted", "reassurance, not an alarm")
+        #expect(request.content.body.contains("another office"))
+        #expect(
+            request.content.categoryIdentifier
+                == ArrivalNotifications.Category.followUp.rawValue,
+            "nothing left to press"
+        )
+        #expect(request.identifier.hasPrefix("arrival.answered."))
+    }
+
+    /// Coming back from lunch and pressing it again. Nothing is wrong, nothing
+    /// is missing, and saying so is friendlier than the silence that invites a
+    /// third press.
+    @Test("Pressing the button twice for the same day says the day counts once")
+    func alreadyCountedHere() throws {
+        let outcome = ledger.confirmAttendance(
+            officeID: coleman, day: Day(2026, 8, 5), bookingID: nil, today: Day(2026, 8, 5)
+        )
+
+        guard case .alreadyCounted(let why) = outcome else {
+            Issue.record("expected the day to be already counted, got \(outcome)")
+            return
+        }
+        #expect(why.contains("5 August"))
+        #expect(why.contains("counts once"))
+        #expect(posted.requests.first?.content.title == "Already counted")
+    }
+
+    /// Half a day at another office and a whole day asked for here. The store
+    /// refuses outright rather than trimming it to fit — how much of the day was
+    /// spent where is the user's fact, not the store's — so this one genuinely
+    /// needs the app, and a button would only be refused again.
+    @Test("A half day elsewhere is refused with no button to press again")
+    func refusedWithNothingToRetry() throws {
+        container.mainContext.insert(AttendanceDay(
+            day: free, officeID: brussels, source: .manual, fraction: 0.5
+        ))
+        try container.mainContext.save()
+
+        let outcome = ledger.confirmAttendance(
+            officeID: coleman, day: free, bookingID: nil, today: free
+        )
+
+        guard case .refused(let why) = outcome else {
+            Issue.record("expected a refusal, got \(outcome)")
+            return
+        }
+        #expect(why.contains("part of the day"))
+        #expect(try attendance().filter { $0.day == free }.count == 1, "still just the half")
+
+        let request = try #require(posted.requests.first)
+        #expect(request.content.title == "Not recorded")
+        #expect(
+            request.content.categoryIdentifier
+                == ArrivalNotifications.Category.followUp.rawValue,
+            "the same tap would be refused the same way, so no button is offered"
+        )
+        #expect(request.content.body.contains("Open Office Daze"))
+    }
+
+    // MARK: The throw
+
+    @Test("A write that throws says so, and offers the button again for today")
+    func throwOffersARetry() throws {
+        let attempts = Attempts()
+        attempts.answer = .failure(DiskFull())
+        ledger.attend = attempts.callAsFunction
+        let desk = try booking(on: unattended)
+
+        let outcome = ledger.confirmAttendance(
+            officeID: coleman, day: unattended, bookingID: desk.id, today: unattended
+        )
+
+        guard case .failed(let why) = outcome else {
+            Issue.record("expected a failure, got \(outcome)")
+            return
+        }
+        #expect(why.contains("the disk is full"))
+        #expect(
+            attempts.attempts == [
+                .init(day: unattended, officeID: coleman, bookingID: desk.id, today: unattended)
+            ]
+        )
+
+        let request = try #require(posted.requests.first)
+        #expect(request.content.title == "Not recorded")
+        #expect(request.content.body.contains("the disk is full"))
+        #expect(request.content.body.contains("Tap I'm here to try again."))
+        #expect(
+            request.content.categoryIdentifier
+                != ArrivalNotifications.Category.followUp.rawValue,
+            "the button has to come back, and a category with no actions cannot bring it"
+        )
+        #expect(request.identifier.hasPrefix("arrival.answered."))
+        // The payload the retry will be answered from has to name the same day,
+        // or the second press is refused as a redelivery.
+        #expect(
+            request.content.userInfo[ArrivalNotifications.UserInfo.day] as? String
+                == unattended.description
+        )
+    }
+
+    /// The rule that decides it: `answer` refuses any payload whose day is not
+    /// the day it was delivered on, so a button offered here for a day gone by
+    /// would be a button that silently did nothing — which is the defect this
+    /// notification exists to report.
+    @Test("A throw on a day already gone points at the app instead of at a dead button")
+    func throwOnAnOldDayOffersNoRetry() throws {
+        let attempts = Attempts()
+        attempts.answer = .failure(DiskFull())
+        ledger.attend = attempts.callAsFunction
+
+        let outcome = ledger.confirmAttendance(
+            officeID: coleman, day: unattended, bookingID: nil, today: free
+        )
+
+        guard case .failed = outcome else {
+            Issue.record("expected a failure, got \(outcome)")
+            return
+        }
+        let request = try #require(posted.requests.first)
+        #expect(request.content.title == "Not recorded")
+        #expect(
+            request.content.categoryIdentifier
+                == ArrivalNotifications.Category.followUp.rawValue
+        )
+        #expect(request.content.body.contains("Open Office Daze to record the day."))
+        #expect(!request.content.body.contains("Tap I'm here"))
+
+        // What makes the absent button the right call: the answer rule would
+        // have thrown the press away.
+        #expect(
+            ArrivalNotifications.answer(
+                to: ArrivalNotifications.Action.confirm.rawValue,
+                userInfo: request.content.userInfo, delivered: free
+            ) == .ignore
+        )
+    }
+
+    // MARK: The evening question's No
+
+    /// The refusal is right and always was — a stale question must not unrecord
+    /// a day that was worked — but from the lock screen it looked exactly like
+    /// the button not working: press No, nothing happens, press it again.
+    @Test("No on a day already recorded says the day is counted rather than doing nothing")
+    func declineOnARecordedDaySaysSo() throws {
+        let desk = try booking(on: unattended)
+        ledger.confirmAttendance(
+            officeID: coleman, day: unattended, bookingID: desk.id, today: unattended
+        )
+        #expect(posted.requests.isEmpty, "the confirm landed, so it said nothing")
+
+        let outcome = ledger.declineAttendance(bookingID: desk.id)
+
+        guard case .alreadyRecorded(let why) = outcome else {
+            Issue.record("expected the day to be already recorded, got \(outcome)")
+            return
+        }
+        #expect(why.contains("12 August"))
+        #expect(!desk.notAttended, "the day was worked; the question was stale")
+
+        let request = try #require(posted.requests.first)
+        #expect(posted.requests.count == 1)
+        #expect(request.content.title == "Already counted")
+        #expect(request.content.body.contains("12 August"))
+    }
+
+    /// Two failures in one. The answer did not save — which the user is told —
+    /// and the flag the store set on its way to saving is still sitting in this
+    /// context, where the next successful save anywhere in the app would commit
+    /// it. A day that reports itself unanswered and then quietly answers itself
+    /// later is worse than either failure alone.
+    @Test("An answer that will not save is put back, and says it did not save")
+    func declineThatThrowsIsUndoneAndAnnounced() throws {
+        let declines = Declines()
+        ledger.decline = declines.callAsFunction
+        let desk = try booking(on: Day(2026, 8, 11))
+
+        let outcome = ledger.declineAttendance(bookingID: desk.id)
+
+        guard case .failed(let why) = outcome else {
+            Issue.record("expected a failure, got \(outcome)")
+            return
+        }
+        #expect(why.contains("the disk is full"))
+        #expect(declines.bookings == [desk.id], "and it was asked about that booking")
+        #expect(
+            !desk.notAttended,
+            "the store never took the answer, so this context must not be holding it"
+        )
+        try container.mainContext.save()
+        #expect(
+            !desk.notAttended,
+            "and a later save must not commit the answer that failed"
+        )
+
+        let request = try #require(posted.requests.first)
+        #expect(request.content.title == "Not saved", "not 'Not recorded' — that reads as the opposite")
+        #expect(request.content.body.contains("the disk is full"))
+        #expect(request.content.body.contains("still unanswered"))
+        #expect(
+            request.content.categoryIdentifier
+                == ArrivalNotifications.Category.followUp.rawValue
+        )
+    }
+
+    /// The one silent branch, and deliberately so: a booking deleted between the
+    /// question being scheduled and the answer being given leaves nothing to
+    /// write and nothing to correct. An alarm about nothing is still an alarm.
+    @Test("No about a booking that no longer exists says nothing")
+    func declineWithNothingToDecline() {
+        #expect(ledger.declineAttendance(bookingID: UUID()) == .noSuchBooking)
+        #expect(posted.requests.isEmpty)
+    }
+
+    // MARK: The ledger row
+
+    /// The one failure here with no one to tell: the alert has already gone out,
+    /// and what did not save is bookkeeping the user can neither see nor act on.
+    /// So it is handled rather than announced — starting with not leaving the
+    /// row behind, because a context still holding an insert that failed commits
+    /// it on the next unrelated save.
+    @Test("A ledger row that will not save is dropped rather than left to commit itself")
+    func failedLedgerRowIsNotLeftPending() throws {
+        let saves = Saves()
+        ledger.save = saves.callAsFunction
+
+        let decision = ledger.handleEntry(officeID: coleman, day: unattended)
+
+        guard case .desk = decision else {
+            Issue.record("expected a desk alert, got \(decision)")
+            return
+        }
+        #expect(posted.requests.count == 1, "the user still got what they came for")
+        #expect(
+            saves.contexts == [ObjectIdentifier(container.mainContext)],
+            "and it was the app's own context that was asked to write"
+        )
+
+        saves.failing = false
+        try container.mainContext.save()
+        #expect(
+            try container.mainContext.fetchCount(FetchDescriptor<ArrivalAlert>()) == 0,
+            "a row reported lost must not turn up later"
+        )
+    }
+
+    /// The cost of losing the row, and the reason it is worth catching at all: a
+    /// boundary flutter seconds later reads an empty ledger, finds no settle
+    /// window and alerts again. A burst of identical alerts is how a
+    /// notification gets switched off for good — a permanent price for a
+    /// transient failure.
+    @Test("An alert that could not be written down still holds the settle window")
+    func settleWindowSurvivesAFailedSave() {
+        let saves = Saves()
+        ledger.save = saves.callAsFunction
+        let arrived = Date(timeIntervalSince1970: 1_785_000_000)
+
+        ledger.handleEntry(officeID: coleman, day: unattended, now: arrived)
+        let second = ledger.handleEntry(
+            officeID: coleman, day: unattended,
+            now: arrived.addingTimeInterval(ArrivalRule.settleWindow - 1)
+        )
+
+        #expect(second == .settling)
+        #expect(posted.requests.count == 1, "not a second alert seconds after the first")
+
+        // And it is still only a window: past it, the arrival is a real one.
+        let later = ledger.handleEntry(
+            officeID: coleman, day: unattended,
+            now: arrived.addingTimeInterval(ArrivalRule.settleWindow + 1)
+        )
+        guard case .desk = later else {
+            Issue.record("expected a second desk alert, got \(later)")
+            return
+        }
+        #expect(posted.requests.count == 2)
     }
 }

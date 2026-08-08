@@ -62,6 +62,10 @@ struct SettingsScreen: View {
     @State private var key = KeyState()
     @State private var loaded = false
     @State private var confirmingWipe = false
+    /// Set only by a delete that did not land. Non-nil raises the alert below,
+    /// because the alternative — the silence a successful delete makes — reads
+    /// as "it worked".
+    @State private var wipeFailure: String?
     @State private var nudgeEnabled = false
     @State private var nudgeTime = Date()
 
@@ -247,16 +251,36 @@ struct SettingsScreen: View {
         } message: {
             Text("Attendance is the only record that a day was worked on prem — there is no other copy.")
         }
+        // A delete that threw used to report exactly what a delete that worked
+        // reported: the perimeters refreshed, the reminder redone, a fresh key
+        // row, and not a word on screen. The user was told their data was gone
+        // while all of it was still there — which for the one feature in the app
+        // whose whole purpose is removing data is the worst direction to be
+        // wrong in, because the person who believes it hands the phone on.
+        .alert(
+            "Not deleted",
+            isPresented: Binding(
+                get: { wipeFailure != nil }, set: { if !$0 { wipeFailure = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(wipeFailure ?? "")
+        }
     }
 
     private func wipe(_ scope: Store.Scope) {
-        key = Self.wipe(
+        let wiped = Self.wipe(
             scope, in: context, arrival: arrival,
             forgetSecret: keychain.forget, readKey: keychain.read
         )
+        key = wiped.key
         // The field is showing a key that, under `.everything`, no longer
-        // exists — see `SettingsScreen.wipe`.
+        // exists — see `SettingsScreen.wipe`. Filled from the read-back rather
+        // than simply emptied, so a delete that failed leaves on screen the key
+        // the user still has.
         apiKey = key.stored ?? ""
+        wipeFailure = wiped.failure
     }
 
     // MARK: Offices
@@ -473,8 +497,25 @@ extension SettingsScreen {
         return "Everything, including \(officeCount) \(officeCount == 1 ? "office" : "offices")"
     }
 
+    /// What a delete did: the key row's new state, and the reason if it did not
+    /// land.
+    ///
+    /// Both, rather than one or the other. The key row has to be re-read either
+    /// way — a delete that worked took the Anthropic key with it, a delete that
+    /// failed left it exactly where it was — and the failure has to be said out
+    /// loud, which is the half that used to be thrown away.
+    struct Wiped: Equatable {
+        var key: KeyState
+        /// Non-nil only for a delete that did not land. Nil is the ordinary
+        /// case, and it is silent on purpose: a delete that works is confirmed
+        /// by the emptied screen behind it, and an alert saying so would be one
+        /// more tap on the way out of a destructive flow.
+        var failure: String?
+    }
+
     /// Deletes, then puts back in step everything that was computed from the
-    /// records that no longer exist — and answers with the key row's new state.
+    /// records that no longer exist — and answers with the key row's new state,
+    /// plus the reason when the records turn out to still exist.
     ///
     /// It answers rather than returning nothing because `.everything` takes the
     /// Anthropic key with it (see `Store.wipe`), and a screen that kept showing
@@ -482,22 +523,69 @@ extension SettingsScreen {
     /// the same claim from state that this row was rewritten to stop making.
     /// The regions matter just as much: iOS goes on monitoring a perimeter for
     /// a deleted office until something tells it not to.
+    ///
+    /// `erase` is a parameter for the reason `record`'s two store calls are:
+    /// the branch that had never been taken is the one where the delete throws,
+    /// and SwiftData will not throw on request. The default is the real thing.
     @discardableResult
     static func wipe(
         _ scope: Store.Scope,
         in context: ModelContext,
         arrival: ArrivalMonitor,
         defaults: UserDefaults = .standard,
-        forgetSecret: () -> Void,
+        // `@escaping` only because it is now handed on to `erase`, which is
+        // itself a parameter — Swift will not let one non-escaping closure
+        // parameter be passed to another. Nothing here stores it: it is called
+        // once, synchronously, inside the delete it belongs to.
+        forgetSecret: @escaping () -> Void,
         readKey: () -> String?,
-        refreshNudge: (ModelContext) -> Void = { NudgeScheduler.refresh(in: $0) }
-    ) -> KeyState {
-        try? Store.wipe(
-            context, scope: scope, defaults: defaults, forgetSecret: forgetSecret
-        )
+        refreshNudge: (ModelContext) -> Void = { NudgeScheduler.refresh(in: $0) },
+        erase: (Store.Scope, ModelContext, UserDefaults, () -> Void) throws -> Void
+            = { try Store.wipe($1, scope: $0, defaults: $2, forgetSecret: $3) }
+    ) -> Wiped {
+        var failure: String?
+        do {
+            try erase(scope, context, defaults, forgetSecret)
+        } catch {
+            failure = deleteFailure(scope, error)
+        }
+        // Both of these still run when the delete threw, and that is the
+        // deliberate answer rather than the incidental one. Neither is a
+        // celebration of a delete that happened; both are reconciliations, and
+        // what they reconcile against is whatever the store now holds. A throw
+        // says the delete did not finish, not that it did not start — so the
+        // records that did go are gone, and skipping these two would leave iOS
+        // waking the app at a deleted office's perimeter and tonight's reminder
+        // naming a desk that no longer exists, with nothing left on any later
+        // screen to trigger a rebuild. Running them against a store that was
+        // not emptied costs nothing: they re-register the offices that are
+        // still there and re-decide the reminder from the bookings that are
+        // still there, which is exactly right for a store in that state.
         arrival.refreshRegions()
         refreshNudge(context)
-        return reload(readBack: readKey)
+        // Read back rather than assumed, for both scopes. `Store.wipe` reaches
+        // for the Keychain only after its save has succeeded, so a delete that
+        // threw has certainly not forgotten the key — and the row saying "Key
+        // saved" here is the truth, not a leftover.
+        return Wiped(key: reload(readBack: readKey), failure: failure)
+    }
+
+    /// Why the delete is being reported rather than assumed, in terms of what
+    /// the user still has.
+    ///
+    /// It refuses to say "nothing was deleted" even though on today's
+    /// `Store.wipe` a throw does leave the store untouched — the deletes are
+    /// staged model by model and only the save commits them. That is one
+    /// autosave away from being false, and the direction to be wrong in is the
+    /// one that has the user check rather than the one that has them trust.
+    /// Naming the key separately under `.everything` because it is the item
+    /// here that is not merely private but live and billable, and the only one
+    /// that survives deleting the app.
+    static func deleteFailure(_ scope: Store.Scope, _ error: Error) -> String {
+        let kept = scope == .everything
+            ? "Some of your data is still here, and the Anthropic key has not been forgotten."
+            : "Some of your bookings, attendance and leave are still here."
+        return "The delete didn't finish: \(error.localizedDescription). \(kept) Nothing is safely gone — try again."
     }
 
     // MARK: Permission

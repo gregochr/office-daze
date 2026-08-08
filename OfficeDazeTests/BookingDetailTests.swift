@@ -454,6 +454,409 @@ struct BookingDetailStandingTests {
     }
 }
 
+/// Saying you were here, and the two ways that used to fail in silence.
+///
+/// The row ran `try? BookingStore.recordAttendance(...)` in statement position,
+/// which threw away two different answers at once: an error, and a refusal —
+/// the store declines a write it will not make by returning nil rather than by
+/// throwing. Neither reached the screen. The user tapped a button that says "I
+/// was here", the app wrote nothing, said nothing, and left the row still
+/// asking the question that had just been answered.
+@Suite("Saying you were here")
+@MainActor
+struct BookingDetailAttendanceTests {
+
+    /// A store that refuses. SwiftData will not fail on demand, and the branch
+    /// worth the most here is the one that only runs when it does.
+    struct DiskIsFull: LocalizedError {
+        var errorDescription: String? { "the disk is full" }
+    }
+
+    /// Records what it was asked to write rather than nodding at it, so a test
+    /// can say *which* booking was answered for. The booking id is not
+    /// decoration: it is what clears `notAttended` on the row, so answering for
+    /// the wrong one is as silent a failure as answering for none.
+    final class RecordingStore {
+        private(set) var asked: [(day: Day, officeID: UUID, bookingID: UUID)] = []
+        var answer: Result<Bool, Error>
+
+        init(answer: Result<Bool, Error>) { self.answer = answer }
+
+        func attend(_ day: Day, _ officeID: UUID, _ bookingID: UUID) throws -> Bool {
+            asked.append((day, officeID, bookingID))
+            return try answer.get()
+        }
+    }
+
+    // MARK: The write that lands
+
+    /// The positive, and the one a fix must not break. A tap that works is
+    /// still silent — no alert, nothing to dismiss — and the store is handed
+    /// this booking's own day, office and id.
+    @Test("A tap that lands is recorded against this booking, and says nothing")
+    func aWriteThatLandsIsSilent() {
+        let store = RecordingStore(answer: .success(true))
+        let day = Day(2026, 8, 5)
+        let officeID = SeedData.colemanID
+        let bookingID = UUID()
+
+        let outcome = BookingDetailScreen.record(
+            day: day, officeID: officeID, bookingID: bookingID,
+            attend: { try store.attend($0, $1, $2) }
+        )
+
+        #expect(outcome == .recorded)
+        #expect(store.asked.count == 1)
+        #expect(store.asked.first?.day == day)
+        #expect(store.asked.first?.officeID == officeID)
+        #expect(
+            store.asked.first?.bookingID == bookingID,
+            "the id is what clears notAttended — the wrong one answers for another row"
+        )
+    }
+
+    /// End to end through the real store, because the closure above could hand
+    /// anything to anything. This is the tap working: a row written for the
+    /// right day and office, marked as typed rather than as an arrival, and
+    /// linked back to the booking.
+    @Test("The tap writes one attendance row, by hand, linked to the booking")
+    func theWriteReachesTheStore() throws {
+        let container = try Store.makeInMemoryContainer(seeded: true)
+        let context = container.mainContext
+        let day = Day(2020, 1, 15)
+        let booking = DeskBooking(
+            officeID: SeedData.colemanID, day: day, deskID: "1A-001", source: .manual
+        )
+        booking.notAttended = true
+        context.insert(booking)
+        try context.save()
+
+        let outcome = BookingDetailScreen.record(
+            day: booking.day, officeID: booking.officeID, bookingID: booking.id,
+            attend: { day, officeID, bookingID in
+                try BookingStore.recordAttendance(
+                    day: day, officeID: officeID, source: .manual,
+                    bookingID: bookingID, in: context
+                ) != nil
+            }
+        )
+
+        #expect(outcome == .recorded)
+        let rows = try context.fetch(FetchDescriptor<AttendanceDay>()).filter { $0.day == day }
+        #expect(rows.count == 1)
+        #expect(rows.first?.officeID == SeedData.colemanID)
+        #expect(rows.first?.source == .manual, "the geofence did not see this — a person typed it")
+        #expect(rows.first?.bookingID == booking.id)
+        #expect(rows.first?.fraction == 1.0)
+        #expect(!booking.notAttended, "a day answered no and then recorded stops saying no")
+    }
+
+    // MARK: The write the store refused
+
+    @Test("A refusal is not a save, and the store is still told exactly what was asked of it")
+    func aRefusalIsNotASave() {
+        let store = RecordingStore(answer: .success(false))
+        let day = Day(2026, 8, 5)
+        let bookingID = UUID()
+
+        let outcome = BookingDetailScreen.record(
+            day: day, officeID: SeedData.brusselsID, bookingID: bookingID,
+            attend: { try store.attend($0, $1, $2) }
+        )
+
+        #expect(outcome == .refused, "nil from the store is not success")
+        #expect(store.asked.count == 1)
+        #expect(store.asked.first?.day == day)
+        #expect(store.asked.first?.officeID == SeedData.brusselsID)
+        #expect(store.asked.first?.bookingID == bookingID)
+    }
+
+    @Test("A store that threw is a failure, naming the day and the reason")
+    func aThrowIsReported() {
+        let store = RecordingStore(answer: .failure(DiskIsFull()))
+
+        let outcome = BookingDetailScreen.record(
+            day: Day(2026, 8, 5), officeID: SeedData.colemanID, bookingID: UUID(),
+            attend: { try store.attend($0, $1, $2) }
+        )
+
+        guard case .failed(let why) = outcome else {
+            Issue.record("a throwing store is not a save: \(outcome)")
+            return
+        }
+        #expect(why.contains("the disk is full"))
+        #expect(why.contains("5 August"))
+        #expect(why.contains("Nothing was saved"))
+        #expect(store.asked.count == 1, "it was attempted, and the store refused it")
+    }
+
+    /// The three answers are three answers. A screen that could not tell a
+    /// refusal from a throw would have to pick one sentence for both, and one
+    /// of the two would be a lie about what happened.
+    @Test("A landed write, a refusal and a throw are three different answers")
+    func theThreeAnswersAreDistinct() {
+        let day = Day(2026, 8, 5)
+        let officeID = SeedData.colemanID
+        let bookingID = UUID()
+        let landed = BookingDetailScreen.record(
+            day: day, officeID: officeID, bookingID: bookingID, attend: { _, _, _ in true }
+        )
+        let refused = BookingDetailScreen.record(
+            day: day, officeID: officeID, bookingID: bookingID, attend: { _, _, _ in false }
+        )
+        let threw = BookingDetailScreen.record(
+            day: day, officeID: officeID, bookingID: bookingID,
+            attend: { _, _, _ in throw DiskIsFull() }
+        )
+        #expect(landed == .recorded)
+        #expect(refused == .refused)
+        #expect(landed != refused)
+        #expect(threw != refused)
+        #expect(threw != landed)
+    }
+
+    // MARK: What the refusal says
+
+    private func office(_ id: UUID, _ name: String) -> Office {
+        Office(
+            id: id, name: name, address: "", postcode: "",
+            latitude: 51.5, longitude: -0.09, colourHex: OfficeColours.palette[0]
+        )
+    }
+
+    private func attended(
+        _ day: Day, at officeID: UUID, fraction: Double = 1.0
+    ) -> AttendanceDay {
+        AttendanceDay(day: day, officeID: officeID, source: .manual, fraction: fraction)
+    }
+
+    /// The refusal the user can actually reach, stated as they meet it. The row
+    /// is offered because *this* office holds nothing for the day — `attended`
+    /// looks no further — while the store refuses any day whose fractions
+    /// already add to one, wherever they were recorded.
+    @Test("A day already worked at another office says which office, and that nothing was added")
+    func aDayFullElsewhereNamesTheOffice() {
+        let day = Day(2026, 8, 5)
+        let why = BookingDetailScreen.refusal(
+            day: day,
+            officeID: SeedData.colemanID,
+            attendance: [attended(day, at: SeedData.brusselsID)],
+            offices: [
+                office(SeedData.colemanID, "Coleman"), office(SeedData.brusselsID, "Brussels"),
+            ]
+        )
+        #expect(why.contains("5 August"))
+        #expect(why.contains("Brussels"), "the day is somewhere the user can go and look at")
+        #expect(!why.contains("Coleman"), "and not blamed on the office they are standing in")
+        #expect(why.contains("Remove that day first"))
+    }
+
+    /// Half a morning at one site and an afternoon at another add to a whole
+    /// day, so both have to be named — a sentence naming one of two leaves the
+    /// user looking for a day they will not find where they were told.
+    @Test("Two half days at two offices are both named")
+    func twoHalvesAreBothNamed() {
+        let day = Day(2026, 8, 5)
+        let elsewhere = UUID()
+        let why = BookingDetailScreen.refusal(
+            day: day,
+            officeID: SeedData.colemanID,
+            attendance: [
+                attended(day, at: SeedData.brusselsID, fraction: 0.5),
+                attended(day, at: elsewhere, fraction: 0.5),
+            ],
+            offices: [
+                office(SeedData.colemanID, "Coleman"),
+                office(SeedData.brusselsID, "Brussels"),
+                office(elsewhere, "Dublin"),
+            ]
+        )
+        #expect(why.contains("Brussels and Dublin"))
+    }
+
+    /// `removeOffice` keeps the attendance, so a day can be recorded at a
+    /// building the app can no longer name. The sentence loses the name and
+    /// nothing else — it must not lose the fact that nothing was written.
+    @Test("A day recorded at an office since deleted still says the day is spoken for")
+    func aDeletedOfficeStillRefuses() {
+        let day = Day(2026, 8, 5)
+        let why = BookingDetailScreen.refusal(
+            day: day,
+            officeID: SeedData.colemanID,
+            attendance: [attended(day, at: UUID())],
+            offices: [office(SeedData.colemanID, "Coleman")]
+        )
+        #expect(why.contains("another office"))
+        #expect(why.contains("5 August"))
+        #expect(why.contains("Remove that day first"))
+    }
+
+    /// The race: the query behind the row has not caught up with a row this
+    /// very office already holds. It must not fall through to the sentence
+    /// above, which would blame a building the user was never at.
+    @Test("A day already recorded at this office says so, not that it was somewhere else")
+    func thisOfficeIsNotCalledAnother() {
+        let day = Day(2026, 8, 5)
+        let why = BookingDetailScreen.refusal(
+            day: day,
+            officeID: SeedData.colemanID,
+            attendance: [attended(day, at: SeedData.colemanID)],
+            offices: [office(SeedData.colemanID, "Coleman")]
+        )
+        #expect(why.contains("already recorded at this office"))
+        #expect(!why.contains("another office"))
+    }
+
+    /// The fallback, which exists because the store may grow a reason this
+    /// screen cannot see. It must still say that nothing happened, rather than
+    /// leaving a row that looks answered.
+    @Test("A refusal with no visible reason still says nothing was added")
+    func anUnexplainedRefusalStillSaysNothingHappened() {
+        let why = BookingDetailScreen.refusal(
+            day: Day(2026, 8, 5), officeID: SeedData.colemanID, attendance: [], offices: []
+        )
+        #expect(why.contains("5 August"))
+        #expect(why.contains("Nothing was added"))
+    }
+
+    /// The whole bug in one test: the store really refuses, really writes
+    /// nothing, and the sentence the screen shows really names the day the user
+    /// has to go and fix.
+    @Test("The store refuses a day already full elsewhere, and the screen has words for it")
+    func theRefusalAndItsWordsAgree() throws {
+        let container = try Store.makeInMemoryContainer(seeded: true)
+        let context = container.mainContext
+        let day = Day(2020, 1, 15)
+        try BookingStore.recordAttendance(
+            day: day, officeID: SeedData.brusselsID, source: .manual, in: context
+        )
+        let booking = DeskBooking(
+            officeID: SeedData.colemanID, day: day, deskID: "1A-001", source: .manual
+        )
+        context.insert(booking)
+        try context.save()
+
+        // The row is offered: this office holds nothing for that day, which is
+        // exactly why the refusal below is reachable at all.
+        let attendance = try context.fetch(FetchDescriptor<AttendanceDay>())
+        #expect(!attendance.contains { $0.day == day && $0.officeID == SeedData.colemanID })
+        #expect(
+            BookingDetailScreen.standing(attendedVia: nil, day: day, today: .today)
+                == .offerAttendance
+        )
+
+        let outcome = BookingDetailScreen.record(
+            day: booking.day, officeID: booking.officeID, bookingID: booking.id,
+            attend: { day, officeID, bookingID in
+                try BookingStore.recordAttendance(
+                    day: day, officeID: officeID, source: .manual,
+                    bookingID: bookingID, in: context
+                ) != nil
+            }
+        )
+
+        #expect(outcome == .refused)
+        #expect(
+            try context.fetch(FetchDescriptor<AttendanceDay>()).filter { $0.day == day }.count == 1,
+            "and the day gained nothing — the month must not count a day nobody worked twice"
+        )
+
+        let why = BookingDetailScreen.refusal(
+            day: booking.day, officeID: booking.officeID,
+            attendance: try context.fetch(FetchDescriptor<AttendanceDay>()),
+            offices: try context.fetch(FetchDescriptor<Office>())
+        )
+        #expect(why.contains("15 January"))
+        #expect(why.contains("Brussels"))
+    }
+}
+
+/// The identifier of an event that is already in the user's calendar.
+///
+/// This save carried a `try?` too, and it is the worst place in the screen for
+/// one: by the time it runs the event is written, and the identifier is the
+/// only thing that stops the next visit offering to write it again. A save that
+/// failed left a booking with an event and no memory of it, and the twin that
+/// `CalendarWriter`'s refusal exists to prevent got written on the next tap.
+@Suite("Remembering the calendar event")
+@MainActor
+struct BookingDetailRememberTests {
+
+    struct DiskIsFull: LocalizedError {
+        var errorDescription: String? { "the disk is full" }
+    }
+
+    /// Records the identifier it was handed, because the defect this guards
+    /// against is not only "the save failed" but "the wrong id was stored" —
+    /// and a stub that swallowed its argument could not tell the two apart.
+    final class RecordingSave {
+        private(set) var stored: [String] = []
+        var failure: Error?
+
+        init(failure: Error? = nil) { self.failure = failure }
+
+        func save(_ identifier: String) throws {
+            stored.append(identifier)
+            if let failure { throw failure }
+        }
+    }
+
+    @Test("A written event's identifier reaches the store, and nothing is said about it")
+    func aStoredIdentifierIsSilent() {
+        let store = RecordingSave()
+        let said = BookingDetailScreen.remember(.added("EVENT-1"), save: { try store.save($0) })
+        #expect(said == nil, "a save that lands is not news")
+        #expect(store.stored == ["EVENT-1"], "and it is the identifier the writer handed back")
+    }
+
+    /// `.updated` is unreachable while the app holds write-only access and is
+    /// kept for the day it does not — see `CalendarWriter.Outcome`. Its
+    /// identifier has to be stored on that day too.
+    @Test("An updated event's identifier is stored the same way")
+    func anUpdatedIdentifierIsStored() {
+        let store = RecordingSave()
+        #expect(
+            BookingDetailScreen.remember(.updated("EVENT-2"), save: { try store.save($0) }) == nil
+        )
+        #expect(store.stored == ["EVENT-2"])
+    }
+
+    /// The bug, stated as the user meets it: the event is in their calendar and
+    /// the app has forgotten it. Saying nothing here is worse than usual,
+    /// because the next tap writes the duplicate.
+    @Test("A save that failed says the event is there anyway, and warns off a second copy")
+    func aFailedSaveWarnsAboutTheTwin() throws {
+        let store = RecordingSave(failure: DiskIsFull())
+        let said = try #require(
+            BookingDetailScreen.remember(.added("EVENT-1"), save: { try store.save($0) })
+        )
+        #expect(store.stored == ["EVENT-1"], "it was attempted")
+        #expect(said.contains("in your calendar"), "the event exists — the user must not re-add it")
+        #expect(said.contains("the disk is full"), "and why the app cannot remember it")
+        #expect(said.contains("second copy"))
+    }
+
+    /// Nothing was written, so there is nothing to remember and nothing to
+    /// apologise for — and `calendarTitle` already puts the reason on the row.
+    /// An alert here would say the same thing twice, in different words.
+    @Test("A refused or failed write stores nothing and raises no alert")
+    func nothingWrittenIsNothingToRemember() {
+        let denied = RecordingSave()
+        let failed = RecordingSave()
+        #expect(BookingDetailScreen.remember(.denied, save: { try denied.save($0) }) == nil)
+        #expect(
+            BookingDetailScreen.remember(
+                .failed("The calendar is unavailable."), save: { try failed.save($0) }
+            ) == nil
+        )
+        #expect(denied.stored.isEmpty)
+        #expect(failed.stored.isEmpty)
+        // The row is where those two are reported.
+        #expect(BookingDetailScreen.calendarTitle(outcome: .denied, hasEvent: false)
+            == "Calendar access refused")
+    }
+}
+
 /// The body itself, run for the four shapes it draws differently: an office
 /// that is gone, a booking already in the calendar, a field the capture could
 /// not read, and a past day nobody has answered for.
@@ -568,6 +971,42 @@ struct BookingDetailRenderTests {
         #expect(
             BookingDetailScreen.standing(attendedVia: nil, day: longAgo, today: .today)
                 == .offerAttendance
+        )
+    }
+
+    /// The shape that makes the refusal reachable, drawn. A day already worked
+    /// in full at another office still gets the question under it, because
+    /// `attended` only looks at this booking's office — so the row invites a
+    /// tap the store will decline, and the screen has to have something to say
+    /// when it does.
+    @Test("A day already worked elsewhere still draws the question the store will refuse")
+    func aDayFullElsewhereStillAsks() throws {
+        let container = try Store.makeInMemoryContainer(seeded: true)
+        let context = container.mainContext
+        let longAgo = Day(2020, 1, 15)
+        try BookingStore.recordAttendance(
+            day: longAgo, officeID: SeedData.brusselsID, source: .manual, in: context
+        )
+        let booking = DeskBooking(
+            officeID: SeedData.colemanID, day: longAgo, deskID: "1A-001", source: .manual
+        )
+        context.insert(booking)
+        try context.save()
+
+        render(booking, in: container)
+
+        let attendance = try context.fetch(FetchDescriptor<AttendanceDay>())
+        #expect(!attendance.contains { $0.day == longAgo && $0.officeID == SeedData.colemanID })
+        #expect(
+            BookingDetailScreen.standing(attendedVia: nil, day: longAgo, today: .today)
+                == .offerAttendance
+        )
+        #expect(
+            BookingDetailScreen.refusal(
+                day: longAgo, officeID: SeedData.colemanID,
+                attendance: attendance,
+                offices: try context.fetch(FetchDescriptor<Office>())
+            ).contains("Brussels")
         )
     }
 }

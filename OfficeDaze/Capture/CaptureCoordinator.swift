@@ -80,6 +80,48 @@ final class CaptureCoordinator {
     var writeBooking: (_ candidate: BookingMerge.Candidate, _ captureID: UUID?, _ chosen: Bool)
         throws -> Void
 
+    /// A write this coordinator makes *beside* the booking, named by what it was
+    /// for rather than left as a bare `context.save()`.
+    ///
+    /// There are two, and neither is the thing the user came here to do: the
+    /// office name the sheet had to ask about, so the next capture does not ask
+    /// again, and the capture's own line in the month's call count and cost.
+    /// Naming them is what lets a failure be reported as what was missed, and
+    /// what stops the double that stands in for the store in a test being handed
+    /// nothing it can be held to.
+    enum Aside: Equatable, Sendable {
+        /// The answer to "which office is this?", written onto that office and
+        /// taken off every other one on the way.
+        case officeName(String, officeID: UUID)
+        /// One call, its outcome and what it cost — the whole of what Settings'
+        /// monthly total is made of.
+        case captureCost(id: UUID, status: CaptureStatus, inputTokens: Int, outputTokens: Int)
+    }
+
+    /// An aside whose save did not go through, and why.
+    struct UnsavedAside: Equatable, Sendable {
+        let aside: Aside
+        let reason: String
+    }
+
+    /// Every aside that did not land, in order.
+    ///
+    /// Deliberately not an alert — `write(_:)` says why at length — but just as
+    /// deliberately not nothing. The `try?` that used to stand in its place was a
+    /// failure the app could not notice, a test could not reach and no future
+    /// screen could ever report. Whatever eventually wants to say "your month's
+    /// cost is short by a call" or "you will be asked which office this is
+    /// again" reads this. It accumulates for the life of the app, which is a
+    /// couple of small values per capture and the only span over which the
+    /// question is worth asking.
+    private(set) var unsavedAsides: [UnsavedAside] = []
+
+    /// The asides' save, injectable for the same reason `writeBooking` is — a
+    /// `context.save()` cannot be made to fail on demand from outside. What
+    /// needs pinning here is the opposite of what needs pinning there: that a
+    /// failure does *not* take the capture down with it.
+    var writeAside: (Aside) throws -> Void
+
     private let context: ModelContext
 
     init(context: ModelContext) {
@@ -89,6 +131,41 @@ final class CaptureCoordinator {
         writeBooking = { candidate, captureID, chosen in
             try BookingStore.upsert(
                 candidate, captureID: captureID, chosen: chosen, in: context
+            )
+        }
+        // The aside is already a pending change on the context by the time this
+        // runs; committing it is all that is left to do.
+        writeAside = { _ in try context.save() }
+    }
+
+    /// Commits an aside, and carries on if it will not commit.
+    ///
+    /// This is the one place in the coordinator where a write that failed is not
+    /// raised to the user, and the reason is what raising it would cost.
+    /// `failed(_:)` replaces `.review` with an error screen, which throws away
+    /// every booking in the table that has not been saved yet. Spending that on
+    /// the office alias — a convenience whose entire consequence when lost is
+    /// that the sheet asks which office this is once more — or on a line in
+    /// Settings' monthly cost would be losing the user's bookings to protect
+    /// their bookkeeping. The booking's own write is the one that has earned the
+    /// screen, and it already has it.
+    ///
+    /// It costs less than it looks like, too: both asides are pending changes on
+    /// the same context as that write, so in the ordinary transient failure the
+    /// booking's `save()` flushes them a line later and nothing is lost at all,
+    /// and in the failure that persists the booking's save fails too and the
+    /// user is told about the thing that mattered. Routing either of these to
+    /// `.couldNotSave` would also put the words "That booking couldn't be saved"
+    /// on screen before any booking had been attempted, which is simply untrue.
+    ///
+    /// What is not acceptable, and what was here, is `try?`. Carrying on is a
+    /// decision; discarding the fact is not.
+    private func write(_ aside: Aside) {
+        do {
+            try writeAside(aside)
+        } catch {
+            unsavedAsides.append(
+                UnsavedAside(aside: aside, reason: error.localizedDescription)
             )
         }
     }
@@ -420,7 +497,12 @@ final class CaptureCoordinator {
         if !target.aliases.contains(where: { OfficeMatcher.matches(printed, $0) }) {
             target.aliases.append(printed)
         }
-        try? context.save()
+        // Not the booking, so not the error screen. The strip above and the
+        // append are both pending on the context the booking is about to be
+        // written through, so a save that fails here is usually flushed by that
+        // one anyway — and when it is not, the booking's failure is the sentence
+        // worth reading.
+        write(.officeName(printed, officeID: target.id))
     }
 
     /// Skip is a save that writes nothing. From here the two are the same
@@ -469,7 +551,21 @@ final class CaptureCoordinator {
             outputTokens: usage?.outputTokens ?? 0
         )
         context.insert(capture)
-        try? context.save()
+        // Read off the row rather than off the arguments, so an aside cannot
+        // claim a cost the record does not hold: the whole worth of the payload
+        // is that a test can hold this to the tokens actually written down.
+        //
+        // Not raised to the user for the reason `write(_:)` gives, and here the
+        // case is starker still — two of the three callers are already on their
+        // way to an error screen the user has to read and act on, and replacing
+        // "the network request failed" with a complaint about bookkeeping would
+        // be answering the wrong question at the worst moment.
+        write(.captureCost(
+            id: capture.id,
+            status: capture.status,
+            inputTokens: capture.inputTokens,
+            outputTokens: capture.outputTokens
+        ))
         return capture.id
     }
 }

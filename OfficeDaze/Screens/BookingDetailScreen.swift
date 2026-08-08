@@ -29,6 +29,11 @@ struct BookingDetailScreen: View {
     }
 
     @State private var calendarOutcome: CalendarWriter.Outcome?
+    /// Set only by a write that did not land, or one the store refused. The
+    /// screen stays exactly where it is behind the alert, because everything
+    /// the sentence talks about — the day, the office, the row that is still
+    /// asking — is on it.
+    @State private var failure: String?
 
     var body: some View {
         ScrollView {
@@ -61,6 +66,18 @@ struct BookingDetailScreen: View {
             ToolbarItem(placement: .topBarTrailing) {
                 NavigationLink("Edit") { BookingEditorScreen(booking: booking) }
             }
+        }
+        // Same shape as the attendance editor's: one place a write that did not
+        // land says so, whichever write it was. A second, different way of
+        // reporting a failure on the same screen would be a second thing to
+        // keep right.
+        .alert(
+            "Not saved",
+            isPresented: Binding(get: { failure != nil }, set: { if !$0 { failure = nil } })
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(failure ?? "")
         }
         .onChange(of: stillExists) { _, exists in
             if !exists { dismiss() }
@@ -157,11 +174,33 @@ struct BookingDetailScreen: View {
     private var recordAttendance: some View {
         Card {
             ActionRow(title: "I was here on \(booking.day.mediumText)", centred: true) {
-                try? BookingStore.recordAttendance(
-                    day: booking.day, officeID: booking.officeID,
-                    source: .manual, bookingID: booking.id, in: context
-                )
+                answerTheQuestion()
             }
+        }
+    }
+
+    /// A tap that lands says nothing and needs to say nothing: the row it was
+    /// on is replaced by the green "Attended" strip, because `attended` now
+    /// finds a row. Only the two ways it does not land speak.
+    private func answerTheQuestion() {
+        switch Self.record(
+            day: booking.day, officeID: booking.officeID, bookingID: booking.id,
+            attend: { day, officeID, bookingID in
+                try BookingStore.recordAttendance(
+                    day: day, officeID: officeID,
+                    source: .manual, bookingID: bookingID, in: context
+                ) != nil
+            }
+        ) {
+        case .recorded:
+            break
+        case .refused:
+            failure = Self.refusal(
+                day: booking.day, officeID: booking.officeID,
+                attendance: attendance, offices: offices
+            )
+        case .failed(let why):
+            failure = why
         }
     }
 
@@ -272,16 +311,132 @@ struct BookingDetailScreen: View {
             existingEventID: booking.calendarEventID
         )
         calendarOutcome = outcome
-        switch outcome {
-        case .added(let id), .updated(let id):
-            booking.calendarEventID = id
-            try? context.save()
-        case .denied, .failed:
-            break
-        }
+        // Straight assignment: a refused or failed write is already named on
+        // the row itself by `calendarTitle`, and `remember` answers those with
+        // nil rather than saying the same thing twice in an alert.
+        failure = Self.remember(
+            outcome,
+            save: { identifier in
+                booking.calendarEventID = identifier
+                try context.save()
+            }
+        )
     }
 
     // MARK: What the screen decides
+
+    /// What the tap on "I was here" did.
+    ///
+    /// `refused` is the case that had no way of being seen.
+    /// `BookingStore.recordAttendance` answers a write it will not make by
+    /// returning nil rather than by throwing, so a `try?` in statement position
+    /// flattened a refusal, an error and a success into one line that did
+    /// nothing and said nothing. The compiler had no complaint to make about
+    /// it, which is why it outlived the eight of its kind that were warned on.
+    enum Recorded: Equatable {
+        case recorded
+        case refused
+        case failed(String)
+    }
+
+    /// Records the booking's day as one that was worked.
+    ///
+    /// The store call arrives as a closure because the two branches this exists
+    /// to separate are branches SwiftData will not take on request: a disk that
+    /// throws, and a refusal that is not an error at all. It is handed the day,
+    /// the office and the booking id rather than closing over them, so a test
+    /// can say *which* booking was recorded — the id is what clears
+    /// `notAttended` on the row, and answering for the wrong one would be as
+    /// silent as answering for none.
+    static func record(
+        day: Day,
+        officeID: UUID,
+        bookingID: UUID,
+        attend: (Day, UUID, UUID) throws -> Bool
+    ) -> Recorded {
+        do {
+            return try attend(day, officeID, bookingID) ? .recorded : .refused
+        } catch {
+            return .failed(
+                "\(day.dayAndMonth) couldn't be recorded: \(error.localizedDescription). Nothing was saved."
+            )
+        }
+    }
+
+    /// Why the store refused, said in terms of what is actually on that day.
+    ///
+    /// The store returns nil and no reason, and the reason reachable from this
+    /// screen is exactly the one the row cannot see. "I was here" is offered
+    /// because *this* office holds nothing for the day — `attended` looks no
+    /// further than this booking's office — while `recordAttendance` refuses
+    /// any day whose recorded fractions already add to one, wherever they were
+    /// recorded. So the reachable refusal is a day already worked somewhere
+    /// else, and until this sentence existed the tap left the row still asking
+    /// the question it had just been answered.
+    static func refusal(
+        day: Day, officeID: UUID, attendance: [AttendanceDay], offices: [Office]
+    ) -> String {
+        let onTheDay = attendance.filter { $0.day == day }
+        // The race: the query has not caught up with a row this office already
+        // holds. Rare, and it must not fall through to the sentence below,
+        // which would blame a building the user was never at.
+        if onTheDay.contains(where: { $0.officeID == officeID }) {
+            return "\(day.dayAndMonth) is already recorded at this office. Nothing was added."
+        }
+        let elsewhere = onTheDay.filter { $0.officeID != officeID }
+        if !elsewhere.isEmpty {
+            return "\(day.dayAndMonth) is already recorded \(at(elsewhere, in: offices)), and a whole day more would take it over one. Remove that day first if it is wrong."
+        }
+        return "\(day.dayAndMonth) couldn't be recorded. Nothing was added."
+    }
+
+    /// Names the building rather than saying "somewhere else", because the
+    /// user's next move is to go and look at that day, and "somewhere else" is
+    /// not a place you can go and look. Two are possible — a morning at one
+    /// site and an afternoon at another add to a whole day — and an office the
+    /// user has since deleted has no name to give, which is why the anonymous
+    /// wording survives as the fallback rather than as the only option.
+    private static func at(_ rows: [AttendanceDay], in offices: [Office]) -> String {
+        var names: [String] = []
+        for row in rows {
+            guard let name = offices.first(where: { $0.id == row.officeID })?.name else { continue }
+            if !names.contains(name) { names.append(name) }
+        }
+        guard let last = names.last else { return "at another office" }
+        if names.count == 1 { return "at \(last)" }
+        return "at \(names.dropLast().joined(separator: ", ")) and \(last)"
+    }
+
+    /// Stores the identifier of an event that is already in the user's
+    /// calendar, and says so when it cannot.
+    ///
+    /// This is the save that must not fail quietly. By the time it runs the
+    /// event has been written; the identifier is the only thing that stops this
+    /// screen offering to write it again, because `hasEvent` is how the row
+    /// decides. A `try?` here left a booking with an event in the calendar and
+    /// no memory of it, and the twin that `CalendarWriter`'s refusal exists to
+    /// prevent got written by the next tap with nothing on screen having ever
+    /// said why.
+    ///
+    /// `.denied` and `.failed` return nil rather than a sentence: nothing was
+    /// written, so there is nothing to remember, and the row already says what
+    /// happened in its own title.
+    static func remember(
+        _ outcome: CalendarWriter.Outcome,
+        save: (String) throws -> Void
+    ) -> String? {
+        switch outcome {
+        case .added(let identifier), .updated(let identifier):
+            do {
+                try save(identifier)
+                return nil
+            } catch {
+                return "The event is in your calendar, but this booking couldn't record that it is: \(error.localizedDescription). If it offers to add it again, don't — that would write a second copy."
+            }
+        case .denied, .failed:
+            return nil
+        }
+    }
 
     /// What the day itself has to say, once you know whether it was worked.
     ///

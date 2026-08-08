@@ -73,6 +73,26 @@ struct CaptureCoordinatorTests {
         )
     }
 
+    /// What is actually in the store, read through a second context.
+    ///
+    /// `office(_:)` above cannot answer this. A fetch on the main context hands
+    /// back the very object the coordinator mutated, pending changes and all, so
+    /// an alias that was appended and never saved reads back exactly like one
+    /// that was written — which would make every assertion below about a write
+    /// landing pass whether it landed or not.
+    func storedAliases(_ id: UUID) throws -> [String] {
+        let fresh = ModelContext(container)
+        return try #require(
+            try fresh.fetch(FetchDescriptor<Office>()).first { $0.id == id }
+        ).aliases
+    }
+
+    /// The same distinction for the capture record: the row is inserted before
+    /// the save, so the main context counts it either way.
+    func storedCaptures() throws -> Int {
+        try ModelContext(container).fetchCount(FetchDescriptor<Capture>())
+    }
+
     // MARK: Reviewing
 
     @Test("A table is reviewed one booking at a time, in the order printed")
@@ -802,7 +822,211 @@ struct CaptureCoordinatorTests {
         )
     }
 
+    // MARK: The writes beside the booking
+
+    /// The alias is not the booking. Failing the capture over it would replace
+    /// `.review` with an error screen and take every unsaved row of the table
+    /// with it — losing the user's bookings to protect a convenience whose only
+    /// consequence when lost is being asked which office this is one more time.
+    /// So it carries on; the point of the fix is that it carries on *knowingly*.
+    @Test("An office name that would not save costs the user nothing but the question")
+    func aRefusedAliasDoesNotCostTheBooking() async throws {
+        stub(unknownOffice())
+        await coordinator.receive(data: image, filename: "one.png")
+        let booking = try #require(coordinator.current)
+        let before = try bookings().count
+        let asides = Asides(saving: container.mainContext, refusing: { $0.officeName != nil })
+        coordinator.writeAside = { [asides] in try asides.write($0) }
+
+        coordinator.save(booking, to: SeedData.colemanID)
+
+        #expect(failure() == nil, "no error screen for a write the user did not ask for")
+        #expect(try bookings().count == before + 1, "and the booking itself landed")
+        #expect(coordinator.isActive == false, "the sheet finished normally")
+        // Noticed, which is the whole of the change: the `try?` here could not
+        // be observed by anything, in the app or in a test.
+        #expect(
+            coordinator.unsavedAsides.map(\.aside)
+                == [.officeName("Ropemaker Place", officeID: SeedData.colemanID)]
+        )
+        #expect(coordinator.unsavedAsides.first?.reason.isEmpty == false, "with the store's reason")
+        // The double was asked for the alias the sheet was actually told about,
+        // not merely asked for something.
+        #expect(asides.asked.map(\.officeName?.name) == ["Ropemaker Place"])
+        // And the claim the comment on `write(_:)` rests on, asserted rather
+        // than assumed: the alias is a pending change on the same context, so
+        // the booking's own save commits it a line later and the refusal above
+        // cost nothing at all in the transient case. Read through a second
+        // context, because the first one would show the mutation either way.
+        #expect(
+            try storedAliases(SeedData.colemanID) == ["Ropemaker Place"],
+            "the booking's save flushed what the alias's own save would not"
+        )
+    }
+
+    /// The case where it really is lost: the store is refusing everything, so
+    /// nothing flushes the alias behind it. The booking's failure is the sentence
+    /// the user reads — and the alias is still written down somewhere the app can
+    /// find it rather than dropped on the floor.
+    @Test("When the booking fails too, the user is told about the booking and the alias is still noted")
+    func aRefusedAliasIsKeptWhenNothingFlushesIt() async throws {
+        stub(unknownOffice())
+        await coordinator.receive(data: image, filename: "one.png")
+        let booking = try #require(coordinator.current)
+        let asides = Asides(saving: container.mainContext, refusing: { _ in true })
+        coordinator.writeAside = { [asides] in try asides.write($0) }
+        let attempted = Attempted()
+        coordinator.writeBooking = { candidate, captureID, chosen in
+            attempted.record(candidate, captureID, chosen)
+            throw StoreFailure.diskFull
+        }
+
+        coordinator.save(booking, to: SeedData.colemanID)
+
+        if case .failed(.couldNotSave) = coordinator.phase {} else {
+            Issue.record("the booking is the failure worth a screen, and it is the one shown")
+        }
+        #expect(coordinator.unsavedAsides.count == 1, "and the alias is not forgotten either")
+        #expect(coordinator.unsavedAsides.first?.aside.officeName?.officeID == SeedData.colemanID)
+        #expect(attempted.candidates.first?.deskID == booking.deskID, "the write was for this row")
+        #expect(try storedAliases(SeedData.colemanID).isEmpty, "and this time nothing landed")
+    }
+
+    /// A month's cost is worth counting and not worth stopping a capture for.
+    /// The user is mid-flow with a booking on screen; an alert saying the token
+    /// tally is short would be answering a question nobody asked, and would cost
+    /// them the table to do it.
+    @Test("A cost record that would not save never reaches the user, and never reaches nobody")
+    func aRefusedCostRecordDoesNotStopTheCapture() async throws {
+        let asides = Asides(saving: container.mainContext, refusing: { $0.captureCost != nil })
+        coordinator.writeAside = { [asides] in try asides.write($0) }
+        stub(CaptureSamples.one)
+
+        await coordinator.receive(data: image, filename: "one.png")
+
+        #expect(failure() == nil, "the month's bookkeeping is not worth the capture")
+        #expect(coordinator.current?.deskID == "CO03C407", "the review happened as normal")
+        let unsaved = try #require(coordinator.unsavedAsides.first?.aside.captureCost)
+        #expect(coordinator.unsavedAsides.count == 1)
+        #expect(unsaved.status == .parsed)
+        #expect(
+            unsaved.inputTokens == CaptureSamples.usage.inputTokens,
+            "what was missed is named by its actual cost, not by a placeholder"
+        )
+        #expect(unsaved.outputTokens == CaptureSamples.usage.outputTokens)
+        #expect(
+            try storedCaptures() == 0,
+            "the row really is missing — this is the month's total going short, not a false alarm"
+        )
+
+        // The row that could not be counted is still the row the booking is tied
+        // to, so the two cannot drift apart unnoticed.
+        let attempted = Attempted()
+        coordinator.writeBooking = { candidate, captureID, chosen in
+            attempted.record(candidate, captureID, chosen)
+        }
+        coordinator.save(try #require(coordinator.current), to: SeedData.colemanID)
+        #expect(attempted.captureIDs == [unsaved.id])
+    }
+
+    /// The failure paths record too, or the monthly count would only ever show
+    /// what worked — and they are the ones where nothing follows to flush them,
+    /// so the argument the double is handed is the only evidence there is.
+    @Test("A capture that failed is still costed, and the cost says it failed")
+    func theCostRecordOfAFailedCaptureNamesTheFailure() async throws {
+        let asides = Asides(saving: container.mainContext)
+        coordinator.writeAside = { [asides] in try asides.write($0) }
+        stub(throwing: .refused)
+
+        await coordinator.receive(data: image, filename: "one.png")
+
+        #expect(failure() == .refused, "and the model's refusal is what the user reads")
+        let asked = try #require(asides.asked.first?.captureCost)
+        #expect(asides.asked.count == 1)
+        #expect(asked.status == .failed)
+        #expect(asked.inputTokens == 0, "nothing came back to be charged for")
+        #expect(asked.outputTokens == 0)
+        #expect(coordinator.unsavedAsides.isEmpty, "it saved, so there is nothing to report")
+        #expect(try storedCaptures() == 1, "and the failed call is counted in the month")
+    }
+
+    /// The other half, and the one that matters most: a fix that makes the
+    /// ordinary run noisier is worse than the bug. Nothing is refused here, so
+    /// both asides go through, both are asked for the right thing, and the user
+    /// sees no more than they saw before.
+    @Test("A capture where everything saves says nothing and records nothing")
+    func asidesThatLandAreSilent() async throws {
+        let asides = Asides(saving: container.mainContext)
+        coordinator.writeAside = { [asides] in try asides.write($0) }
+        stub(unknownOffice())
+        await coordinator.receive(data: image, filename: "one.png")
+
+        coordinator.save(try #require(coordinator.current), to: SeedData.colemanID)
+
+        #expect(failure() == nil)
+        #expect(coordinator.isActive == false, "the sheet dismissed, as it always did")
+        #expect(coordinator.unsavedAsides.isEmpty, "and nothing was noted, because nothing failed")
+        #expect(asides.asked.count == 2, "the cost when the parse landed, the name when it was given")
+        let cost = try #require(asides.asked.first?.captureCost)
+        #expect(cost.status == .parsed)
+        #expect(cost.inputTokens == CaptureSamples.usage.inputTokens)
+        #expect(cost.outputTokens == CaptureSamples.usage.outputTokens)
+        #expect(asides.asked.last?.officeName?.name == "Ropemaker Place")
+        #expect(asides.asked.last?.officeName?.officeID == SeedData.colemanID)
+        #expect(
+            try storedAliases(SeedData.colemanID) == ["Ropemaker Place"], "both really wrote"
+        )
+        #expect(try storedCaptures() == 1)
+        let capture = try #require(
+            try container.mainContext.fetch(FetchDescriptor<Capture>()).first
+        )
+        #expect(cost.id == capture.id, "and the cost named the row it was for")
+    }
+
+    /// A name the rules already handle is never taught, so there is no alias to
+    /// commit and nothing to refuse. Pinned because the cheapest way to make the
+    /// tests above pass would be to write an alias on every save.
+    @Test("A name that already matched asks for no alias to be written at all")
+    func noAsideIsWrittenForANameAlreadyKnown() async throws {
+        let asides = Asides(saving: container.mainContext)
+        coordinator.writeAside = { [asides] in try asides.write($0) }
+        stub(CaptureSamples.colemanWeek)
+        await coordinator.receive(data: image, filename: "week.png")
+
+        coordinator.save(try #require(coordinator.current), to: SeedData.colemanID)
+
+        #expect(asides.asked.compactMap(\.officeName).isEmpty)
+        #expect(asides.asked.count == 1, "the cost record, and only that")
+    }
+
     // MARK: Helpers
+
+    /// Every aside the coordinator asked to have committed, in order, and a rule
+    /// for which of them the store refuses. The refusal is a function of the
+    /// aside rather than a flag, so a test can turn down the alias and let the
+    /// cost record through — and the recorded arguments are what say the right
+    /// write was attempted rather than merely some write.
+    final class Asides {
+        private let context: ModelContext
+        private let refusing: (CaptureCoordinator.Aside) -> Bool
+        private(set) var asked: [CaptureCoordinator.Aside] = []
+
+        init(
+            saving context: ModelContext,
+            refusing: @escaping (CaptureCoordinator.Aside) -> Bool = { _ in false }
+        ) {
+            self.context = context
+            self.refusing = refusing
+        }
+
+        /// Commits for real when it is not refusing, so a test can tell an aside
+        /// that landed from one that was merely reported as landing.
+        func write(_ aside: CaptureCoordinator.Aside) throws {
+            asked.append(aside)
+            guard !refusing(aside) else { throw StoreFailure.diskFull }
+            try context.save()
+        }
+    }
 
     /// The phase's error, or nil — `Phase` is not Equatable, and matching it in
     /// every test is noise.
@@ -853,5 +1077,21 @@ struct CaptureCoordinatorTests {
             mediaTypes.append(mediaType)
             days.append(today)
         }
+    }
+}
+
+/// Reading an aside's payload without a `case let` and a `guard` at every use.
+/// Nil for the other case, which is also how a test says "not that kind".
+extension CaptureCoordinator.Aside {
+    var officeName: (name: String, officeID: UUID)? {
+        guard case .officeName(let name, let officeID) = self else { return nil }
+        return (name, officeID)
+    }
+
+    var captureCost: (id: UUID, status: CaptureStatus, inputTokens: Int, outputTokens: Int)? {
+        guard case .captureCost(let id, let status, let input, let output) = self else {
+            return nil
+        }
+        return (id, status, input, output)
     }
 }

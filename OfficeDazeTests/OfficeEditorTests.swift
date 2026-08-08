@@ -538,6 +538,62 @@ final class RecordingGeocoder {
     }
 }
 
+/// A store that refuses the write, on demand and by the call.
+///
+/// SwiftData will not fail when asked, so the only way to reach the branch that
+/// reports a refused save is to stand in for the save itself. Every attempt is
+/// recorded with what the context was actually holding when it was made — the
+/// offices waiting to be inserted and the ones with unsaved edits — because
+/// "the save was called" is not the claim worth making. The claim worth making
+/// is that it was called with the office the user had just typed in it, and a
+/// stand-in that only counted its calls could not tell that from a save handed
+/// an empty context.
+@MainActor
+final class RecordingSaver {
+
+    struct Attempt: Equatable {
+        /// The context it was handed, by identity: this screen must save the
+        /// one it was given rather than one of its own.
+        var context: ObjectIdentifier
+        var insertedOffices: [String]
+        var changedOffices: [String]
+    }
+
+    /// What each successive save should do. An entry that is nil — or a call
+    /// past the end of the list — lets the write through to the real store, so
+    /// a retry after a refusal can land.
+    var refusals: [Error?] = []
+    private(set) var attempts: [Attempt] = []
+
+    func save(_ context: ModelContext) throws {
+        func names(_ models: [any PersistentModel]) -> [String] {
+            models.compactMap { ($0 as? Office)?.name }.sorted()
+        }
+        attempts.append(Attempt(
+            context: ObjectIdentifier(context),
+            insertedOffices: names(context.insertedModelsArray),
+            changedOffices: names(context.changedModelsArray)
+        ))
+        if attempts.count <= refusals.count, let refusal = refusals[attempts.count - 1] {
+            throw refusal
+        }
+        try context.save()
+    }
+}
+
+/// The store saying no, with a reason worth printing. A full disk is the
+/// reachable one and it is something the user can act on, which is why the
+/// alert repeats it rather than saying only that something went wrong.
+struct StoreRefusedTheWrite: LocalizedError {
+    var errorDescription: String? { "The disk is full." }
+}
+
+/// A reason that does not punctuate itself, which `localizedDescription` is
+/// under no obligation to do.
+struct UnpunctuatedRefusal: LocalizedError {
+    var errorDescription: String? { "The file has been moved" }
+}
+
 /// Saving an office, which is the one place in this screen that can fail — and
 /// where failing is a normal answer rather than an error.
 @Suite("The office editor saves")
@@ -831,6 +887,382 @@ struct OfficeEditorSaveTests {
 
         #expect(saved.office.aliases == ["03, Coleman"])
         #expect(try office(SeedData.colemanID).aliases == ["03, Coleman"])
+    }
+}
+
+/// A save that never reached the store.
+///
+/// This line was `try? context.save()`, in statement position where it drew no
+/// warning: a disk that would not take the office was read exactly as one that
+/// took it, the screen dismissed, and the office was gone at the next launch —
+/// or worse, a corrected address was not corrected and the arrival alert went on
+/// firing at the old building.
+///
+/// The failure has to stay distinguishable from the other one this screen
+/// reports. "Saved, but not located" is a promise that the row exists and
+/// cannot be watched; a write that never landed is the opposite claim, and
+/// borrowing that alert for it would send someone to fix an address on an office
+/// that is not there. Both are asserted here, separately and against each other.
+@Suite("The office editor's save that did not land")
+@MainActor
+struct OfficeEditorFailedSaveTests {
+
+    let container: ModelContainer
+    let geocoder = RecordingGeocoder()
+    let saver = RecordingSaver()
+
+    init() throws {
+        container = try Store.makeInMemoryContainer(seeded: true)
+    }
+
+    private var context: ModelContext { container.mainContext }
+
+    /// What the store actually holds, read through a context of its own.
+    ///
+    /// The screen's context still holds the pending row after a refused save —
+    /// deliberately, so a retry corrects it rather than inserting a twin — so
+    /// fetching through it would find the office whether the write landed or
+    /// not, and every assertion below would pass either way. A second context on
+    /// the same container sees only what was committed.
+    private func stored() throws -> [Office] {
+        try ModelContext(container).fetch(FetchDescriptor<Office>())
+    }
+
+    private func draft(
+        name: String = "Zurich",
+        address: String = "Bahnhofstrasse 1",
+        postcode: String = "8001",
+        colourHex: String = OfficeColours.palette[2],
+        alertEnabled: Bool = true
+    ) -> OfficeEditorScreen.Draft {
+        OfficeEditorScreen.Draft(
+            name: name, address: address, postcode: postcode, colourHex: colourHex,
+            radius: 50, alertEnabled: alertEnabled, aliases: [], loadedAliases: []
+        )
+    }
+
+    private func save(
+        _ draft: OfficeEditorScreen.Draft, to editing: Office? = nil
+    ) async -> OfficeEditorScreen.Saved {
+        await OfficeEditorScreen.applySave(
+            draft, to: editing, in: context,
+            geocode: geocoder.coordinates, save: saver.save
+        )
+    }
+
+    private func whatTheUserIsTold(_ outcome: OfficeEditorScreen.Outcome) -> String? {
+        guard case .failed(let why) = outcome else { return nil }
+        return why
+    }
+
+    // MARK: Adding an office the store would not take
+
+    @Test("A store that refuses a new office says so rather than closing the screen")
+    func arefusedInsertIsReported() async throws {
+        geocoder.known["8001, Bahnhofstrasse 1"] =
+            CLLocationCoordinate2D(latitude: 47.3717, longitude: 8.5390)
+        saver.refusals = [StoreRefusedTheWrite()]
+
+        let saved = await save(draft())
+
+        let told = try #require(whatTheUserIsTold(saved.outcome), "a refused write is not a save")
+        #expect(told == "Zurich could not be saved: The disk is full. It is not in your offices — try Save again.")
+
+        // And it did not land. Read through a context of its own, because the
+        // screen's own still holds the pending row.
+        #expect(try stored().count == 2, "the two seeded offices, and no Zurich")
+        #expect(try !stored().contains { $0.name == "Zurich" })
+
+        // The save was handed the screen's context, holding the office the user
+        // had just typed — not called blind.
+        #expect(saver.attempts == [
+            RecordingSaver.Attempt(
+                context: ObjectIdentifier(context),
+                insertedOffices: ["Zurich"],
+                changedOffices: []
+            ),
+        ])
+    }
+
+    // MARK: Correcting an office the store would not take
+
+    /// The more dangerous of the two. A failed insert leaves an office missing
+    /// from a list the user is looking at; a failed correction leaves one that
+    /// looks right and is watched at the wrong building.
+    @Test("A correction that never landed says the old address is still the one being watched")
+    func arefusedCorrectionIsReported() async throws {
+        geocoder.known["EC2R 5BB, 63 Coleman Street, London EC2"] =
+            CLLocationCoordinate2D(latitude: 51.5180, longitude: -0.0880)
+        saver.refusals = [StoreRefusedTheWrite()]
+        let coleman = try #require(try stored().first { $0.id == SeedData.colemanID })
+        let editing = try #require(
+            try context.fetch(FetchDescriptor<Office>()).first { $0.id == SeedData.colemanID }
+        )
+
+        let saved = await save(
+            draft(
+                name: "Coleman", address: "63 Coleman Street, London EC2",
+                postcode: "EC2R 5BB", colourHex: coleman.colourHex
+            ),
+            to: editing
+        )
+
+        let told = try #require(whatTheUserIsTold(saved.outcome))
+        #expect(told == "The changes to Coleman could not be saved: The disk is full. The stored office is still as it was, so the arrival alert is still watching the old address — try Save again.")
+
+        // Nothing of the correction reached the store: not the address, not the
+        // point the geocoder found for it.
+        let after = try #require(try stored().first { $0.id == SeedData.colemanID })
+        #expect(after.address == "63 Coleman Street, London")
+        #expect(after.latitude == 51.5172, "still the old building")
+        #expect(after.longitude == -0.0893)
+
+        #expect(saver.attempts == [
+            RecordingSaver.Attempt(
+                context: ObjectIdentifier(context),
+                insertedOffices: [],
+                changedOffices: ["Coleman"]
+            ),
+        ], "an edit, not an insert, and of the office that was opened")
+    }
+
+    // MARK: The two failures, told apart
+
+    /// Both went wrong at once, which is the case that decides the precedence.
+    /// An office that was never written cannot be described as saved but
+    /// unlocatable, so the write is the one reported.
+    @Test("A save that failed on an address that also failed reports the save, not the address")
+    func afailedSaveOutranksAfailedGeocode() async throws {
+        saver.refusals = [StoreRefusedTheWrite()]
+
+        let saved = await save(draft(name: "Nowhere", address: "qqzz", postcode: ""))
+
+        #expect(saved.outcome != .couldNotLocate, "there is no office to be unlocatable")
+        let told = try #require(whatTheUserIsTold(saved.outcome))
+        #expect(told.contains("Nowhere could not be saved"))
+        #expect(!told.contains("is saved"), "the not-located alert's promise is not borrowed")
+        #expect(!saved.office.isLocated, "and the geocode did fail too")
+        #expect(try stored().count == 2)
+    }
+
+    /// The negative of the same pair, and the regression it guards: an address
+    /// the geocoder could not place on a save that landed perfectly well is
+    /// still the old alert, and must not start claiming the office is missing.
+    @Test("An address that could not be found on a save that landed still says only that")
+    func afailedGeocodeAloneIsUnchanged() async throws {
+        let saved = await save(draft(name: "Nowhere", address: "qqzz", postcode: ""))
+
+        #expect(saved.outcome == .couldNotLocate)
+        #expect(whatTheUserIsTold(saved.outcome) == nil, "nothing about the write went wrong")
+        let written = try #require(try stored().first { $0.name == "Nowhere" })
+        #expect(!written.isLocated, "written, and unwatchable — which is what that alert says")
+        #expect(saver.attempts.count == 1)
+        #expect(saver.attempts.first?.insertedOffices == ["Nowhere"])
+    }
+
+    // MARK: The save that works
+
+    /// The one that must stay quiet. A fix that made a successful save say
+    /// something, or hold the screen open, would be a worse bug than the one
+    /// it replaced — this is the path every save takes.
+    @Test("A save that lands is silent, and the office is in the store")
+    func asaveThatLandsSaysNothing() async throws {
+        geocoder.known["8001, Bahnhofstrasse 1"] =
+            CLLocationCoordinate2D(latitude: 47.3717, longitude: 8.5390)
+
+        let saved = await save(draft())
+
+        #expect(saved.outcome == .saved, "the screen closes on this one")
+        #expect(whatTheUserIsTold(saved.outcome) == nil)
+        let zurich = try #require(try stored().first { $0.name == "Zurich" })
+        #expect(zurich.latitude == 47.3717)
+        #expect(try stored().count == 3)
+        #expect(saver.attempts.count == 1, "one write, not a retry loop")
+    }
+
+    /// What the alert asks for, carried out. The row is still pending in the
+    /// screen's context after the refusal, and the screen holds on to it, so the
+    /// second attempt has to correct that office — a retry that forgot it would
+    /// insert a twin and the save that finally worked would write both.
+    @Test("A retry after a refused save writes one office rather than two")
+    func aretryCorrectsTheSameOffice() async throws {
+        saver.refusals = [StoreRefusedTheWrite()]
+
+        let first = await save(draft())
+        #expect(whatTheUserIsTold(first.outcome) != nil)
+        #expect(try stored().count == 2, "nothing landed")
+
+        // The user taps Save again, on the office the screen kept hold of.
+        geocoder.known["8001, Bahnhofstrasse 1"] =
+            CLLocationCoordinate2D(latitude: 47.3717, longitude: 8.5390)
+        let second = await save(draft(), to: first.office)
+
+        #expect(second.outcome == .saved)
+        #expect(second.office.id == first.office.id, "the same building, saved at last")
+        #expect(try stored().count == 3, "one office was added, not two")
+        #expect(try stored().filter { $0.name == "Zurich" }.count == 1)
+        #expect(saver.attempts.count == 2)
+        #expect(
+            saver.attempts.map(\.insertedOffices) == [["Zurich"], ["Zurich"]],
+            "the second attempt found the row from the first still pending, not a new one"
+        )
+    }
+
+    // MARK: The sentence the alert prints
+
+    /// The reason comes from the store and is not obliged to punctuate itself.
+    /// Appending a full stop unconditionally — which is what the attendance
+    /// editor does — gives "The disk is full.. It is not in"; appending none
+    /// runs the advice into the reason as one sentence.
+    @Test("A reason that does not end itself is ended, and one that does is left alone")
+    func thereasonIsPunctuatedOnce() {
+        let unpunctuated = OfficeEditorScreen.saveFailure(
+            name: "Zurich", isNew: true, error: UnpunctuatedRefusal()
+        )
+        #expect(unpunctuated.contains("The file has been moved. It is not in your offices"))
+        #expect(!unpunctuated.contains(".."))
+
+        let punctuated = OfficeEditorScreen.saveFailure(
+            name: "Zurich", isNew: true, error: StoreRefusedTheWrite()
+        )
+        #expect(punctuated.contains("The disk is full. It is not"))
+        #expect(!punctuated.contains(".."))
+    }
+
+    /// A reason that says nothing still has to leave a readable sentence — the
+    /// colon must not be followed by a gap, and the advice must survive.
+    @Test("A store that gives no reason still leaves a sentence the user can act on")
+    func anemptyReasonStillReads() {
+        let told = OfficeEditorScreen.saveFailure(
+            name: "Zurich", isNew: false,
+            error: NSError(domain: "test", code: 1, userInfo: [NSLocalizedDescriptionKey: ""])
+        )
+        #expect(!told.contains(":  "), "no colon left dangling over a gap")
+        #expect(!told.contains(".."))
+        #expect(told.contains("The changes to Zurich could not be saved:"))
+        #expect(told.hasSuffix("try Save again."))
+    }
+
+    /// The name is in the sentence because the alert can arrive over a form that
+    /// has been open long enough to forget which building it was — and because a
+    /// message that read the same for every office would be one a user could not
+    /// tell from the last time they saw it.
+    @Test("The sentence names the office it failed to save, and says which loss it was")
+    func thesentenceNamesTheOfficeAndTheLoss() {
+        let adding = OfficeEditorScreen.saveFailure(
+            name: "Brussels", isNew: true, error: StoreRefusedTheWrite()
+        )
+        let correcting = OfficeEditorScreen.saveFailure(
+            name: "Brussels", isNew: false, error: StoreRefusedTheWrite()
+        )
+
+        #expect(adding.hasPrefix("Brussels could not be saved"))
+        #expect(adding.contains("It is not in your offices"))
+        #expect(correcting.hasPrefix("The changes to Brussels could not be saved"))
+        #expect(
+            correcting.contains("still watching the old address"),
+            "the perimeter is the part of a failed correction that keeps costing something"
+        )
+        #expect(adding != correcting, "two different losses, two different sentences")
+    }
+
+    // MARK: The delete that did not land
+
+    /// A store that refuses, after `removeOffice` has already staged its
+    /// deletions. Ordered that way on purpose: it is what the real call does —
+    /// four fetches, then the deletes, then the save — and a double that threw
+    /// before deleting anything would leave nothing to roll back and the test
+    /// would pass against the unfixed code.
+    struct DeleteRefused: LocalizedError {
+        var errorDescription: String? { "the store is busy" }
+    }
+
+    /// The regression, and the reason a rollback is not optional here.
+    ///
+    /// `_ = try? Self.removeOffice(...)` discarded the throw and dismissed. The
+    /// deletions stayed pending in the context, so the office was still on
+    /// screen — and the next successful save anywhere in the app committed
+    /// them, taking the bookings with it. A user who deleted an office, was
+    /// told nothing, saw it still listed, and then edited a booking elsewhere
+    /// would find the office's history gone.
+    @Test("A delete that will not save takes nothing with it, then or later")
+    func aRefusedDeleteStrandsNothing() throws {
+        let brussels = try #require(try stored().first { $0.id == SeedData.brusselsID })
+        let bookingsBefore = try ModelContext(container)
+            .fetch(FetchDescriptor<DeskBooking>()).count
+        #expect(bookingsBefore > 0, "there has to be something to lose")
+
+        let office = try #require(
+            try context.fetch(FetchDescriptor<Office>()).first { $0.id == SeedData.brusselsID }
+        )
+        let outcome = OfficeEditorScreen.applyDelete(office, in: context) { office, context in
+            // Modelled on what `removeOffice` actually does: it stages every
+            // deletion and *then* calls `context.save()` once at the end, so
+            // the failure worth testing is that save throwing with the whole
+            // lot already pending. Calling the real `removeOffice` and throwing
+            // afterwards would be a different and much weaker test — its save
+            // would have succeeded, the deletions would be committed, and there
+            // would be nothing left for a rollback to undo.
+            let id = office.id
+            for row in try context.fetch(FetchDescriptor<PlannedDay>())
+                .filter({ $0.officeID == id }) { context.delete(row) }
+            for row in try context.fetch(FetchDescriptor<DeskBooking>())
+                .filter({ $0.officeID == id }) { context.delete(row) }
+            context.delete(office)
+            throw DeleteRefused()
+        }
+
+        #expect(
+            outcome == .failed("Brussels couldn't be deleted: the store is busy. Nothing was removed."),
+            "named, with the store's own reason"
+        )
+        #expect(try stored().contains { $0.id == brussels.id }, "the office is still there")
+
+        // The half that the old code got wrong: a later save must not commit
+        // the deletions the failed one staged.
+        context.insert(LeaveDay(day: Day(2026, 8, 20)))
+        try context.save()
+
+        #expect(try stored().contains { $0.id == SeedData.brusselsID })
+        #expect(
+            try ModelContext(container).fetch(FetchDescriptor<DeskBooking>()).count
+                == bookingsBefore,
+            "and the bookings it would have taken are still there"
+        )
+    }
+
+    /// The positive, so the fix cannot be "always fail". A delete that lands
+    /// still removes the office and still says nothing.
+    @Test("A delete that lands removes the office and reports no failure")
+    func aDeleteThatLandsIsSilent() throws {
+        let office = try #require(
+            try context.fetch(FetchDescriptor<Office>()).first { $0.id == SeedData.brusselsID }
+        )
+        var asked: [UUID] = []
+        let outcome = OfficeEditorScreen.applyDelete(office, in: context) { office, context in
+            asked.append(office.id)
+            return try OfficeEditorScreen.removeOffice(office, in: context)
+        }
+
+        #expect(outcome == .removed)
+        #expect(asked == [SeedData.brusselsID], "it was asked to remove the office it was given")
+        #expect(try !stored().contains { $0.id == SeedData.brusselsID })
+    }
+
+    /// The default argument is the real store call. A test that only ever
+    /// injects a double never proves the screen is wired to anything.
+    @Test("The unstubbed delete goes through removeOffice itself")
+    func theDefaultRemovesForReal() throws {
+        let office = try #require(
+            try context.fetch(FetchDescriptor<Office>()).first { $0.id == SeedData.brusselsID }
+        )
+        #expect(OfficeEditorScreen.applyDelete(office, in: context) == .removed)
+        #expect(try !stored().contains { $0.id == SeedData.brusselsID })
+        #expect(
+            try ModelContext(container).fetch(FetchDescriptor<PlannedDay>())
+                .allSatisfy { $0.officeID != SeedData.brusselsID },
+            "and it settled the rows that named it, which is removeOffice's own job"
+        )
     }
 }
 

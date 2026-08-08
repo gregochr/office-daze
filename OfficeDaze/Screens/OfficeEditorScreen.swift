@@ -33,6 +33,11 @@ struct OfficeEditorScreen: View {
     @State private var saving = false
     @State private var confirmingDelete = false
     @State private var couldNotLocate = false
+    /// Set only by a save that did not reach the store. Non-nil holds the
+    /// screen open, and it is deliberately not `couldNotLocate`: that alert
+    /// describes an office that exists and cannot be watched, this one an
+    /// office that is not there at all. See `saveFailure`.
+    @State private var failure: String?
     /// The office a first save created, when this screen was opened to add
     /// one. Saving again has to correct that row rather than insert a second.
     @State private var created: Office?
@@ -169,6 +174,20 @@ struct OfficeEditorScreen: View {
         } message: {
             Text("\(name) is saved, but the address could not be found on the map, so the arrival alert will not fire for it. Adding the city — or the country — usually fixes it.")
         }
+        // A second alert rather than more words in the first. "Saved, but not
+        // located" is a promise that the office is in the list, and a write
+        // that never reached the store cannot borrow it — a user who read that
+        // sentence after a failed save would go looking for a row that is not
+        // there. The screen stays open behind this one, so what was typed is
+        // still on screen to be saved again.
+        .alert(
+            "Not saved",
+            isPresented: Binding(get: { failure != nil }, set: { if !$0 { failure = nil } })
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(failure ?? "")
+        }
     }
 
     private var colourPicker: some View {
@@ -289,7 +308,10 @@ struct OfficeEditorScreen: View {
 
         if wasNew {
             // Held, so a second Save after the not-located alert corrects this
-            // office rather than inserting another one beside it.
+            // office rather than inserting another one beside it. Held after a
+            // failed save too, and for the same reason: the row is still
+            // pending in the context, so a retry that forgot about it would
+            // insert a twin and the save that finally worked would write both.
             created = saved.office
         }
 
@@ -310,6 +332,12 @@ struct OfficeEditorScreen: View {
         // each of them until the process next starts, which may be days. The
         // rebuild is wholesale and at most six regions, so calling it on every
         // save costs nothing and cannot drift out of step with the store.
+        //
+        // Called even when the write did not land. The context still holds what
+        // this screen put in it, and every `@Query` in the app is already
+        // drawing the office from there — leaving CoreLocation out would make
+        // the perimeters the one view of the store that disagreed, and the next
+        // launch reconciles either way.
         arrival.refreshRegions()
 
         switch saved.outcome {
@@ -317,21 +345,75 @@ struct OfficeEditorScreen: View {
             dismiss()
         case .couldNotLocate:
             couldNotLocate = true
+        case .failed(let why):
+            // Not dismissed. Dismissing on a write that did not land is the
+            // whole of the bug this case exists for.
+            failure = why
         }
     }
 
     private func delete() {
         guard let office else { return }
-        // The count of what was stranded is for the tests, not for here.
-        _ = try? Self.removeOffice(office, in: context)
-        // The direction that matters more than adding one: nothing else ever
-        // tells CoreLocation to stop. A deleted office's region goes on waking
-        // the app, and the wake-up reaches `ArrivalLedger.handleEntry`, which
-        // looks the office up, does not find it, and returns `.disabled` — so
-        // the cost is invisible battery rather than a wrong alert, which is
-        // exactly why it would never have been noticed.
-        arrival.refreshRegions()
-        dismiss()
+        switch Self.applyDelete(office, in: context) {
+        case .removed:
+            // The direction that matters more than adding one: nothing else
+            // ever tells CoreLocation to stop. A deleted office's region goes
+            // on waking the app, and the wake-up reaches
+            // `ArrivalLedger.handleEntry`, which looks the office up, does not
+            // find it, and returns `.disabled` — so the cost is invisible
+            // battery rather than a wrong alert, which is exactly why it would
+            // never have been noticed.
+            arrival.refreshRegions()
+            dismiss()
+        case .failed(let why):
+            // Not dismissed, and the perimeters are left alone: an office still
+            // in the store is an office still worth watching.
+            failure = why
+        }
+    }
+
+    /// What deleting an office comes to, and the last of this screen's
+    /// swallowed writes.
+    ///
+    /// A `static` taking its store call, for the same reason `applySave` is
+    /// one: the branch worth the most here is the one that only runs when the
+    /// store refuses, and SwiftData cannot be asked to refuse on demand.
+    ///
+    /// The failure it exists for is the worst on this screen. `removeOffice`
+    /// deletes the office's planned days, arrival alerts and bookings *before*
+    /// it saves, so a throw leaves every one of those deletions sitting in the
+    /// context. The old `_ = try?` then dismissed, and the next successful save
+    /// anywhere in the app committed the lot — the office back in the list with
+    /// its bookings quietly gone.
+    ///
+    /// Rolled back rather than reported and left, unlike `applySave`: there the
+    /// pending change is what the user typed and is still looking at, so
+    /// discarding it would throw their work away. Here it is a deletion they
+    /// have just been told did not happen, and leaving it armed is how it
+    /// happens anyway.
+    static func applyDelete(
+        _ office: Office,
+        in context: ModelContext,
+        remove: (Office, ModelContext) throws -> Removal = { try removeOffice($0, in: $1) }
+    ) -> Deleted {
+        let name = office.name
+        do {
+            // The count of what was stranded is for the tests, not for here.
+            _ = try remove(office, context)
+            return .removed
+        } catch {
+            context.rollback()
+            return .failed(
+                "\(name) couldn't be deleted: \(error.localizedDescription). Nothing was removed."
+            )
+        }
+    }
+
+    nonisolated enum Deleted: Equatable, Sendable {
+        case removed
+        /// Not deleted, and nothing of it removed either. The sentence is what
+        /// the user is told.
+        case failed(String)
     }
 
     // MARK: Rules
@@ -453,6 +535,15 @@ struct OfficeEditorScreen: View {
         /// Written, but the geocoder could not place it and the alert was asked
         /// for — so the screen stays up and says so.
         case couldNotLocate
+        /// Not written. The store would not take it, and the sentence is what
+        /// the user is told.
+        ///
+        /// A case of its own rather than a flag on `couldNotLocate`, because
+        /// the two are opposite claims about whether the office exists: one is
+        /// a building in the list that cannot be watched, the other is no
+        /// building at all. Conflating them would send someone to correct an
+        /// address on a row that was never written.
+        case failed(String)
     }
 
     /// The row that was written, and what it left the user looking at. The
@@ -475,12 +566,19 @@ struct OfficeEditorScreen: View {
     /// The geocoder is a parameter for the obvious reason — a test cannot ask
     /// Apple where a street is, and the two answers it can give are the whole
     /// of what this function decides between.
+    ///
+    /// The save is a parameter for the same reason and a worse one: a disk that
+    /// will not take the write is not a state SwiftData can be asked to enter,
+    /// so the branch that reports it was unreachable and therefore untested.
+    /// This line was `try? context.save()`, which read a store that refused the
+    /// office exactly as it read one that took it.
     static func applySave(
         _ draft: Draft,
         to editing: Office?,
         in context: ModelContext,
         geocode: @MainActor (_ postcode: String, _ address: String) async
-            -> CLLocationCoordinate2D? = { await Geocoding.coordinates(postcode: $0, address: $1) }
+            -> CLLocationCoordinate2D? = { await Geocoding.coordinates(postcode: $0, address: $1) },
+        save: @MainActor (ModelContext) throws -> Void = { try $0.save() }
     ) async -> Saved {
         // Read before anything is written. When editing, `target` *is* the
         // stored office, so comparing the two afterwards compares a value with
@@ -515,7 +613,28 @@ struct OfficeEditorScreen: View {
         }
 
         if editing == nil { context.insert(target) }
-        try? context.save()
+        do {
+            try save(context)
+        } catch {
+            // Reported ahead of `couldNotLocate` when both went wrong. An
+            // office that was never written cannot honestly be called saved but
+            // unlocatable, and that alert would send the user off to correct an
+            // address on a row that does not exist.
+            //
+            // The pending row is deliberately left in the context rather than
+            // rolled back. `rollback()` would discard every other unsaved
+            // change on the main context, and it would hand the screen back a
+            // model that is no longer registered — `created`, the alias section
+            // and the Location section all read it — so instead the row stays
+            // pending and the second Save the alert asks for corrects it rather
+            // than inserting a twin beside it.
+            return Saved(
+                office: target,
+                outcome: .failed(
+                    saveFailure(name: target.name, isNew: editing == nil, error: error)
+                )
+            )
+        }
 
         // The office saves either way — one the geocoder cannot place is still
         // an office, it just cannot be monitored. But it is worth saying so now
@@ -526,6 +645,42 @@ struct OfficeEditorScreen: View {
             office: target,
             outcome: draft.alertEnabled && !target.isLocated ? .couldNotLocate : .saved
         )
+    }
+
+    /// What the user is told when the write did not reach the store.
+    ///
+    /// It names the office, because this alert can arrive over a form that has
+    /// been open long enough for the user to have forgotten which building they
+    /// were on, and it repeats the store's own reason, because "could not be
+    /// saved" on its own gives them nothing to act on — a full disk is
+    /// something they can fix.
+    ///
+    /// The two halves differ because what was lost differs. An office that was
+    /// being added is simply not there, and the user finds that out by looking
+    /// at the list. An office that was being corrected is still in the list
+    /// wearing its old address, which is the more dangerous of the two: the
+    /// perimeter goes on watching the old building and the arrival alert goes
+    /// on firing there, so the sentence has to say so rather than leave it to
+    /// be discovered a week later at the wrong front door.
+    nonisolated static func saveFailure(name: String, isNew: Bool, error: Error) -> String {
+        let reason = sentence(error.localizedDescription)
+        return isNew
+            ? "\(name) could not be saved: \(reason) It is not in your offices — try Save again."
+            : "The changes to \(name) could not be saved: \(reason) The stored office is still as it was, so the arrival alert is still watching the old address — try Save again."
+    }
+
+    /// The store's reason, ended so that what follows it reads as a new
+    /// sentence rather than running into it.
+    ///
+    /// `localizedDescription` usually ends in a full stop and is not obliged
+    /// to. Appending one unconditionally gives "The disk is full.. It is not in
+    /// your offices"; appending none gives one sentence that runs on through
+    /// the advice. An empty description gets a sentence of its own, so the
+    /// colon above is never followed by nothing.
+    private nonisolated static func sentence(_ text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let last = trimmed.last else { return "No reason was given." }
+        return ".!?".contains(last) ? trimmed : trimmed + "."
     }
 
     /// The alias list to write back: whatever the store holds now, minus the
