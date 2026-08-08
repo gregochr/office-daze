@@ -162,6 +162,10 @@ struct LeaveScreenDerivationTests {
 
     let container: ModelContainer
     let august = Month(year: 2026, month: 8)
+    /// The same two the suite above uses: a Wednesday that can be booked off,
+    /// and a Saturday that cannot.
+    let wednesday = Day(2026, 8, 5)
+    let saturday = Day(2026, 8, 8)
 
     init() throws {
         container = try Store.makeInMemoryContainer()
@@ -178,6 +182,39 @@ struct LeaveScreenDerivationTests {
 
     func leaveRows() throws -> [LeaveDay] {
         try context.fetch(FetchDescriptor<LeaveDay>())
+    }
+
+    /// A tap, saved for real.
+    ///
+    /// Every existing tap in this suite goes through here rather than calling
+    /// `toggle` directly, so the success path is asserted to stay silent by
+    /// every one of them: a fix that made a landed write raise an alert would
+    /// fail in eight places, not only in the test written for it.
+    @discardableResult
+    func tap(_ cell: LeaveCell) throws -> LeaveScreen.Written {
+        let written = LeaveScreen.toggle(
+            cell, leave: try leaveRows(), in: context, save: { try context.save() }
+        )
+        #expect(written.message == nil, "a write that landed says nothing")
+        return written
+    }
+
+    /// A store that refuses, which is the one thing an in-memory container will
+    /// not do on request.
+    enum StoreFailure: Error { case diskFull }
+
+    /// What a day looks like in the context at some instant: every leave row on
+    /// it, kind included, smallest fraction first.
+    ///
+    /// The failure tests hand this to their save double so it records *what it
+    /// was asked to persist* rather than merely that it was called. A double
+    /// that threw regardless would pass just as happily against a `toggle` that
+    /// saved before it mutated, or one that had already rolled back.
+    func pending(_ day: Day) throws -> [String] {
+        try leaveRows()
+            .filter { $0.day == day }
+            .map { "\($0.kind) \($0.fraction)" }
+            .sorted()
     }
 
     // MARK: The three derivations
@@ -492,7 +529,7 @@ struct LeaveScreenDerivationTests {
         let cell = LeaveCell(day: day, fraction: nil, bankHolidays: [], attended: [])
         #expect(cell.tap == .book(1))
 
-        LeaveScreen.toggle(cell, leave: try leaveRows(), in: context)
+        #expect(try tap(cell) == .booked(1))
 
         let rows = try leaveRows()
         #expect(rows.count == 1)
@@ -512,13 +549,13 @@ struct LeaveScreenDerivationTests {
             )
         }
 
-        LeaveScreen.toggle(try cellNow(), leave: try leaveRows(), in: context)
+        #expect(try tap(try cellNow()) == .booked(1))
         #expect(try leaveRows().map(\.fraction) == [1])
 
-        LeaveScreen.toggle(try cellNow(), leave: try leaveRows(), in: context)
+        #expect(try tap(try cellNow()) == .booked(0.5))
         #expect(try leaveRows().map(\.fraction) == [0.5], "one row replaced, not two rows held")
 
-        LeaveScreen.toggle(try cellNow(), leave: try leaveRows(), in: context)
+        #expect(try tap(try cellNow()) == .cleared)
         #expect(try leaveRows().isEmpty, "and back to nothing")
     }
 
@@ -534,7 +571,7 @@ struct LeaveScreenDerivationTests {
 
         let cell = LeaveCell(day: day, fraction: 0.5, bankHolidays: [day], attended: [])
         #expect(cell.tap == .clear)
-        LeaveScreen.toggle(cell, leave: try leaveRows(), in: context)
+        #expect(try tap(cell) == .cleared)
 
         let rows = try leaveRows()
         #expect(rows.count == 1)
@@ -555,7 +592,7 @@ struct LeaveScreenDerivationTests {
         // Two halves read as a whole day, so the cycle offers the half.
         let cell = LeaveCell(day: day, fraction: 1, bankHolidays: [], attended: [])
         #expect(cell.tap == .book(0.5))
-        LeaveScreen.toggle(cell, leave: try leaveRows(), in: context)
+        #expect(try tap(cell) == .booked(0.5))
 
         #expect(try leaveRows().map(\.fraction) == [0.5], "one row, at what the cell offered")
     }
@@ -569,8 +606,169 @@ struct LeaveScreenDerivationTests {
         let cell = LeaveCell(day: saturday, fraction: nil, bankHolidays: [], attended: [])
         #expect(cell.tap == .inert)
 
-        LeaveScreen.toggle(cell, leave: try leaveRows(), in: context)
+        #expect(try tap(cell) == .nothing)
         #expect(try leaveRows().isEmpty, "a weekend cannot be booked off")
+    }
+
+    /// And it does not even reach the store. A tap the screen refuses to offer
+    /// has nothing to persist, so a save it never asked for cannot fail and be
+    /// reported as a booking that went wrong.
+    @Test("A tap the cell calls inert never asks the store to save")
+    func anInertTapDoesNotSave() throws {
+        var saves = 0
+        let written = LeaveScreen.toggle(
+            LeaveCell(day: saturday, fraction: nil, bankHolidays: [], attended: []),
+            leave: try leaveRows(),
+            in: context,
+            save: { saves += 1; throw StoreFailure.diskFull }
+        )
+        #expect(written == .nothing)
+        #expect(written.message == nil, "and nothing to say about it")
+        #expect(saves == 0)
+    }
+
+    // MARK: When the write does not land
+
+    /// The bug this suite grew for. `toggle` ended in `try? context.save()`,
+    /// which in statement position is not even a warning: a disk that would not
+    /// take the write left the row sitting in the context, so the cell went
+    /// amber, the target under it dropped, and the day was booked off nowhere
+    /// but on screen — until the next launch, by which time a fortnight of
+    /// leave had quietly not been booked.
+    @Test("A day off that could not be saved says so, and the grid goes back to matching the store")
+    func aRefusedBookingIsReportedAndUndone() throws {
+        var asked: [[String]] = []
+        let cell = LeaveCell(day: wednesday, fraction: nil, bankHolidays: [], attended: [])
+        #expect(cell.tap == .book(1))
+
+        let written = LeaveScreen.toggle(
+            cell,
+            leave: try leaveRows(),
+            in: context,
+            save: {
+                asked.append(try self.pending(self.wednesday))
+                throw StoreFailure.diskFull
+            }
+        )
+
+        // The store was asked once, and asked for the day the cell offered —
+        // a whole day's annual leave on 5 August, already staged.
+        #expect(asked == [["annual 1.0"]])
+
+        let why = try #require(written.message)
+        #expect(written == .failed(why))
+        #expect(why.contains("A day off on 5 August couldn't be saved"))
+        #expect(why.contains(StoreFailure.diskFull.localizedDescription))
+        #expect(why.contains("Nothing was booked"))
+
+        // And the context agrees with the sentence. Left pending, the `@Query`
+        // would go on drawing leave the store never took.
+        #expect(try leaveRows().isEmpty, "the row the save refused is not still staged")
+        #expect(try pending(wednesday).isEmpty)
+    }
+
+    /// The other direction, and the reason it gets its own sentence: the two
+    /// failures leave the store in opposite states. Telling someone their leave
+    /// could not be *saved* when what they were doing was taking it back sends
+    /// them looking for leave that is still exactly where they left it.
+    @Test("Leave that could not be taken back says it is still booked, and it still is")
+    func aRefusedClearIsReportedAndUndone() throws {
+        insertLeave(wednesday, 0.5)
+        try context.save()
+        var asked: [[String]] = []
+        let cell = LeaveCell(day: wednesday, fraction: 0.5, bankHolidays: [], attended: [])
+        #expect(cell.tap == .clear)
+
+        let written = LeaveScreen.toggle(
+            cell,
+            leave: try leaveRows(),
+            in: context,
+            save: {
+                asked.append(try self.pending(self.wednesday))
+                throw StoreFailure.diskFull
+            }
+        )
+
+        // The deletion was staged before the save was asked for — the double
+        // saw the day empty, which is what it was being asked to persist.
+        #expect(asked == [[]])
+
+        let why = try #require(written.message)
+        #expect(why.contains("The leave on 5 August couldn't be removed"))
+        #expect(why.contains(StoreFailure.diskFull.localizedDescription))
+        #expect(why.contains("still booked off"))
+        #expect(!why.contains("couldn't be saved"), "the wrong verb points at the wrong day")
+
+        #expect(
+            try leaveRows().map(\.fraction) == [0.5],
+            "the row is back, because the sentence says it never left"
+        )
+    }
+
+    /// The positive, which matters as much: a fix that made a landed write
+    /// speak would be a worse bug than the silence it replaced — every tap in
+    /// the grid would raise an alert, on the screen whose whole interaction is
+    /// tapping.
+    @Test("A write that lands is silent, however many taps it takes")
+    func aWriteThatLandsSaysNothing() throws {
+        var saves = 0
+        func tapSaving(_ cell: LeaveCell) throws -> LeaveScreen.Written {
+            LeaveScreen.toggle(
+                cell, leave: try leaveRows(), in: context,
+                save: { saves += 1; try context.save() }
+            )
+        }
+        func cellNow() throws -> LeaveCell {
+            LeaveCell(
+                day: wednesday,
+                fraction: LeaveScreen.fractions(from: try leaveRows(), in: august)[wednesday],
+                bankHolidays: [], attended: []
+            )
+        }
+
+        let outcomes = [
+            try tapSaving(try cellNow()),
+            try tapSaving(try cellNow()),
+            try tapSaving(try cellNow()),
+        ]
+        #expect(outcomes == [.booked(1), .booked(0.5), .cleared])
+        #expect(outcomes.compactMap(\.message).isEmpty, "nothing to report about a write that landed")
+        #expect(saves == 3, "and each of them went to the store")
+        #expect(try leaveRows().isEmpty)
+    }
+
+    /// Booking, clearing and the tap that does nothing each fail into a
+    /// different state, so each says a different thing. A shared sentence would
+    /// describe two of the three wrongly.
+    @Test("Each kind of tap explains its own failure, and no two the same way")
+    func failureWordingFollowsTheTap() {
+        let error = StoreFailure.diskFull
+        let whole = LeaveScreen.failure(
+            LeaveCell(day: wednesday, fraction: nil, bankHolidays: [], attended: []), error: error
+        )
+        let half = LeaveScreen.failure(
+            LeaveCell(day: wednesday, fraction: 1, bankHolidays: [], attended: []), error: error
+        )
+        let cleared = LeaveScreen.failure(
+            LeaveCell(day: wednesday, fraction: 0.5, bankHolidays: [], attended: []), error: error
+        )
+        let inert = LeaveScreen.failure(
+            LeaveCell(day: saturday, fraction: nil, bankHolidays: [], attended: []), error: error
+        )
+
+        #expect(whole.hasPrefix("A day off on 5 August"))
+        #expect(half.hasPrefix("A half day off on 5 August"))
+        #expect(cleared.hasPrefix("The leave on 5 August"))
+        #expect(inert.hasPrefix("8 August"))
+        #expect(Set([whole, half, cleared, inert]).count == 4, "four taps, four sentences")
+
+        // Every one of them names the day it was about and the reason it was
+        // given — a message that says neither is a message that cannot be
+        // acted on.
+        for sentence in [whole, half, cleared, inert] {
+            #expect(sentence.contains(error.localizedDescription))
+            #expect(sentence.contains("August"))
+        }
     }
 
     // MARK: The screen itself

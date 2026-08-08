@@ -18,6 +18,10 @@ struct LeaveScreen: View {
 
     @State var month: Month = Day.today.month_
 
+    /// Set only by a tap whose write did not reach the store. Non-nil raises
+    /// the alert; nothing else on this screen sets it.
+    @State private var failure: String?
+
     private var bankHolidays: Set<Day> {
         Set(BankHolidays.englandAndWales(in: month))
     }
@@ -92,6 +96,17 @@ struct LeaveScreen: View {
         .background(Palette.ground)
         .navigationTitle("Holiday calendar")
         .navigationBarTitleDisplayMode(.inline)
+        // The grid stays on screen behind it, showing the day exactly as the
+        // store now holds it, so the alert and the cell underneath tell the
+        // same story rather than two different ones.
+        .alert(
+            "Not saved",
+            isPresented: Binding(get: { failure != nil }, set: { if !$0 { failure = nil } })
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(failure ?? "")
+        }
     }
 
     /// The same floor the gauge uses, from the same question, so stepping back
@@ -231,7 +246,14 @@ struct LeaveScreen: View {
     /// is a channel a colourblind user does not have and VoiceOver cannot read.
     private func cell(_ cell: LeaveCell) -> some View {
         Button {
-            Self.toggle(cell, leave: leave, in: context)
+            // A tap that landed needs no words — the square changes colour and
+            // the target below it moves, which is the whole point of a grid —
+            // so `message` is nil for every outcome but the one the grid
+            // cannot show, and assigning it unconditionally is what keeps a
+            // successful tap silent.
+            failure = Self.toggle(
+                cell, leave: leave, in: context, save: { try context.save() }
+            ).message
         } label: {
             VStack(spacing: 1) {
                 Text("\(cell.day.day)")
@@ -346,12 +368,57 @@ struct LeaveScreen: View {
         value.formatted(.number.precision(.fractionLength(0...1)))
     }
 
+    /// What a tap did, and the only thing that decides whether the screen
+    /// speaks.
+    ///
+    /// Three of the four are silent: the grid redraws and that is the whole
+    /// report. `failed` exists because the fourth cannot be seen — the context
+    /// keeps a mutation whose save was refused, so the `@Query` goes on drawing
+    /// amber for leave the store never took, and the month's target moves on
+    /// screen and nowhere else.
+    enum Written: Equatable {
+        /// Leave written for the day, at this fraction.
+        case booked(Double)
+        /// The day's leave rows removed.
+        case cleared
+        /// A cell with nothing to do — the tap the screen does not offer.
+        case nothing
+        case failed(String)
+
+        /// What the screen has to say about it, which for three of the four is
+        /// nothing. Spelled here rather than at the call site so that a case
+        /// added later has to answer the question rather than inherit silence.
+        var message: String? {
+            if case .failed(let why) = self { return why }
+            return nil
+        }
+    }
+
     /// The cell decided what the tap does; this only carries it out. In
     /// particular the "what" is not recomputed from `fractions` here — the cell
     /// on screen and the write it performs have to agree, and the day whose
     /// leave can only be cleared is exactly the case where recomputing the
     /// cycle would book leave the screen refuses to offer.
-    static func toggle(_ cell: LeaveCell, leave: [LeaveDay], in context: ModelContext) {
+    ///
+    /// The save arrives as a closure for the same reason `BookingEditorScreen`
+    /// takes its write that way: a full disk is not a state SwiftData will
+    /// enter on request, and the branch this exists to get right is the one
+    /// that only happens when it does. It used to be spelled `try?`, which in
+    /// statement position is a warning the compiler does not give — booking a
+    /// fortnight off could fail every tap and look, cell for cell, exactly like
+    /// booking a fortnight off.
+    static func toggle(
+        _ cell: LeaveCell,
+        leave: [LeaveDay],
+        in context: ModelContext,
+        save: () throws -> Void
+    ) -> Written {
+        // Nothing to write and nothing to undo. An inert cell is by
+        // construction a day carrying no leave — `LeaveCell.tap` answers
+        // `.clear`, never `.inert`, the moment a fraction is present — so
+        // asking the store to save nothing could only invent a failure to
+        // report about a tap the screen does not even offer.
+        guard cell.tap != .inert else { return .nothing }
         let existing = leave.filter { $0.kind != .bankHoliday && $0.day == cell.day }
         // The rows are replaced rather than edited: a day that somehow holds
         // two of them collapses to one on the next tap.
@@ -359,7 +426,45 @@ struct LeaveScreen: View {
         if case .book(let fraction) = cell.tap {
             context.insert(LeaveDay(day: cell.day, fraction: fraction, kind: .annual))
         }
-        try? context.save()
+        do {
+            try save()
+        } catch {
+            // Rolled back rather than left pending, because the `@Query` reads
+            // the context and not the disk: leaving the insert in place would
+            // paint the cell amber, lower the target in the card below it and
+            // survive until the app was next launched, at which point a
+            // fortnight of leave would quietly not be booked. The alert says
+            // nothing was written, and after this the grid agrees with it.
+            context.rollback()
+            return .failed(Self.failure(cell, error: error))
+        }
+        switch cell.tap {
+        case .book(let fraction): return .booked(fraction)
+        case .clear: return .cleared
+        case .inert: return .nothing
+        }
+    }
+
+    /// Why the tap changed nothing, in the terms of the tap that was made.
+    ///
+    /// Booking and clearing get different sentences because they fail into
+    /// opposite states, and telling someone their leave could not be *saved*
+    /// when what they were doing was taking it back describes the wrong day
+    /// entirely — they would go looking for leave that is still exactly where
+    /// they left it.
+    nonisolated static func failure(_ cell: LeaveCell, error: Error) -> String {
+        let why = error.localizedDescription
+        switch cell.tap {
+        case .book(let fraction):
+            let what = fraction >= 1 ? "A day off" : "A half day off"
+            return "\(what) on \(cell.day.dayAndMonth) couldn't be saved: \(why). "
+                + "Nothing was booked, so the day is still yours to work."
+        case .clear:
+            return "The leave on \(cell.day.dayAndMonth) couldn't be removed: \(why). "
+                + "It is still booked off, and still counts toward the month's target."
+        case .inert:
+            return "\(cell.day.dayAndMonth) couldn't be saved: \(why). Nothing changed."
+        }
     }
 }
 

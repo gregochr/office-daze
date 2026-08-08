@@ -16,6 +16,12 @@ nonisolated enum ArrivalNotifications {
         /// wearing the past tense: "I'm here" is wrong at six in the evening
         /// about a morning that has been and gone.
         case nudgeConfirm = "nudge.confirm"
+        /// What a tapped button is told when it did not do what it said, in the
+        /// cases where there is nothing left to press. Registered with no
+        /// actions at all rather than left unregistered: iOS silently shows no
+        /// buttons for a category identifier it has never heard of, which means
+        /// a typo and a decision look identical on the lock screen.
+        case followUp = "arrival.followup"
     }
 
     enum Action: String {
@@ -142,6 +148,74 @@ nonisolated enum ArrivalNotifications {
         )
     }
 
+    // MARK: When the button did not do what it said
+
+    /// The write did not land, and the day is still unrecorded.
+    ///
+    /// There is no screen behind a lock-screen button. The notification that
+    /// carried it is gone the instant it is tapped — iOS takes it away — so
+    /// staying quiet leaves the user believing a day was recorded, with nothing
+    /// left on the lock screen to press and no reason to go looking. Another
+    /// notification is the only surface there is, which is why this exists at
+    /// all rather than a `String` handed back to a caller that has nowhere to
+    /// put it.
+    ///
+    /// `retry` decides whether the buttons come back, and it is not a taste
+    /// question: `answer(to:userInfo:delivered:)` refuses any payload whose day
+    /// is not the day it was delivered on, so a button offered here for a day
+    /// gone by would be a button that silently did nothing — the exact defect
+    /// this notification exists to report. Offered only for the day it is being
+    /// posted on; otherwise the alert says where to go instead.
+    static func notRecorded(
+        officeName: String, day: Day, why: String, retry: Bool
+    ) -> Content {
+        Content(
+            title: "Not recorded",
+            subtitle: "\(day.dayAndMonth) at \(officeName)",
+            body: retry
+                ? "\(why) Tap I'm here to try again."
+                : "\(why) Open Office Daze to record the day.",
+            // `unbooked` for its actions — the two categories carry the same
+            // pair, and this alert genuinely has no desk on it to name.
+            category: retry ? .unbooked : .followUp
+        )
+    }
+
+    /// The store declined, and declining was right: the day is already worth a
+    /// whole day.
+    ///
+    /// Deliberately not phrased as a failure. Nothing is wrong, nothing is
+    /// missing, and the user's day is counted — which is the fact they wanted
+    /// when they pressed the button. Wearing the same "Not recorded" title as a
+    /// disk that would not write would send someone hunting for a problem that
+    /// is not there. It is still said out loud rather than swallowed, because a
+    /// tap that appears to do nothing is the thing that gets tapped again.
+    static func alreadyCounted(officeName: String, day: Day, why: String) -> Content {
+        Content(
+            title: "Already counted",
+            subtitle: "\(day.dayAndMonth) at \(officeName)",
+            body: why,
+            category: .followUp
+        )
+    }
+
+    /// The evening question's `No`, when the answer did not save.
+    ///
+    /// A separate title from `notRecorded` because "Not recorded" read over a
+    /// declined day says the opposite of what happened — it would look like the
+    /// app confirming the day was marked as one you were not there for, which
+    /// is precisely the write that failed. The buttons do not come back: unlike
+    /// a lost attendance record, a lost No costs nothing that is not still
+    /// sitting in the app, and the day is left exactly as it was — unanswered.
+    static func notAnswered(officeName: String, day: Day, why: String) -> Content {
+        Content(
+            title: "Not saved",
+            subtitle: "\(day.dayAndMonth) at \(officeName)",
+            body: "\(why) That day is still unanswered — you can answer it in Office Daze.",
+            category: .followUp
+        )
+    }
+
     /// The two buttons. `confirm` is what makes attendance recordable from the
     /// lock screen without opening the app — and it is the only thing that
     /// records it, because the geofence never writes silently.
@@ -184,6 +258,15 @@ nonisolated enum ArrivalNotifications {
                 actions: [wasThere, wasNot],
                 intentIdentifiers: []
             ),
+            // No actions, on purpose. This one is not asking anything — it is
+            // the answer to a button already pressed, and a button under it
+            // would be a second promise made by the same alert that has just
+            // admitted it could not keep the first.
+            UNNotificationCategory(
+                identifier: Category.followUp.rawValue,
+                actions: [],
+                intentIdentifiers: []
+            ),
         ]
     }
 
@@ -198,6 +281,17 @@ nonisolated enum ArrivalNotifications {
     /// withdrawn, so the lock screen holds one arrival rather than a stack.
     static func identifier(officeID: UUID, day: Day, at: Date) -> String {
         "arrival.\(officeID.uuidString).\(day).\(Int(at.timeIntervalSince1970))"
+    }
+
+    /// The follow-up's own identifier space, for the reason above turned round.
+    ///
+    /// A follow-up posted in the same second as the arrival it answers would
+    /// share that arrival's identifier, and iOS would read it as an edit of a
+    /// notification the user has already tapped away rather than as something
+    /// new. The prefix is what keeps the two apart; within it, the delivery
+    /// second still distinguishes one follow-up from the next.
+    static func followUpIdentifier(officeID: UUID, day: Day, at: Date) -> String {
+        "arrival.answered.\(officeID.uuidString).\(day).\(Int(at.timeIntervalSince1970))"
     }
 
     // MARK: What a tap means
@@ -256,8 +350,12 @@ nonisolated enum ArrivalNotifications {
         }
     }
 
+    /// `identifier` is the arrival's own unless one is given. The follow-ups
+    /// pass `followUpIdentifier` so they cannot be mistaken for an edit of the
+    /// alert that raised them; everything else wants the default.
     static func request(
-        _ content: Content, officeID: UUID, day: Day, bookingID: UUID?, at: Date
+        _ content: Content, officeID: UUID, day: Day, bookingID: UUID?, at: Date,
+        identifier: String? = nil
     ) -> UNNotificationRequest {
         let notification = UNMutableNotificationContent()
         notification.title = content.title
@@ -290,7 +388,7 @@ nonisolated enum ArrivalNotifications {
         // Nil trigger: deliver now. The region crossing is the trigger, and
         // handing iOS a CLRegion trigger here would monitor the region twice.
         return UNNotificationRequest(
-            identifier: identifier(officeID: officeID, day: day, at: at),
+            identifier: identifier ?? Self.identifier(officeID: officeID, day: day, at: at),
             content: notification,
             trigger: nil
         )

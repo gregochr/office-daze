@@ -469,6 +469,7 @@ struct SettingsDeleteTests {
     let monitor: ArrivalMonitor
     let keychain: SettingsKeychain
     let nudges: NudgeRecorder
+    let erasures: WipeRecorder
 
     /// A `UserDefaults` nobody else is using. `Store.wipe` marks the store
     /// seeded, and doing that to `.standard` would decide whether the *app*
@@ -480,6 +481,7 @@ struct SettingsDeleteTests {
         manager = RecordingLocationManager()
         keychain = SettingsKeychain(holding: "sk-ant-api03-not-real")
         nudges = NudgeRecorder()
+        erasures = WipeRecorder()
         defaults = UserDefaults(suiteName: "SettingsScreenTests.\(UUID().uuidString)")!
 
         let ledger = ArrivalLedger(context: container.mainContext)
@@ -494,11 +496,15 @@ struct SettingsDeleteTests {
         monitor.authorizationChanged(to: .authorizedAlways)
     }
 
-    func wipe(_ scope: Store.Scope) -> SettingsScreen.KeyState {
+    /// The real `Store.wipe`, reached through the recorder so the tests below
+    /// can say which scope, which store and which `UserDefaults` it was handed
+    /// — and so one of them can make it throw.
+    func wipe(_ scope: Store.Scope) -> SettingsScreen.Wiped {
         SettingsScreen.wipe(
             scope, in: container.mainContext, arrival: monitor, defaults: defaults,
             forgetSecret: { keychain.clear() }, readKey: { keychain.read() },
-            refreshNudge: { nudges.refresh($0) }
+            refreshNudge: { nudges.refresh($0) },
+            erase: { try erasures.erase($0, $1, $2, $3) }
         )
     }
 
@@ -513,15 +519,24 @@ struct SettingsDeleteTests {
                 "both seeded offices are being watched to begin with")
         manager.forgetCalls()
 
-        let key = wipe(.everything)
+        let wiped = wipe(.everything)
 
         #expect(try container.mainContext.fetchCount(FetchDescriptor<Office>()) == 0)
         #expect(Set(manager.stopped) == watched, "every perimeter is torn down by name")
         #expect(manager.watching.isEmpty, "and none goes back up")
         #expect(keychain.clears == 1)
-        #expect(key == SettingsScreen.KeyState(stored: nil, writeFailed: false))
-        #expect(SettingsScreen.keyRow(key, lastUsed: Date()) == .missing,
+        #expect(wiped.key == SettingsScreen.KeyState(stored: nil, writeFailed: false))
+        #expect(SettingsScreen.keyRow(wiped.key, lastUsed: Date()) == .missing,
                 "the row cannot go on saying a key is saved once the wipe has taken it")
+        // The positive half of the fix below. A delete that lands says nothing
+        // at all: the emptied screen behind the dialog is the confirmation, and
+        // an alert here would be one more tap on the way out of a flow the user
+        // has already confirmed twice.
+        #expect(wiped.failure == nil, "a delete that worked is silent")
+        // And the scope the screen chose is the scope the store was asked for —
+        // the one argument that decides whether two buildings survive.
+        #expect(erasures.scopes == [.everything])
+        #expect(erasures.defaults.first === defaults, "and not the app's own settings")
     }
 
     /// The other scope, and the reason there are two: the offices are the only
@@ -531,7 +546,7 @@ struct SettingsDeleteTests {
     func recordsKeepsWhatWasTypedIn() throws {
         manager.forgetCalls()
 
-        let key = wipe(.records)
+        let wiped = wipe(.records)
 
         #expect(try container.mainContext.fetchCount(FetchDescriptor<Office>()) == 2)
         #expect(try container.mainContext.fetchCount(FetchDescriptor<DeskBooking>()) == 0)
@@ -539,9 +554,11 @@ struct SettingsDeleteTests {
                 == [SeedData.colemanID.uuidString, SeedData.brusselsID.uuidString],
                 "the buildings are still being watched")
         #expect(keychain.clears == 0)
-        #expect(key == SettingsScreen.KeyState(
+        #expect(wiped.key == SettingsScreen.KeyState(
             stored: "sk-ant-api03-not-real", writeFailed: false
         ))
+        #expect(wiped.failure == nil, "and the narrower delete is silent too")
+        #expect(erasures.scopes == [.records], "the narrower scope reaches the store as itself")
     }
 
     /// The evening reminder is decided from the bookings, so a wipe has to
@@ -555,6 +572,86 @@ struct SettingsDeleteTests {
         #expect(nudges.contexts.count == 1)
         let asked = try #require(nudges.contexts.first)
         #expect(try asked.fetchCount(FetchDescriptor<DeskBooking>()) == 0)
+    }
+
+    // MARK: When the delete does not happen
+
+    /// The finding. `try? Store.wipe(...)` dropped the throw on the floor and
+    /// then went on to refresh the perimeters, redo the reminder and hand back a
+    /// fresh key row — reporting, to the character, what a delete that worked
+    /// reports. So a delete that failed told the user their data was gone while
+    /// every row of it was still in the store, which for the one feature in the
+    /// app whose entire purpose is removing data is the worst direction to be
+    /// wrong in: the person who believes it hands the phone on.
+    ///
+    /// SwiftData will not fail on demand, which is why `erase` is a parameter.
+    @Test("A delete that throws says so rather than reporting the store emptied")
+    func aFailedDeleteIsReported() throws {
+        let before = try container.mainContext.fetchCount(FetchDescriptor<Office>())
+        #expect(before == 2, "there is something here to lose")
+        erasures.failing = DiskFull()
+
+        let wiped = wipe(.everything)
+
+        #expect(wiped.failure == "The delete didn't finish: the volume is full. Some of your data is still here, and the Anthropic key has not been forgotten. Nothing is safely gone — try again.")
+        // Everything the old code went on to report as though the delete had
+        // happened, now checked against what actually happened.
+        #expect(try container.mainContext.fetchCount(FetchDescriptor<Office>()) == 2)
+        #expect(keychain.clears == 0, "the key was never reached for")
+        #expect(wiped.key == SettingsScreen.KeyState(
+            stored: "sk-ant-api03-not-real", writeFailed: false
+        ))
+        #expect(SettingsScreen.keyRow(wiped.key, lastUsed: nil) == .savedUnused,
+                "and the row is right to still say the key is there, because it is")
+        #expect(erasures.scopes == [.everything], "the delete was attempted, not skipped")
+    }
+
+    /// The other scope's sentence. The two deletes take different things, so
+    /// naming what survived is scope's work — and the key is called out by name
+    /// under `.everything` alone, because it is the one item here that is live,
+    /// billable and outlives deleting the app itself.
+    @Test("A failed delete names what the user still has, and it differs by scope")
+    func theFailureNamesWhatSurvived() {
+        erasures.failing = DiskFull()
+
+        let wiped = wipe(.records)
+
+        #expect(wiped.failure == "The delete didn't finish: the volume is full. Some of your bookings, attendance and leave are still here. Nothing is safely gone — try again.")
+        #expect(wiped.failure?.contains("Anthropic") == false,
+                "the narrower delete never went near the key, so its failure must not mention it")
+        #expect(erasures.scopes == [.records])
+        // And the reason is the store's own words rather than a generic
+        // apology: a delete refused by a full disk and one refused by a
+        // validation failure are different problems with different remedies.
+        #expect(
+            SettingsScreen.deleteFailure(.records, Unwritable()).contains("the store is read-only")
+        )
+    }
+
+    /// What the screen does about the *other* two steps when the delete throws,
+    /// which is the part that is deliberate rather than incidental. Both are
+    /// reconciliations, not celebrations: they bring iOS's registered perimeters
+    /// and tonight's reminder into line with whatever the store now holds. A
+    /// throw says the delete did not finish, not that it did not start, so
+    /// skipping them would leave the app being woken at a deleted office's
+    /// perimeter with no later screen left to trigger a rebuild.
+    @Test("A delete that failed still reconciles the perimeters and the reminder it left behind")
+    func aFailedDeleteStillPutsTheOutsideWorldInStep() throws {
+        manager.forgetCalls()
+        erasures.failing = DiskFull()
+
+        let wiped = wipe(.everything)
+
+        #expect(wiped.failure != nil)
+        #expect(manager.watching
+                == [SeedData.colemanID.uuidString, SeedData.brusselsID.uuidString],
+                "the offices that survived are watched again, not abandoned")
+        // The reminder is re-decided against the store as it really is — which,
+        // this time, is a store with the bookings still in it.
+        #expect(nudges.contexts.count == 1)
+        let asked = try #require(nudges.contexts.first)
+        #expect(try asked.fetchCount(FetchDescriptor<DeskBooking>()) > 0,
+                "and it was re-decided from the bookings that are still there")
     }
 
     /// The button has to name what it would take. "Everything" over two
@@ -577,6 +674,55 @@ final class NudgeRecorder: @unchecked Sendable {
     private(set) var contexts: [ModelContext] = []
 
     func refresh(_ context: ModelContext) { contexts.append(context) }
+}
+
+/// `Store.wipe` behind a recorder that can be made to fail.
+///
+/// It is not a stub: with `failing` unset it calls the real `Store.wipe` with
+/// the very arguments it was handed, so every test that goes through it is
+/// still asserting against a store that was genuinely emptied. What it adds is
+/// the two things a real delete cannot give a test — a throw on demand, and the
+/// arguments in a form that can be asserted on. The scope is the one that
+/// matters most: it decides whether two buildings someone typed in survive, and
+/// a double that ignored it would pass every assertion here while the screen
+/// passed `.everything` for both buttons.
+@MainActor
+final class WipeRecorder {
+    private(set) var scopes: [Store.Scope] = []
+    private(set) var contexts: [ModelContext] = []
+    private(set) var defaults: [UserDefaults] = []
+    /// Set to make the next delete throw, standing in for a full disk or a
+    /// validation failure. There is no way to provoke either from SwiftData.
+    var failing: Error?
+
+    func erase(
+        _ scope: Store.Scope,
+        _ context: ModelContext,
+        _ defaults: UserDefaults,
+        _ forgetSecret: () -> Void
+    ) throws {
+        scopes.append(scope)
+        contexts.append(context)
+        self.defaults.append(defaults)
+        if let failing { throw failing }
+        try Store.wipe(
+            context, scope: scope, defaults: defaults, forgetSecret: forgetSecret
+        )
+    }
+}
+
+/// The throw itself, worded the way a `localizedDescription` is: it lands
+/// mid-sentence in the alert, so the tests above can assert the whole line the
+/// user reads rather than a prefix of it.
+struct DiskFull: LocalizedError {
+    var errorDescription: String? { "the volume is full" }
+}
+
+/// A second, different reason — because the alert quotes the store rather than
+/// apologising generically, and a delete refused by a full disk and one refused
+/// by a read-only store are different problems with different remedies.
+struct Unwritable: LocalizedError {
+    var errorDescription: String? { "the store is read-only" }
 }
 
 /// The office rows, and the row above them that appears when the alert cannot
