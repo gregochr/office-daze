@@ -1,0 +1,95 @@
+# SwiftLint for OfficeDaze.
+#
+# The rules here are the ones that catch real mistakes in a SwiftUI app:
+# force-unwraps that crash, `count == 0` where `isEmpty` reads better,
+# and bodies that have grown past the point of being read in one sitting.
+# Style-only rules that would churn the diff without changing meaning are off.
+
+included:
+  - OfficeDaze
+  - OfficeDazeTests
+
+excluded:
+  - OfficeDaze/Assets.xcassets
+
+disabled_rules:
+  - todo # TODOs are tracked in the repo, not shouted about by the linter.
+  # The codebase uses trailing commas in multi-line literals throughout, which
+  # is what keeps a one-element diff to one line. Swift 6.1 made them legal
+  # nearly everywhere; the rule is arguing with a choice already made.
+  - trailing_comma
+
+opt_in_rules:
+  - array_init
+  - closure_spacing
+  - collection_alignment
+  - contains_over_filter_count
+  - contains_over_first_not_nil
+  - empty_count
+  - empty_string
+  - explicit_init
+  - first_where
+  - last_where
+  - modifier_order
+  - operator_usage_whitespace
+  - overridden_super_call
+  - prefer_self_type_over_type_of_self
+  - redundant_nil_coalescing
+  - sorted_first_last
+  - toggle_bool
+  - unneeded_parentheses_in_closure_argument
+  - yoda_condition
+
+# The severities below are the adoption story, not a permanent verdict. A rule
+# the codebase already satisfies is left at error, so CI blocks the first
+# regression. A rule the codebase currently violates is set to warning, so it
+# shows up as an annotation on every PR without failing a build for debt that
+# was there before the pipeline was. Promote each one back to error as its
+# violations reach zero; `swiftlint lint --strict` locally is the burn-down list.
+
+line_length:
+  severity: warning
+  warning: 140
+  ignores_comments: true
+  ignores_urls: true
+
+# `try!` here is deliberate and documented at each site: the app init cannot
+# proceed without its store, and the #Preview containers are in-memory.
+force_try:
+  severity: warning
+
+# Three-member tuples are the honest return type for a couple of the geometry
+# and calendar helpers. Four is where it should have been a struct.
+large_tuple:
+  warning: 3
+  error: 4
+
+# SwiftUI view bodies and the screens that hold them are legitimately long.
+# These thresholds are set where a file stops being one idea, not at the
+# default that flags every screen in the app.
+file_length:
+  warning: 600
+  error: 1000
+
+type_body_length:
+  warning: 400
+  error: 600
+
+function_body_length:
+  warning: 100
+  error: 200
+
+# Case conventions still apply; the length floor does not. The Gauss Easter
+# computation in BankHolidays.swift names its terms a…m because the published
+# algorithm does, and renaming them would make it harder to check, not easier.
+identifier_name:
+  severity: warning
+  min_length: 1
+  # `Day.month_` carries a trailing underscore to dodge its own `month` stored
+  # property. Named here rather than allowing `_` everywhere, so the exception
+  # stays one line long and visible instead of becoming a habit.
+  excluded:
+    - month_
+
+nesting:
+  type_level: 2

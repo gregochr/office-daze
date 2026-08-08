@@ -1,0 +1,13 @@
+version: 2
+updates:
+  # The app has no Swift package dependencies, so the only supply chain the
+  # repo actually has is the actions the workflows pull in. That is what gets
+  # watched. Add a `package-ecosystem: swift` block here the day a package
+  # is added to the Xcode project.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]

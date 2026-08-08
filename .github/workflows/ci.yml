@@ -1,0 +1,115 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A new push to a branch makes the previous run's answer stale, so cancel it.
+# main is exempt: those runs are the record of what shipped.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: SwiftLint
+    # SwiftLint runs on Linux and needs no Xcode, so it has no business on a
+    # macOS runner. Minutes are free on a public repo, but a Linux runner still
+    # boots in a fraction of the time — this job reports while the macOS ones
+    # are still starting up.
+    runs-on: ubuntu-latest
+    container: ghcr.io/realm/swiftlint:0.65.0
+    steps:
+      - uses: actions/checkout@v5
+      - name: Lint
+        # Not --strict, deliberately. Severities are set per-rule in
+        # .swiftlint.yml: rules the codebase already satisfies are errors and
+        # fail this job, the 29 pre-existing violations are warnings and show
+        # as PR annotations. Add --strict once that count is zero.
+        run: swiftlint lint --reporter github-actions-logging
+
+  test:
+    name: Build & Test
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Show toolchain
+        # The project targets iOS 26, so it needs the Xcode 26 line. Pin with
+        # `sudo xcode-select -s /Applications/Xcode_26.6.app` if a default bump
+        # ever breaks the build; until then, tracking the image default means
+        # CI tells you about Xcode changes instead of hiding them.
+        run: |
+          xcodebuild -version
+          xcrun simctl list runtimes | grep iOS
+
+      - name: Pick a simulator
+        id: sim
+        # Device names change every Xcode release. Resolving the newest
+        # available iOS simulator by UDID means the workflow survives an image
+        # bump that renames "iPhone 17" to something else.
+        run: |
+          udid=$(xcrun simctl list devices available --json \
+            | jq -r '.devices
+                | to_entries
+                | map(select(.key | test("SimRuntime.iOS")))
+                | sort_by(.key)
+                | last.value
+                | map(select(.isAvailable))
+                | last.udid')
+          if [ -z "$udid" ] || [ "$udid" = "null" ]; then
+            echo "::error::No iOS simulator available on this runner"
+            xcrun simctl list devices available
+            exit 1
+          fi
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+          xcrun simctl list devices available | grep "$udid"
+
+      - name: Test
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project OfficeDaze.xcodeproj \
+            -scheme OfficeDaze \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            -resultBundlePath TestResults.xcresult \
+            -enableCodeCoverage YES \
+            CODE_SIGNING_ALLOWED=NO \
+            | xcbeautify --renderer github-actions
+
+      - name: Coverage summary
+        if: ${{ !cancelled() }}
+        run: |
+          xcrun xccov view --report --only-targets TestResults.xcresult \
+            >> "$GITHUB_STEP_SUMMARY" || true
+
+      - name: Upload result bundle
+        # The .xcresult is the only way to read a failure that xcbeautify
+        # summarised away — keep it when the run is red.
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: TestResults
+          path: TestResults.xcresult
+          retention-days: 7
+
+  analyze:
+    name: Clang static analyzer
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v5
+      - name: Analyze
+        run: |
+          set -o pipefail
+          xcodebuild analyze \
+            -project OfficeDaze.xcodeproj \
+            -scheme OfficeDaze \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            CLANG_ANALYZER_OUTPUT=text \
+            | xcbeautify --renderer github-actions
