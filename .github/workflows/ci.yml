@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     container: ghcr.io/realm/swiftlint:0.65.0
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Lint
         # --strict: every warning is a failure. The count is zero as of the
         # commit that added this flag, and the point of the flag is that it
@@ -40,7 +40,7 @@ jobs:
     name: Build & Test
     runs-on: macos-26
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Show toolchain
         # The project targets iOS 26, so it needs the Xcode 26 line. Pin with
@@ -100,7 +100,7 @@ jobs:
         # The .xcresult is the only way to read a failure that xcbeautify
         # summarised away — keep it when the run is red.
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: TestResults
           path: TestResults.xcresult
@@ -110,7 +110,7 @@ jobs:
     name: Clang static analyzer
     runs-on: macos-26
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Analyze
         run: |
           set -o pipefail
