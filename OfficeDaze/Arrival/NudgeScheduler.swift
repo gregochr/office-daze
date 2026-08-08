@@ -164,12 +164,13 @@ enum NudgeScheduler {
         }
 
         let offices = (try? context.fetch(FetchDescriptor<Office>())) ?? []
-        // Sorted, so a day with two unanswered desks asks about the same one
-        // every evening rather than whichever the fetch happened to return.
+        // Lowest desk ID wins, so a day with two unanswered desks asks about the
+        // same one every evening rather than whichever the fetch happened to
+        // return. `min(by:)` rather than `sorted(by:).first` — same element, and
+        // it does not order the tail nobody looks at.
         guard let booking = bookings
             .filter({ $0.day == today && !$0.notAttended && !recorded($0.officeID) })
-            .sorted(by: { $0.deskID < $1.deskID })
-            .first
+            .min(by: { $0.deskID < $1.deskID })
         else { return nil }
 
         return EveningNudge.Unconfirmed(

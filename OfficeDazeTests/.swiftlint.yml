@@ -1,0 +1,26 @@
+# Test code is not app code, and some rules that earn their place in OfficeDaze
+# actively make tests worse. This config is nested: SwiftLint applies it to
+# files under OfficeDazeTests and the root .swiftlint.yml everywhere else.
+
+parent_config: ../.swiftlint.yml
+
+disabled_rules:
+  # `#expect(f(x) == "")` says "this returns the empty string". Rewriting it to
+  # `.isEmpty` says "this returns something empty" — a weaker claim, and the
+  # assertion is the one place the exact value is the point.
+  - empty_string
+
+  # The rule wants the failable `String(bytes:encoding:)`. These call sites use
+  # `String(decoding:as:)` precisely because it cannot fail, and one of them is
+  # asserting an API key never reaches the request body — threading an optional
+  # through that assertion would weaken the test to satisfy a preference.
+  - optional_data_string_conversion
+
+  # Fires on `override class func canInit(with:)`, which is how you override a
+  # URLProtocol class method. There is no `static` spelling of an override.
+  - static_over_final_class
+
+  # A test file grows one @Test at a time and is read one @Test at a time.
+  # Length is not the signal here that it is in a view.
+  - file_length
+  - type_body_length

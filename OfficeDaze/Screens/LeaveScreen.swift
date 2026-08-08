@@ -411,11 +411,16 @@ nonisolated struct LeaveCell: Equatable {
         // Attended first: a Saturday that was worked and recorded is a day you
         // were there, and saying "weekend" about it would be answering a
         // different question than the one the cell is being asked.
+        // swiftlint:disable statement_position
+        // The rule wants `} else`, which is right for statements and wrong for
+        // an if-expression: cuddling these puts four branches on one 155-column
+        // line. One branch per line is the whole point of the form.
         self.ground =
             if attended.contains(day) { .attended }
             else if bankHolidays.contains(day) { .bankHoliday }
             else if day.isWeekend { .weekend }
             else { .working }
+        // swiftlint:enable statement_position
     }
 
     /// A day leave can be *added* to — the same rule as `LeaveCycle.editable`,
