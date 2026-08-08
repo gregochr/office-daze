@@ -65,10 +65,32 @@ final class CaptureCoordinator {
         )
     }
 
+    /// The re-encode in front of the call, injectable for one reason: it is a
+    /// suspension point the user can cancel across, and the only way to prove
+    /// Cancel is honoured there is to hold it open on demand. `@Sendable`
+    /// because it runs off the main actor — that is the whole point of it.
+    var preparer: @Sendable (Data) throws -> (data: Data, mediaType: String) = {
+        try PhotoImport.prepare($0)
+    }
+
+    /// The booking write, injectable for the same reason: a `context.save()`
+    /// cannot be made to fail on demand from outside, and the failure is
+    /// exactly what needs pinning — a write that did not land used to be drawn
+    /// to the user as a green segment.
+    var writeBooking: (_ candidate: BookingMerge.Candidate, _ captureID: UUID?, _ chosen: Bool)
+        throws -> Void
+
     private let context: ModelContext
 
     init(context: ModelContext) {
         self.context = context
+        // Captures the parameter rather than `self`, so this can be a stored
+        // property with a real default instead of an optional nobody sets.
+        writeBooking = { candidate, captureID, chosen in
+            try BookingStore.upsert(
+                candidate, captureID: captureID, chosen: chosen, in: context
+            )
+        }
     }
 
     var isActive: Bool {
@@ -80,15 +102,40 @@ final class CaptureCoordinator {
 
     /// iOS copied the shared file into our inbox and launched us. This is the
     /// whole share-sheet path, in place of an extension.
+    ///
+    /// The copy is ours to remove. `Info.plist` declares document types without
+    /// `LSSupportsOpeningDocumentsInPlace`, so iOS never hands over the sender's
+    /// file — it duplicates it into `Documents/Inbox/`, uniquifying rather than
+    /// overwriting, and the documented contract is that the receiving app
+    /// deletes it. Nothing else in the app ever would: `Store.wipe` reaches the
+    /// database and not the container, so every shared screenshot would sit in
+    /// `Documents` — and therefore in every iCloud backup — for the life of the
+    /// install, on top of the copy the database already holds.
     func receive(url: URL) async {
         let scoped = url.startAccessingSecurityScopedResource()
-        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        defer {
+            if scoped { url.stopAccessingSecurityScopedResource() }
+            if Self.isInboxCopy(url) { try? FileManager.default.removeItem(at: url) }
+        }
 
         guard let data = try? Data(contentsOf: url) else {
-            phase = .failed(.unsupportedFile((url.pathExtension.isEmpty ? "file" : url.pathExtension)))
+            // Not "we can't read a .FILE file". The read failed, which says
+            // nothing about the format unless the format is one we have no
+            // decoder for in the first place.
+            phase = .failed(Self.failure(forExtension: url.pathExtension))
             return
         }
         await receive(data: data, filename: url.lastPathComponent)
+    }
+
+    /// Whether this URL is a copy iOS made for us, and so ours to delete.
+    ///
+    /// Guarded on the path rather than deleting whatever arrives, because the
+    /// day `LSSupportsOpeningDocumentsInPlace` is added the URL becomes the
+    /// sender's own document and removing it would delete the user's file out
+    /// of another app.
+    static func isInboxCopy(_ url: URL) -> Bool {
+        url.isFileURL && url.path.contains("/Documents/Inbox/")
     }
 
     func receive(data: Data, filename: String) async {
@@ -116,16 +163,49 @@ final class CaptureCoordinator {
         // The sheet appears the instant the file lands, not when the response
         // does — the call takes a couple of seconds and a blank screen for
         // those seconds reads as a hang.
+        //
+        // Which means Cancel is live while the re-encode runs off-actor, and
+        // the re-encode of a 12MP frame is a few hundred milliseconds of it.
+        // `run()` guards its own two suspension points on this counter for
+        // exactly the same reason; this one was missed, and the cancelled
+        // capture would wake up, re-arm `lastInput`, spend an API call and
+        // re-present the sheet the user had just dismissed.
+        generation += 1
+        let attempt = generation
         phase = .parsing(step: .received)
         do {
-            let prepared = try await Task.detached { try PhotoImport.prepare(data) }.value
+            let prepared = try await Task.detached { [preparer] in try preparer(data) }.value
+            guard attempt == generation else { return }
             lastInput = (prepared.data, prepared.mediaType)
             await run()
         } catch {
-            // A PDF says so by name. Bytes with no name behind them can only
-            // say they were not an image.
-            phase = .failed(ext.map { CaptureError.unsupportedFile($0) } ?? .unreadableImage)
+            guard attempt == generation else { return }
+            phase = .failed(Self.failure(forExtension: ext))
         }
+    }
+
+    /// The formats ImageIO decodes for us. An extension in this list is never
+    /// the diagnosis of a preparation failure.
+    private static let readableExtensions: Set<String> = [
+        "png", "jpg", "jpeg", "heic", "heif", "gif", "webp", "tiff", "tif", "bmp",
+    ]
+
+    /// Why the bytes never became an image, in the only terms the app can
+    /// honestly claim.
+    ///
+    /// `PhotoImport.prepare` throws `.unreadableImage` from four places — no
+    /// image source, an empty one, a failed thumbnail, a failed encode — and
+    /// only the first of those is ever about the format. Deciding the message
+    /// from the extension alone told someone whose screenshot arrived truncated
+    /// that "Office Daze can't read a .PNG file", which is false about the
+    /// app's commonest input and sends them off to type the booking in by hand
+    /// instead of re-sharing it. A PDF still says so by name, because there the
+    /// format really is the answer.
+    private static func failure(forExtension ext: String?) -> CaptureError {
+        guard let ext, !ext.isEmpty, !readableExtensions.contains(ext.lowercased()) else {
+            return .unreadableImage
+        }
+        return .unsupportedFile(ext)
     }
 
     /// The photo could not be loaded out of the library at all. Surfaced
@@ -156,9 +236,29 @@ final class CaptureCoordinator {
             phase = .parsing(step: .finding)
             let (bookings, usage) = try await extractor(data, mediaType, .today)
             guard run == generation else { return }
+
+            // A parse with nothing in it is a failure, not a review. Today the
+            // only extractor refuses an empty list itself, so nothing reaches
+            // here — but taking the extractor's word for it made `.review` the
+            // one phase that could be entered with nothing to show: `current`
+            // nil, `isLast` false, `position` nil, and a sheet titled "Confirm"
+            // holding no card and no way out but Cancel. The sheet was hardened
+            // to draw no card there, which stops it looking broken; only
+            // refusing the phase at the source stops the dead end. The
+            // alternative — leaving the invariant to whoever writes the next
+            // extractor — is how it got here in the first place.
+            guard !bookings.isEmpty else {
+                // Recorded with the usage, unlike the `catch` below: the call
+                // went out and was billed, and Settings' monthly cost is wrong
+                // by exactly that call if a response that came back empty is
+                // written down as having cost nothing.
+                record(status: .failed, usage: usage)
+                phase = .failed(.modelReturnedNothingUsable("no bookings in the document"))
+                return
+            }
             phase = .parsing(step: .matching)
 
-            captureID = record(asset: data, status: .parsed, usage: usage)
+            captureID = record(status: .parsed, usage: usage)
             // Only the success path waits. A failure is a screen the user has
             // to read and act on, and holding it back would be delaying bad
             // news for the sake of an animation.
@@ -170,7 +270,7 @@ final class CaptureCoordinator {
             phase = .review(bookings: bookings, index: 0, saved: [])
         } catch let error as CaptureError {
             guard run == generation else { return }
-            record(asset: data, status: .failed, usage: nil)
+            record(status: .failed, usage: nil)
             phase = .failed(error)
         } catch {
             guard run == generation else { return }
@@ -209,7 +309,13 @@ final class CaptureCoordinator {
     /// The office this booking will be filed under, or nil if the sheet has to
     /// ask. Never creates one.
     func matchedOffice(for booking: ParsedBooking) -> Office? {
-        let offices = (try? context.fetch(FetchDescriptor<Office>())) ?? []
+        // Sorted, because a bare `FetchDescriptor` has no defined order and
+        // every rule in `OfficeMatcher` is "exactly one, or nothing" — a rule
+        // that has to look at all the candidates anyway should not have its
+        // answer depend on which one SwiftData happened to hand back first.
+        let offices = (try? context.fetch(
+            FetchDescriptor<Office>(sortBy: [SortDescriptor(\.name)])
+        )) ?? []
         let candidates = offices.map {
             OfficeMatcher.Candidate(
                 id: $0.id, name: $0.name, postcode: $0.postcode, address: $0.address,
@@ -262,22 +368,36 @@ final class CaptureCoordinator {
         if let printed = booking.officeName, matchedOffice(for: booking) == nil {
             remember(printed, as: officeID)
         }
-        try? BookingStore.upsert(
-            BookingMerge.Candidate(
-                officeID: officeID,
-                day: booking.day,
-                deskID: booking.deskID,
-                floor: booking.floor,
-                zone: booking.zone,
-                startTime: booking.startTime,
-                endTime: booking.endTime,
-                source: .capture,
-                unsureFields: booking.unsureFields
-            ),
-            captureID: captureID,
-            chosen: chosen,
-            in: context
-        )
+        // Only a write that landed may be drawn as one. `try?` here meant a
+        // failed save turned the segment green and advanced the sheet anyway:
+        // the user watched three capsules fill, the sheet dismissed, and the
+        // rows were gone at the next launch with nothing having said so. The
+        // rest of the table is lost by failing here, which is the price of
+        // being told at all — and the sheet's remaining choice, entering it by
+        // hand, is the right one when the store has just refused a write.
+        do {
+            try writeBooking(
+                BookingMerge.Candidate(
+                    officeID: officeID,
+                    day: booking.day,
+                    deskID: booking.deskID,
+                    floor: booking.floor,
+                    zone: booking.zone,
+                    startTime: booking.startTime,
+                    endTime: booking.endTime,
+                    source: .capture,
+                    unsureFields: booking.unsureFields
+                ),
+                captureID,
+                chosen
+            )
+        } catch {
+            // Through `failed`, which also clears `lastInput`: retrying reruns
+            // the model call, not the save, so the one button that could not
+            // possibly help is hidden.
+            failed(.couldNotSave(error.localizedDescription))
+            return
+        }
         saved.insert(booking.id)
         phase = .review(bookings: bookings, index: index, saved: saved)
         advance()
@@ -325,15 +445,25 @@ final class CaptureCoordinator {
 
     // MARK: The capture record
 
-    /// Keeps the original so "view original screenshot" works, and gives a
-    /// monthly call count and cost without instrumenting anything else.
+    /// A monthly call count and cost, without instrumenting anything else.
+    ///
+    /// It used to keep the image too, for a "view original screenshot" screen.
+    /// That screen was never built — there is no reader of `Capture.asset`
+    /// anywhere in the app — so what it actually did was retain a photograph of
+    /// the user's employer's booking system, floors, desk ids and colleagues'
+    /// rows and all, in the container and therefore in every iCloud backup, for
+    /// the life of the install and with no way to view or remove one. A failed
+    /// capture kept its image as well, so an accidentally-shared photo of
+    /// something else entirely was kept forever too. Keeping bytes nobody can
+    /// read is a privacy cost with no matching benefit; the four fields below
+    /// are the ones Settings actually shows. If the original is ever wanted
+    /// back, it needs a reader, a bound and a line of copy saying it is kept —
+    /// not a silent write.
     @discardableResult
-    private func record(
-        asset: Data, status: CaptureStatus, usage: HaikuClient.Usage?
-    ) -> UUID {
+    private func record(status: CaptureStatus, usage: HaikuClient.Usage?) -> UUID {
         let capture = Capture(
             receivedAt: .now,
-            asset: asset,
+            asset: nil,
             status: status,
             inputTokens: usage?.inputTokens ?? 0,
             outputTokens: usage?.outputTokens ?? 0

@@ -4,6 +4,14 @@ import SwiftUI
 /// The bottom sheet the whole capture happens in — parsing, confirming, or
 /// failing. One sheet for all three so the flow never flashes between
 /// presentations.
+///
+/// Almost everything the sheet decides — which card is up, what the title says,
+/// which office the booking will be filed under, whether the primary button
+/// saves or asks first — is lifted out as a `static` below. None of it needs a
+/// screen to be right or wrong, and while it lived inside `body` none of it
+/// could be asserted: the file was the largest untested surface in the app and
+/// shipped a header that told a user their screenshot was unreadable when the
+/// reading had worked perfectly and the *write* had failed.
 struct CaptureSheet: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
@@ -19,14 +27,14 @@ struct CaptureSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: Metrics.cardGap) {
-                    switch coordinator.phase {
-                    case .idle:
+                    switch Self.shown(for: coordinator.phase, current: coordinator.current) {
+                    case .nothing:
                         Color.clear.frame(height: 1)
                     case .parsing(let step):
                         parsing(step)
-                    case .review:
-                        if let booking = coordinator.current { review(booking) }
-                    case .failed(let error):
+                    case .review(let booking):
+                        review(booking)
+                    case .failure(let error):
                         failure(error)
                     }
                 }
@@ -35,7 +43,7 @@ struct CaptureSheet: View {
                 .padding(.bottom, 24)
             }
             .background(Palette.ground)
-            .navigationTitle(title)
+            .navigationTitle(Self.title(for: coordinator.phase))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -43,24 +51,48 @@ struct CaptureSheet: View {
                 }
             }
         }
-        .onChange(of: isFinished) { _, finished in
-            if finished { dismiss() }
+        // The coordinator outlives the sheet, so going idle — the last booking
+        // filed, or a cancel from anywhere — is what closes it.
+        .onChange(of: coordinator.isActive) { _, active in
+            if !active { dismiss() }
         }
         .sheet(isPresented: $manualEntry) {
             NavigationStack { BookingEditorScreen() }
         }
     }
 
-    private var isFinished: Bool {
-        if case .idle = coordinator.phase { return true }
-        return false
+    // MARK: What is on screen
+
+    /// The one card up at any moment.
+    ///
+    /// A `.review` phase with nothing at its index draws nothing rather than an
+    /// empty card under a "Confirm" title — the coordinator only reaches that
+    /// state if a parse yields no rows, which `HaikuClient` refuses, and a blank
+    /// sheet with a Cancel button is the worst possible way to find out it got
+    /// through anyway.
+    enum Shown: Equatable {
+        case nothing
+        case parsing(CaptureCoordinator.Step)
+        case review(ParsedBooking)
+        case failure(CaptureError)
     }
 
-    private var title: String {
-        switch coordinator.phase {
+    static func shown(
+        for phase: CaptureCoordinator.Phase, current: ParsedBooking?
+    ) -> Shown {
+        switch phase {
+        case .idle: .nothing
+        case .parsing(let step): .parsing(step)
+        case .review: current.map(Shown.review) ?? .nothing
+        case .failed(let error): .failure(error)
+        }
+    }
+
+    static func title(for phase: CaptureCoordinator.Phase) -> String {
+        switch phase {
         case .parsing: "Reading"
         case .review: "Confirm"
-        case .failed: "Couldn't read it"
+        case .failed(let error): failureTitle(for: error)
         case .idle: ""
         }
     }
@@ -104,19 +136,37 @@ struct CaptureSheet: View {
     /// Done, active, or pending — driven by real progress, so a step that
     /// completes instantly simply flashes past rather than being held open to
     /// look busy.
+    enum Tick: Equatable {
+        case done, active, pending
+
+        /// Whether the step's label is in full black. A step still to come is
+        /// grey; the one under way is not, or the checklist would read as
+        /// though nothing had started.
+        var reached: Bool { self != .pending }
+    }
+
+    static func tick(
+        _ step: CaptureCoordinator.Step, at current: CaptureCoordinator.Step
+    ) -> Tick {
+        if step < current { return .done }
+        return step == current ? .active : .pending
+    }
+
     private func checklistRow(
         _ title: String, _ step: CaptureCoordinator.Step, _ current: CaptureCoordinator.Step
     ) -> some View {
-        HStack(spacing: 11) {
+        let tick = Self.tick(step, at: current)
+        return HStack(spacing: 11) {
             Group {
-                if step < current {
+                switch tick {
+                case .done:
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundStyle(Palette.met)
-                } else if step == current {
+                case .active:
                     Circle()
                         .strokeBorder(Palette.tint, lineWidth: 2)
                         .frame(width: 17, height: 17)
-                } else {
+                case .pending:
                     Circle()
                         .strokeBorder(Palette.tertiary, lineWidth: 1.5)
                         .frame(width: 17, height: 17)
@@ -127,21 +177,43 @@ struct CaptureSheet: View {
 
             Text(title)
                 .font(.system(size: 15))
-                .foregroundStyle(step <= current ? Palette.text : Palette.secondary)
+                .foregroundStyle(tick.reached ? Palette.text : Palette.secondary)
         }
     }
 
     // MARK: Review
 
+    /// The office this booking will be filed under.
+    ///
+    /// A match outranks the picker rather than merging with it: when the
+    /// matcher answers, the picker is never drawn, so a `chosenOffice` left over
+    /// from the previous booking in the table would otherwise decide where this
+    /// one went with nothing on screen saying so.
+    static func officeToFileUnder(matched: UUID?, chosen: UUID?) -> UUID? {
+        matched ?? chosen
+    }
+
+    /// The booking already held for this office and day, when it is worth
+    /// asking about.
+    ///
+    /// Re-importing the same desk changes nothing but gaps being filled, and a
+    /// confirmation for that is a question with one answer — so only a
+    /// *different* desk is a clash. Getting this backwards puts a destructive
+    /// dialog in front of every re-share of a table the user has already filed.
+    static func clash(with existing: DeskBooking?, incoming deskID: String) -> DeskBooking? {
+        guard let existing, existing.deskID != deskID else { return nil }
+        return existing
+    }
+
     private func review(_ booking: ParsedBooking) -> some View {
         let matched = coordinator.matchedOffice(for: booking)
-        let officeID = matched?.id ?? chosenOffice
-        // Only a clash worth asking about. Re-importing the same desk changes
-        // nothing but gaps being filled, and a confirmation for that is a
-        // question with one answer.
-        let clash = officeID
-            .flatMap { coordinator.existingBooking(day: booking.day, officeID: $0) }
-            .flatMap { $0.deskID == booking.deskID ? nil : $0 }
+        let officeID = Self.officeToFileUnder(matched: matched?.id, chosen: chosenOffice)
+        let clash = Self.clash(
+            with: officeID.flatMap {
+                coordinator.existingBooking(day: booking.day, officeID: $0)
+            },
+            incoming: booking.deskID
+        )
         return VStack(spacing: Metrics.cardGap) {
             header
             if matched == nil { officePicker(booking) }
@@ -172,9 +244,12 @@ struct CaptureSheet: View {
                         .foregroundStyle(Palette.secondary)
                 }
                 HStack(spacing: 4) {
-                    ForEach(Array(coordinator.segments.enumerated()), id: \.offset) { index, saved in
+                    let bar = Self.bar(
+                        saved: coordinator.segments, current: position.number - 1
+                    )
+                    ForEach(Array(bar.enumerated()), id: \.offset) { _, segment in
                         Capsule()
-                            .fill(segmentColour(index: index, saved: saved, at: position.number - 1))
+                            .fill(Self.colour(of: segment))
                             .frame(height: 4)
                     }
                 }
@@ -183,19 +258,42 @@ struct CaptureSheet: View {
         }
     }
 
-    private func segmentColour(index: Int, saved: Bool, at current: Int) -> Color {
-        if saved { return Palette.met }
-        return index == current ? Palette.tint : Palette.hairline
+    /// One capsule per booking in the table.
+    enum Segment: Equatable { case saved, current, pending }
+
+    /// Saved outranks current, because only a write that landed may be drawn as
+    /// one: a booking that failed to save must not keep the highlight that says
+    /// "this is the one you are on" *and* pick up the green that says it is
+    /// filed.
+    static func bar(saved: [Bool], current: Int) -> [Segment] {
+        saved.enumerated().map { index, isSaved -> Segment in
+            if isSaved { return .saved }
+            return index == current ? .current : .pending
+        }
+    }
+
+    static func colour(of segment: Segment) -> Color {
+        switch segment {
+        case .saved: Palette.met
+        case .current: Palette.tint
+        case .pending: Palette.hairline
+        }
     }
 
     /// No match means the sheet asks. It never creates an office — a silently
     /// invented one gets its own perimeter, and the user finds out when the
     /// arrival alert doesn't fire.
+    ///
+    /// Quoted back verbatim when there is a printed name, because the answer is
+    /// only useful if the user can see which string they are teaching.
+    static func officeQuestion(printed: String?) -> String {
+        printed.map { "Which office is \"\($0)\"?" } ?? "Which office is this?"
+    }
+
     private func officePicker(_ booking: ParsedBooking) -> some View {
         Card(padding: EdgeInsets(top: 14, leading: 16, bottom: 14, trailing: 16)) {
             VStack(alignment: .leading, spacing: 10) {
-                Text(booking.officeName.map { "Which office is \"\($0)\"?" }
-                     ?? "Which office is this?")
+                Text(Self.officeQuestion(printed: booking.officeName))
                     .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(Palette.text)
                 if offices.isEmpty {
@@ -216,35 +314,48 @@ struct CaptureSheet: View {
         }
     }
 
-    private func fields(_ booking: ParsedBooking, office: Office?) -> some View {
-        Card {
-            VStack(spacing: 0) {
-                DetailRow(
-                    label: "Office",
-                    value: office?.name ?? booking.officeName,
-                    needsChecking: booking.unsureFields.contains("office") && office == nil
-                )
-                RowDivider()
-                DetailRow(label: "Date", value: booking.day.longText)
-                RowDivider()
-                DetailRow(label: "Desk", value: booking.deskID)
-                RowDivider()
-                DetailRow(
-                    label: "Floor", value: booking.floor,
-                    needsChecking: booking.unsureFields.contains("floor")
-                )
-                RowDivider()
-                DetailRow(
-                    label: "Hours", value: hours(booking),
-                    needsChecking: booking.unsureFields.contains("startTime")
-                        || booking.unsureFields.contains("endTime")
-                )
-            }
-        }
+    /// One row of the detail card: what it is called, what it says, and whether
+    /// it is flagged as unread instead.
+    struct Field: Equatable {
+        var label: String
+        var value: String?
+        var needsChecking = false
     }
 
-    private func hours(_ booking: ParsedBooking) -> String? {
-        switch (booking.startTime, booking.endTime) {
+    /// The five rows, and which of them the model admitted it could not read.
+    ///
+    /// Office is the exception: a name the model was unsure of is not worth
+    /// flagging once the matcher has resolved it anyway, because the row then
+    /// shows the office's own stored name and there is nothing left to check.
+    /// Hours is the other: it is two fields printed as one, so either being
+    /// unread has to flag the row — reading only `startTime` left a booking
+    /// ending at a time nobody had read presented as fact.
+    static func fieldRows(_ booking: ParsedBooking, office: Office?) -> [Field] {
+        [
+            Field(
+                label: "Office",
+                value: office?.name ?? booking.officeName,
+                needsChecking: booking.unsureFields.contains("office") && office == nil
+            ),
+            Field(label: "Date", value: booking.day.longText),
+            Field(label: "Desk", value: booking.deskID),
+            Field(
+                label: "Floor", value: booking.floor,
+                needsChecking: booking.unsureFields.contains("floor")
+            ),
+            Field(
+                label: "Hours", value: hours(start: booking.startTime, end: booking.endTime),
+                needsChecking: booking.unsureFields.contains("startTime")
+                    || booking.unsureFields.contains("endTime")
+            ),
+        ]
+    }
+
+    /// One end, both ends, or neither. `until 17:00` rather than `– 17:00`,
+    /// because a dash with nothing in front of it reads as a missing value
+    /// rather than as a day that starts whenever you arrive.
+    static func hours(start: String?, end: String?) -> String? {
+        switch (start, end) {
         case (let start?, let end?): "\(start) – \(end)"
         case (let start?, nil): start
         case (nil, let end?): "until \(end)"
@@ -252,21 +363,65 @@ struct CaptureSheet: View {
         }
     }
 
+    private func fields(_ booking: ParsedBooking, office: Office?) -> some View {
+        Card {
+            VStack(spacing: 0) {
+                let rows = Self.fieldRows(booking, office: office)
+                ForEach(Array(rows.enumerated()), id: \.offset) { index, field in
+                    DetailRow(
+                        label: field.label, value: field.value,
+                        needsChecking: field.needsChecking
+                    )
+                    if index < rows.count - 1 { RowDivider() }
+                }
+            }
+        }
+    }
+
     /// One desk per office per day, so a re-import is a change rather than a
     /// duplicate — the month cannot double. What it can do is move the desk id
     /// without being asked, which is what this says out loud.
+    ///
+    /// The provenance on the right is only shown for a desk typed by hand: a
+    /// desk that came from a capture is the same kind of record as the one
+    /// arriving, so naming its source there would be noise on every re-share.
+    static func clashText(deskID: String, source: BookingSource) -> (String, String?) {
+        ("Already booked: \(deskID)", source == .manual ? "entered by hand" : nil)
+    }
+
     private func clashStrip(_ existing: DeskBooking) -> some View {
-        StatusStrip(
-            tone: .warning,
-            leading: "Already booked: \(existing.deskID)",
-            trailing: existing.source == .manual ? "entered by hand" : nil
+        let (leading, trailing) = Self.clashText(
+            deskID: existing.deskID, source: existing.source
+        )
+        return StatusStrip(tone: .warning, leading: leading, trailing: trailing)
+    }
+
+    /// The primary button, which is three buttons wearing one coat.
+    struct PrimaryAction: Equatable {
+        var title: String
+        var enabled: Bool
+        /// Whether pressing it opens the replace dialog instead of writing.
+        var asksFirst: Bool
+    }
+
+    /// Disabled rather than hidden when no office is known yet: the button is
+    /// what the user is looking for, and removing it reads as the sheet being
+    /// broken rather than as the picker above it being unanswered.
+    static func primaryAction(officeID: UUID?, replacing: Bool, isLast: Bool) -> PrimaryAction {
+        PrimaryAction(
+            title: replacing ? "Replace…" : (isLast ? "Save and finish" : "Save and next"),
+            enabled: officeID != nil,
+            asksFirst: replacing
         )
     }
 
     private func actions(
         _ booking: ParsedBooking, officeID: UUID?, replacing existing: DeskBooking?
     ) -> some View {
-        HStack(spacing: 10) {
+        let primary = Self.primaryAction(
+            officeID: officeID, replacing: existing != nil, isLast: coordinator.isLast
+        )
+        return HStack(spacing: 10) {
             Button("Skip") {
                 chosenOffice = nil
                 coordinator.advance()
@@ -274,19 +429,17 @@ struct CaptureSheet: View {
             .buttonStyle(.bordered)
             .tint(Palette.secondary)
 
-            Button(existing == nil
-                   ? (coordinator.isLast ? "Save and finish" : "Save and next")
-                   : "Replace…") {
-                guard officeID != nil else { return }
-                if existing == nil {
-                    save(booking, to: officeID, chosen: false)
-                } else {
+            Button(primary.title) {
+                guard primary.enabled else { return }
+                if primary.asksFirst {
                     confirmingReplace = true
+                } else {
+                    save(booking, to: officeID, chosen: false)
                 }
             }
             .buttonStyle(.borderedProminent)
             .tint(Palette.tint)
-            .disabled(officeID == nil)
+            .disabled(!primary.enabled)
         }
         .controlSize(.large)
         .frame(maxWidth: .infinity)
@@ -331,13 +484,43 @@ struct CaptureSheet: View {
 
     // MARK: Failure
 
+    /// What broke, in the sheet's own two words and in its heading.
+    ///
+    /// Both used to be hard-coded to the reading, which was true of every
+    /// failure that could reach this card — until a booking the model had read
+    /// perfectly failed to *write*. "Couldn't read that screenshot" then sent
+    /// someone off to re-share an image that was never the problem, past the one
+    /// offer on the card that could have helped them. The body underneath is
+    /// already right, because it comes from the error itself.
+    ///
+    /// Spelled out case by case rather than defaulted, so a `CaptureError` added
+    /// later has to state which half of the pipeline it broke instead of
+    /// silently inheriting the reading's wording.
+    static func failureTitle(for error: CaptureError) -> String {
+        switch error {
+        case .couldNotSave: "Couldn't save it"
+        case .noAPIKey, .unsupportedFile, .unreadableImage, .network, .httpStatus,
+            .modelReturnedNothingUsable, .refused:
+            "Couldn't read it"
+        }
+    }
+
+    static func failureHeader(for error: CaptureError) -> String {
+        switch error {
+        case .couldNotSave: "Couldn't save that booking"
+        case .noAPIKey, .unsupportedFile, .unreadableImage, .network, .httpStatus,
+            .modelReturnedNothingUsable, .refused:
+            "Couldn't read that screenshot"
+        }
+    }
+
     /// Never a silent drop, and never a bounce back to the home screen: the
     /// error replaces the card in place and offers both ways forward.
     private func failure(_ error: CaptureError) -> some View {
         VStack(spacing: Metrics.cardGap) {
             Card(padding: EdgeInsets(top: 18, leading: 16, bottom: 18, trailing: 16)) {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("Couldn't read that screenshot")
+                    Text(Self.failureHeader(for: error))
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(Palette.text)
                     Text(error.errorDescription ?? "Unknown failure")

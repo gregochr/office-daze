@@ -196,12 +196,16 @@ enum BookingStore {
         try context.save()
     }
 
-    /// The same answer from a notification, where only the id came back.
-    static func markNotAttended(bookingID: UUID, in context: ModelContext) throws {
-        guard let booking = try context.fetch(FetchDescriptor<DeskBooking>())
-            .first(where: { $0.id == bookingID }) else { return }
-        try markNotAttended(booking, in: context)
-    }
+    // There was an id-taking overload here, for "the same answer from a
+    // notification, where only the id came back". Nothing called it: the
+    // notification path answers through `ArrivalLedger.declineAttendance`,
+    // which looks the booking up itself and additionally refuses to answer for
+    // a day already recorded as attended — the guard
+    // `ArrivalLedgerTests.declineRefusesAnAnsweredDay` exists to protect. An
+    // id-taking door into this function that skipped that guard was a way to
+    // reintroduce the stale-question bug with the suite still green, so it is
+    // gone rather than tested. If a second id-based decline is ever wanted,
+    // `declineAttendance` is it.
 
     /// Removes a recorded day. The counterpart of `recordAttendance`, for a day
     /// entered by hand and then thought better of.
@@ -231,9 +235,33 @@ enum BookingStore {
         // claiming days that have not happened.
         guard day <= today else { return nil }
 
-        let already = try context.fetch(FetchDescriptor<AttendanceDay>())
-            .contains { $0.day == day && $0.officeID == officeID }
-        guard !already else { return nil }
+        let recorded = try context.fetch(FetchDescriptor<AttendanceDay>())
+            .filter { $0.day == day }
+
+        // The same answer twice about the same building. This is the arrival
+        // alert's "I'm here" tapped again after coming back from lunch, and it
+        // has to be silent rather than a second row.
+        guard !recorded.contains(where: { $0.officeID == officeID }) else { return nil }
+
+        // And the same day at a *different* building. This guard used to be the
+        // one above on its own, keyed on day AND office, so arriving at a second
+        // site on a day already recorded wrote a second whole-day row and the
+        // month gained a day nobody worked. Three routes walked into it — the
+        // manual editor, the second office's arrival alert, and the evening
+        // nudge about the second office's booking — and the arrival alert is
+        // the reachable one, because it tells the user in as many words that
+        // the button "will no longer move" the count.
+        //
+        // Keyed on the day's total rather than on the day existing at all,
+        // because half days are real: a morning at one site and an afternoon at
+        // another is two 0.5 rows adding to one honest day, and refusing the
+        // second would lose half a day that was worked. What is refused is the
+        // total going over a day. Refused outright rather than trimmed to fit —
+        // writing 0.5 when 1.0 was asked for would be the store deciding how
+        // much of the day the user spent where, which is the user's fact, not
+        // the store's. The caller gets nil, which is what it already gets for a
+        // day in the future.
+        guard recorded.reduce(0, { $0 + $1.fraction }) + fraction <= 1.0 else { return nil }
 
         let record = AttendanceDay(
             day: day, officeID: officeID, source: source,

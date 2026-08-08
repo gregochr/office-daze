@@ -1,0 +1,33 @@
+{
+  "configurations" : [
+    {
+      "id" : "9F1C0A62-0E3D-4B1A-9C77-2A1B4E6D8F30",
+      "name" : "Configuration 1",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "codeCoverage" : {
+      "targets" : [
+        {
+          "containerPath" : "container:OfficeDaze.xcodeproj",
+          "identifier" : "AA0000000000000000000010",
+          "name" : "OfficeDaze"
+        }
+      ]
+    }
+  },
+  "testTargets" : [
+    {
+      "parallelizable" : false,
+      "target" : {
+        "containerPath" : "container:OfficeDaze.xcodeproj",
+        "identifier" : "AA0000000000000000000030",
+        "name" : "OfficeDazeTests"
+      }
+    }
+  ],
+  "version" : 1
+}

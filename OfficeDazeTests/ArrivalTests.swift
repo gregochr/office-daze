@@ -244,6 +244,37 @@ struct ArrivalNotificationTests {
         )
     }
 
+    /// The two assertions above and the one in `consequence` are the only ones
+    /// in this suite that exercise a half day, and they were the only two that
+    /// could pass or fail on the region the machine running them happened to be
+    /// set to: the formatter behind them followed `Locale.autoupdatingCurrent`,
+    /// so "4.5" became "4,5" on a French simulator and both went red with no
+    /// code change. Pinned in production now, the way `Day`'s formatters are.
+    @Test("The half-day figure is pinned to en_GB, not to the device's region")
+    func halfDaysDoNotFollowTheDeviceRegion() {
+        #expect(
+            ArrivalNotifications.dayCount(attended: 4.5, target: 7, monthName: "August")
+                == "Day 4.5 of 7 for August"
+        )
+        #expect(ArrivalNotifications.shortCount(attended: 4.5, target: 7) == "Day 4.5 of 7")
+        #expect(ArrivalNotifications.consequence(attended: 4.5) == "tap to make it 5.5")
+        #expect(
+            EveningNudge.message(shortfall: 2.5, tomorrow: Day(2026, 8, 12))
+                .body.contains("2.5 days still to go")
+        )
+
+        // What the three above are actually guarding. This is the rendering a
+        // comma-decimal device gives, and it is what they used to produce there
+        // — so a full stop asserted above is the pin holding, not the host
+        // agreeing by accident.
+        #expect(
+            (4.5).formatted(
+                .number.precision(.fractionLength(0...1))
+                    .locale(Locale(identifier: "fr_FR"))
+            ) == "4,5"
+        )
+    }
+
     /// The count alone reads as though turning up had already been counted,
     /// which is the one thing this app never claims. The tail says what the
     /// button will do about it.
@@ -350,6 +381,381 @@ struct ArrivalNotificationTests {
             ArrivalNotifications.identifier(officeID: officeID, day: day, at: first)
                 == ArrivalNotifications.identifier(officeID: officeID, day: day, at: first)
         )
+    }
+}
+
+/// The evening question names one day, and its buttons write that day. Every
+/// test here is about keeping those two facts from drifting apart — which they
+/// did, silently, for as long as the notification repeated.
+@Suite("The evening question's day")
+struct EveningNudgeStalenessTests {
+
+    let london = TimeZone(identifier: "Europe/London")!
+    let brussels = TimeZone(identifier: "Europe/Brussels")!
+    let sixOClock = DateComponents(hour: 18, minute: 0)
+
+    func unconfirmed(_ day: Day) -> EveningNudge.Unconfirmed {
+        .init(
+            day: day, officeID: UUID(), officeName: "Coleman",
+            bookingID: UUID(), deskID: "3C-114"
+        )
+    }
+
+    /// The defect this suite exists for. A repeating trigger redelivered "Were
+    /// you at Coleman today?" the next evening still carrying yesterday's date;
+    /// "I was there" then wrote attendance for a day the user was not there,
+    /// and left the day they were there unrecorded.
+    @Test("A question about one day is pinned to that day's evening and asked once")
+    func theQuestionCannotOutliveItsDay() throws {
+        let request = EveningNudge.request(
+            at: sixOClock, title: "t", body: "b",
+            answering: unconfirmed(Day(2026, 8, 11)), in: london
+        )
+        let trigger = try #require(request.trigger as? UNCalendarNotificationTrigger)
+
+        #expect(!trigger.repeats, "a repeat asks about the 11th again on the 12th")
+        #expect(trigger.dateComponents.year == 2026)
+        #expect(trigger.dateComponents.month == 8)
+        #expect(trigger.dateComponents.day == 11, "the day it asks about, not any day")
+        #expect(trigger.dateComponents.hour == 18)
+        #expect(trigger.dateComponents.minute == 0)
+
+        // The invariant the response handler leans on: whatever day the payload
+        // names, the trigger can only deliver it on that same day.
+        #expect(
+            request.content.userInfo[ArrivalNotifications.UserInfo.day] as? String
+                == "2026-08-11"
+        )
+    }
+
+    /// Six in the evening means six on the phone's clock. Built in two zones the
+    /// same wall-clock question is two different instants, an hour apart — which
+    /// is the check that the zone is used rather than accepted and ignored.
+    @Test("Six in the evening is six where the phone is")
+    func theEveningIsLocal() throws {
+        func instant(_ zone: TimeZone) throws -> Date {
+            let request = EveningNudge.request(
+                at: sixOClock, title: "t", body: "b",
+                answering: unconfirmed(Day(2026, 8, 11)), in: zone
+            )
+            let trigger = try #require(request.trigger as? UNCalendarNotificationTrigger)
+            return try #require(Day.localCalendar(zone).date(from: trigger.dateComponents))
+        }
+
+        // 18:00 BST is 17:00 UTC; 18:00 CEST is 16:00 UTC.
+        let utc = Day.localCalendar(TimeZone(identifier: "UTC")!)
+        #expect(try instant(london) == utc.date(from: DateComponents(
+            year: 2026, month: 8, day: 11, hour: 17
+        )))
+        #expect(try instant(brussels) == utc.date(from: DateComponents(
+            year: 2026, month: 8, day: 11, hour: 16
+        )))
+    }
+
+    /// The other branch keeps its repeat, and keeps it on purpose: it carries no
+    /// payload and its category has no buttons, so a stale redelivery reads
+    /// oddly rather than writing anything — and the app is not running most
+    /// evenings, so a schedule that needs the app awake is a schedule that stops.
+    @Test("The prompt to book tomorrow still repeats, and names no single date")
+    func theBookingPromptRepeats() throws {
+        let request = EveningNudge.request(
+            at: DateComponents(hour: 18, minute: 30), title: "t", body: "b", in: london
+        )
+        let trigger = try #require(request.trigger as? UNCalendarNotificationTrigger)
+
+        #expect(trigger.repeats)
+        #expect(trigger.dateComponents.day == nil, "any day, or it is not a daily match")
+        #expect(trigger.dateComponents.hour == 18)
+        #expect(trigger.dateComponents.minute == 30)
+        #expect(
+            request.content.userInfo.isEmpty,
+            "nothing for a button to write, which is what makes the repeat safe"
+        )
+    }
+}
+
+/// What a tapped button is allowed to write. The rule is pure so that it can be
+/// tested at all: `UNNotificationResponse` has no initialiser a test can call,
+/// so anything decided inside the delegate method is untestable by construction.
+@Suite("The answer a tapped notification gives")
+struct NotificationAnswerTests {
+
+    let officeID = UUID()
+    let bookingID = UUID()
+    let day = Day(2026, 8, 11)
+
+    func payload(day: Day, booking: UUID?) -> [AnyHashable: Any] {
+        [
+            ArrivalNotifications.UserInfo.officeID: officeID.uuidString,
+            ArrivalNotifications.UserInfo.day: day.description,
+            ArrivalNotifications.UserInfo.bookingID: booking?.uuidString ?? "",
+        ]
+    }
+
+    func answer(
+        _ action: ArrivalNotifications.Action, day: Day = Day(2026, 8, 11),
+        booking: UUID? = nil, delivered: Day
+    ) -> ArrivalNotifications.Answer {
+        ArrivalNotifications.answer(
+            to: action.rawValue, userInfo: payload(day: day, booking: booking),
+            delivered: delivered
+        )
+    }
+
+    @Test("An answer about the day it was delivered on records that day")
+    func recordsTheDayItAsksAbout() {
+        #expect(
+            answer(.confirm, booking: bookingID, delivered: day)
+                == .record(officeID: officeID, day: day, bookingID: bookingID)
+        )
+    }
+
+    /// The failure this guard exists for. Content built for the 11th, delivered
+    /// again on the 12th, answered "I was there" — the write must not happen,
+    /// because it would record a day the user was not there while leaving the
+    /// day they were there unrecorded. `recordAttendance` cannot catch it: its
+    /// only date check is `day <= today`, which a stale past day passes.
+    @Test("A payload delivered on a later day is not an answer to anything")
+    func refusesARedelivery() {
+        #expect(answer(.confirm, booking: bookingID, delivered: Day(2026, 8, 12)) == .ignore)
+        #expect(answer(.decline, booking: bookingID, delivered: Day(2026, 8, 12)) == .ignore)
+        // And the day before, which is the case a "recent enough" guard would
+        // have waved through: content for the 11th cannot be delivered on the
+        // 10th, so a payload claiming it is not to be trusted either.
+        #expect(answer(.confirm, booking: bookingID, delivered: Day(2026, 8, 10)) == .ignore)
+    }
+
+    /// The check is against the *delivery* date, not against today, and this is
+    /// why: an alert can sit on a lock screen for days. Monday's arrival tapped
+    /// on Wednesday is still Monday's arrival and still records Monday.
+    @Test("A tap days later still records the day the alert was delivered for")
+    func aLateTapStillCounts() {
+        let old = Day(2026, 1, 5)
+        #expect(
+            answer(.confirm, day: old, booking: nil, delivered: old)
+                == .record(officeID: officeID, day: old, bookingID: nil)
+        )
+    }
+
+    @Test("No is an answer only when it names the booking it answers for")
+    func declineNeedsABooking() {
+        #expect(
+            answer(.decline, booking: bookingID, delivered: day)
+                == .decline(bookingID: bookingID)
+        )
+        // The arrival alert writes "" where there is no booking, so this has to
+        // survive a string that is not a UUID rather than a missing key.
+        #expect(answer(.decline, booking: nil, delivered: day) == .ignore)
+    }
+
+    @Test("Dismissing, and anything that is not a button, writes nothing")
+    func nonAnswers() {
+        #expect(answer(.dismiss, booking: bookingID, delivered: day) == .ignore)
+        #expect(
+            ArrivalNotifications.answer(
+                to: UNNotificationDefaultActionIdentifier,
+                userInfo: payload(day: day, booking: bookingID), delivered: day
+            ) == .ignore,
+            "opening the app is not saying you were there"
+        )
+    }
+
+    @Test("A payload missing or malformed writes nothing")
+    func malformedPayloads() {
+        let good = payload(day: day, booking: bookingID)
+        let confirm = ArrivalNotifications.Action.confirm.rawValue
+
+        var noOffice = good
+        noOffice[ArrivalNotifications.UserInfo.officeID] = nil
+        #expect(ArrivalNotifications.answer(to: confirm, userInfo: noOffice, delivered: day) == .ignore)
+
+        var badOffice = good
+        badOffice[ArrivalNotifications.UserInfo.officeID] = "not-a-uuid"
+        #expect(ArrivalNotifications.answer(to: confirm, userInfo: badOffice, delivered: day) == .ignore)
+
+        var badDay = good
+        badDay[ArrivalNotifications.UserInfo.day] = "2026-13-40"
+        #expect(ArrivalNotifications.answer(to: confirm, userInfo: badDay, delivered: day) == .ignore)
+
+        #expect(ArrivalNotifications.answer(to: confirm, userInfo: [:], delivered: day) == .ignore)
+    }
+
+    /// End to end, without a device: the request the scheduler builds, read back
+    /// through the rule the handler uses, on the evening it was pinned to.
+    @Test("A question built tonight is answerable tonight and no other night")
+    func roundTrip() {
+        let asking = EveningNudge.Unconfirmed(
+            day: day, officeID: officeID, officeName: "Coleman",
+            bookingID: bookingID, deskID: "3C-114"
+        )
+        let info = EveningNudge.request(
+            at: DateComponents(hour: 18, minute: 0), title: "t", body: "b",
+            answering: asking, in: TimeZone(identifier: "Europe/London")!
+        ).content.userInfo
+
+        let confirm = ArrivalNotifications.Action.confirm.rawValue
+        #expect(
+            ArrivalNotifications.answer(to: confirm, userInfo: info, delivered: day)
+                == .record(officeID: officeID, day: day, bookingID: bookingID)
+        )
+        #expect(
+            ArrivalNotifications.answer(
+                to: confirm, userInfo: info, delivered: day.adding(days: 1)
+            ) == .ignore
+        )
+    }
+}
+
+/// The reminder time is a wall-clock time on the phone's own clock. It was read
+/// and written through `Day.calendar`, which is pinned to UTC — and because both
+/// ends made the same mistake, the picker redisplayed the time the user chose
+/// while the trigger fired an hour early all summer.
+@Suite("The reminder time")
+@MainActor
+struct NudgeTimeTests {
+
+    let london = TimeZone(identifier: "Europe/London")!
+    let newYork = TimeZone(identifier: "America/New_York")!
+
+    func picked(_ day: Day, hour: Int, minute: Int = 0, in zone: TimeZone) throws -> Date {
+        try #require(Day.localCalendar(zone).date(from: DateComponents(
+            year: day.year, month: day.month, day: day.day, hour: hour, minute: minute
+        )))
+    }
+
+    @Test("Six in the evening in British Summer Time is stored as six, not five")
+    func summerTimeIsNotAnHourEarly() throws {
+        let chosen = try picked(Day(2026, 8, 7), hour: 18, in: london)
+        let stored = NudgeScheduler.components(from: chosen, in: london)
+
+        #expect(stored.hour == 18)
+        #expect(stored.minute == 0)
+        // The old reading, kept here so the mistake is visible: through the UTC
+        // calendar the very same instant is 17:00, and 17 is the number that
+        // reached a trigger which fires on the device's clock.
+        #expect(Day.calendar.dateComponents([.hour], from: chosen).hour == 17)
+    }
+
+    /// Winter is the case that made it invisible: with no offset there is no
+    /// error, so the bug was undetectable for half the year in the one zone the
+    /// app is written for.
+    @Test("The same reading holds when the clocks go back")
+    func winterAgrees() throws {
+        let chosen = try picked(Day(2026, 1, 7), hour: 18, in: london)
+        #expect(NudgeScheduler.components(from: chosen, in: london).hour == 18)
+        #expect(Day.calendar.dateComponents([.hour], from: chosen).hour == 18)
+    }
+
+    /// Every user outside UTC was affected by their own offset, not by BST.
+    @Test("The zone is read from the phone, not assumed")
+    func offsetIsTheUsersOwn() throws {
+        let chosen = try picked(Day(2026, 8, 7), hour: 18, in: newYork)
+        #expect(NudgeScheduler.components(from: chosen, in: newYork).hour == 18)
+        // The same instant, read on a London clock, is a different hour — so the
+        // zone argument is doing work rather than being ignored.
+        #expect(NudgeScheduler.components(from: chosen, in: london).hour == 23)
+    }
+
+    @Test("What the picker is handed back is what was stored")
+    func roundTripsThroughThePicker() throws {
+        for zone in [london, newYork] {
+            for hour in [0, 9, 18, 23] {
+                let stored = NudgeScheduler.components(
+                    from: try picked(Day(2026, 8, 7), hour: hour, minute: 30, in: zone),
+                    in: zone
+                )
+                let shown = NudgeScheduler.pickerDate(
+                    for: stored, on: Day(2026, 8, 7), in: zone
+                )
+                let parts = Day.localCalendar(zone)
+                    .dateComponents([.hour, .minute], from: shown)
+                #expect(parts.hour == hour, "\(zone.identifier)")
+                #expect(parts.minute == 30, "\(zone.identifier)")
+            }
+        }
+    }
+
+    /// An untouched reminder has nothing stored, and 18:00 is what the trigger
+    /// uses. The screen used to render that default through UTC and show 19:00 —
+    /// so the first thing a BST user did was "correct" a working default into a
+    /// broken one.
+    @Test("The untouched default shows the hour it will actually fire at")
+    func theDefaultShowsItself() {
+        let shown = NudgeScheduler.pickerDate(
+            for: DateComponents(hour: 18, minute: 0), on: Day(2026, 8, 7), in: london
+        )
+        #expect(Day.localCalendar(london).component(.hour, from: shown) == 18)
+    }
+}
+
+/// Two permissions have to hold before an arrival alert reaches anyone, and the
+/// offices list used to check one. Granting Always location and declining the
+/// notification prompt that came with it left every row reading "Alert on · 50m"
+/// in the reassuring green, with nothing anywhere in the app mentioning
+/// notifications at all.
+@Suite("Whether an alert will actually fire")
+struct AlertReadinessTests {
+
+    func readiness(
+        alertEnabled: Bool = true, canMonitor: Bool = true,
+        notificationsAllowed: Bool = true, isLocated: Bool = true,
+        radiusMetres: Double = 50
+    ) -> AlertReadiness {
+        .of(
+            alertEnabled: alertEnabled, canMonitor: canMonitor,
+            notificationsAllowed: notificationsAllowed, isLocated: isLocated,
+            radiusMetres: radiusMetres
+        )
+    }
+
+    @Test("Everything granted, an office located, and the radius is the line")
+    func ready() {
+        #expect(readiness() == .ready(radiusMetres: 50))
+        #expect(readiness().willFire)
+        #expect(readiness().text == "Alert on · 50m")
+    }
+
+    /// The finding itself. Nothing about denying notifications changes location,
+    /// an office's coordinates or the toggle, so every other input here is the
+    /// happy one — and the row must still refuse to promise.
+    @Test("An alert with notifications off does not fire and does not claim to")
+    func notificationsDenied() {
+        let state = readiness(notificationsAllowed: false)
+        #expect(state == .needsNotifications)
+        #expect(!state.willFire, "green here is a promise iOS will not keep")
+        #expect(state.text == "Alert needs notifications turned on")
+    }
+
+    @Test("Each other reason has its own line, and none of them fires")
+    func theReasons() {
+        #expect(readiness(alertEnabled: false) == .off)
+        #expect(readiness(canMonitor: false) == .needsLocation)
+        #expect(readiness(isLocated: false) == .notLocated)
+
+        for state in [
+            readiness(alertEnabled: false), readiness(canMonitor: false),
+            readiness(notificationsAllowed: false), readiness(isLocated: false),
+        ] {
+            #expect(!state.willFire)
+        }
+    }
+
+    /// Ordered by what the user should fix first: without location the app is
+    /// never woken, so "turn notifications on" would be advice that changes
+    /// nothing. A switched-off office says nothing about permissions at all.
+    @Test("The reason given is the first one that needs fixing")
+    func orderOfReasons() {
+        #expect(
+            readiness(
+                alertEnabled: false, canMonitor: false,
+                notificationsAllowed: false, isLocated: false
+            ) == .off
+        )
+        #expect(
+            readiness(canMonitor: false, notificationsAllowed: false, isLocated: false)
+                == .needsLocation
+        )
+        #expect(readiness(notificationsAllowed: false, isLocated: false) == .needsNotifications)
     }
 }
 

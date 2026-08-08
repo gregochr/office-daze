@@ -36,21 +36,33 @@ enum Store {
     /// same question the moment the store can be wiped: an emptied store is
     /// empty on purpose, and re-seeding it would put the sample bookings
     /// straight back on the next launch.
+    ///
+    /// Where the flag is kept is injected, for the same reason `today` is
+    /// injected all through the store: it is process-wide state with exactly
+    /// one interesting value, and a test that flipped the real flag would be
+    /// deciding whether the *app* lays the sample month down on the next launch
+    /// of the same simulator. Nothing but the tests ever passes anything but
+    /// `.standard`.
     private static let seededKey = "store.seeded"
 
-    static var hasSeeded: Bool {
-        get { UserDefaults.standard.bool(forKey: seededKey) }
-        set { UserDefaults.standard.set(newValue, forKey: seededKey) }
+    static func hasSeeded(in defaults: UserDefaults = .standard) -> Bool {
+        defaults.bool(forKey: seededKey)
     }
 
-    static func seedIfNeeded(_ context: ModelContext) throws {
-        guard !hasSeeded else { return }
+    static func markSeeded(in defaults: UserDefaults = .standard) {
+        defaults.set(true, forKey: seededKey)
+    }
+
+    static func seedIfNeeded(
+        _ context: ModelContext, defaults: UserDefaults = .standard
+    ) throws {
+        guard !hasSeeded(in: defaults) else { return }
         guard try context.fetchCount(FetchDescriptor<Office>()) == 0 else {
-            hasSeeded = true
+            markSeeded(in: defaults)
             return
         }
         try SeedData.populate(context)
-        hasSeeded = true
+        markSeeded(in: defaults)
     }
 
     /// Every day the store holds a record for: a desk booked, a day worked, a
@@ -94,14 +106,38 @@ enum Store {
 
     /// One thing neither scope can undo: an `AttendanceDay` is the only record
     /// that a day was ever worked on prem, and there is no other copy.
-    static func wipe(_ context: ModelContext, scope: Scope = .everything) throws {
+    ///
+    /// `forgetSecret` is the Anthropic API key, which is the one thing the app
+    /// holds that no `context.delete(model:)` can reach — it is in the Keychain,
+    /// not the schema. It was being left behind by a button that says
+    /// "Everything, including 2 offices", which is the one item in the store
+    /// where being left behind actually costs something: it is a live, billable
+    /// third-party credential, and iOS does not purge a generic-password item
+    /// when the app is deleted either, so neither wiping nor uninstalling took
+    /// it off the phone. Handing the device on did exactly what the dialog said
+    /// it would not.
+    ///
+    /// Only `.everything` reaches for it. `.records` is the scope that keeps
+    /// what the user typed in, and the key is squarely that.
+    ///
+    /// Injected rather than called inline so a test can assert which scopes
+    /// reach for it without reaching into the simulator's real Keychain — the
+    /// whole point of the finding is *which* scope forgets it, and that is not
+    /// assertable through a side effect on a device.
+    static func wipe(
+        _ context: ModelContext,
+        scope: Scope = .everything,
+        defaults: UserDefaults = .standard,
+        forgetSecret: () -> Void = { Keychain.apiKey = nil }
+    ) throws {
         for model in scope.models {
             try context.delete(model: model)
         }
         try context.save()
+        if scope == .everything { forgetSecret() }
         // So the sample month does not come back on the next launch. Set for
         // either scope: re-seeding over the offices someone kept would put the
         // sample bookings back under them.
-        hasSeeded = true
+        markSeeded(in: defaults)
     }
 }

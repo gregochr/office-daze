@@ -179,6 +179,41 @@ struct CaptureMappingTests {
         #expect(CapturedBooking.day(from: "5 August 2026") == nil)
         #expect(CapturedBooking.day(from: "2026-13-05") == nil)
     }
+
+    /// A day the calendar would have to move is a day we did not read. It used
+    /// to be accepted on `1...31` alone, and `Day(2026, 2, 30)` then displayed
+    /// as "Monday 2 March" while comparing unequal to the `Day(2026, 3, 2)` a
+    /// stored booking reads back as — so the day's existing desk was invisible
+    /// to the clash strip and to the merge, and the office ended with two.
+    @Test("A date that does not exist is not a date we read", arguments: [
+        "2026-02-30", "2026-04-31", "2026-02-29", "2026-00-05", "2026-08-00",
+        "2026-08-32", "2026-06-31",
+    ])
+    func rejectsImpossibleDates(_ text: String) {
+        #expect(CapturedBooking.day(from: text) == nil)
+    }
+
+    /// The other side of that guard: the last day of a month, and a real 29
+    /// February, are dates and have to stay ones.
+    @Test("The dates at the edges of a month are still read", arguments: [
+        ("2024-02-29", Day(2024, 2, 29)),
+        ("2026-02-28", Day(2026, 2, 28)),
+        ("2026-04-30", Day(2026, 4, 30)),
+        ("2026-12-31", Day(2026, 12, 31)),
+    ])
+    func acceptsTheEdgesOfAMonth(_ text: String, _ expected: Day) {
+        #expect(CapturedBooking.day(from: text) == expected)
+    }
+
+    /// The value the parser hands on has to survive the round trip through
+    /// storage, or nothing downstream can find the day it names.
+    @Test("Every date the parser accepts stores and reads back as itself")
+    func acceptedDatesRoundTrip() throws {
+        for text in ["2026-08-05", "2024-02-29", "2026-04-30", "2026-12-31"] {
+            let day = try #require(CapturedBooking.day(from: text))
+            #expect(Day(of: day.startOfDayUTC) == day, "\(text)")
+        }
+    }
 }
 
 /// Structured outputs rejects a schema whose objects don't close
@@ -344,6 +379,70 @@ struct SchemaTests {
 
 }
 
+/// Real encoded images to feed the intake with.
+///
+/// Shared with `CaptureCoordinatorTests` rather than kept private to the suite
+/// below, because proving the *prepared* bytes are what reaches the model needs
+/// an image whose prepared form differs from what went in — a 1×1 PNG passes
+/// through untouched and so cannot tell the two apart.
+nonisolated enum TestImage {
+
+    /// Whether this host can write HEIC at all. Encoding support is not
+    /// guaranteed off-device, and a test that cannot build its fixture should
+    /// say it was skipped rather than quietly assert nothing.
+    static var canEncodeHEIC: Bool {
+        (CGImageDestinationCopyTypeIdentifiers() as? [String])?
+            .contains(UTType.heic.identifier) ?? false
+    }
+
+    /// Flat grey unless `noisy`, which fills the buffer with something that
+    /// will not compress — the only way to get a large file at small
+    /// dimensions.
+    static func make(
+        width: Int, height: Int, type: UTType, orientation: Int? = nil, noisy: Bool = false
+    ) -> Data {
+        var pixels = [UInt8](repeating: 128, count: width * height * 4)
+        if noisy {
+            // xorshift rather than anything periodic: a repeating pattern is
+            // exactly what PNG is good at, and the fixture only earns its keep
+            // if it refuses to compress.
+            var state: UInt64 = 0x2545_F491_4F6C_DD1D
+            for index in pixels.indices {
+                state ^= state << 13
+                state ^= state >> 7
+                state ^= state << 17
+                pixels[index] = UInt8(truncatingIfNeeded: state)
+            }
+        }
+        let image: CGImage? = pixels.withUnsafeMutableBytes { buffer in
+            CGContext(
+                data: buffer.baseAddress, width: width, height: height,
+                bitsPerComponent: 8, bytesPerRow: width * 4,
+                space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
+            )?.makeImage()
+        }
+        let out = NSMutableData()
+        guard let image, let writer = CGImageDestinationCreateWithData(
+            out, type.identifier as CFString, 1, nil
+        ) else { return Data() }
+        var properties: [CFString: Any] = [:]
+        if let orientation { properties[kCGImagePropertyOrientation] = orientation }
+        CGImageDestinationAddImage(writer, image, properties as CFDictionary)
+        guard CGImageDestinationFinalize(writer) else { return Data() }
+        return out as Data
+    }
+
+    static func dimensions(_ data: Data) -> (width: Int, height: Int)? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil)
+                as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? Int,
+              let height = properties[kCGImagePropertyPixelHeight] as? Int else { return nil }
+        return (width, height)
+    }
+}
+
 /// The conversion in front of the model call. A photographed confirmation came
 /// back `400 … image exceeds 10 MB maximum: 11907424 bytes`, and every case
 /// here is one of the reasons that happened.
@@ -362,13 +461,17 @@ struct PhotoImportTests {
     }
 
     /// The camera's own format, which the API does not accept at any size.
-    @Test("HEIC becomes JPEG")
+    ///
+    /// Encoding HEIC needs an encoder the host may not have, and the decode
+    /// side is what ships — so a host without one has nothing to say here.
+    /// Said as a trait rather than as an early `return`, because the guard it
+    /// replaced could not tell "no HEIC encoder" from "the fixture builder is
+    /// broken": `make` returns empty data for either, and the test reported
+    /// success having executed no expectation at all.
+    @Test("HEIC becomes JPEG", .enabled(if: TestImage.canEncodeHEIC, "no HEIC encoder here"))
     func heicIsTranscoded() throws {
         let heic = makeImage(width: 800, height: 600, type: .heic)
-        // Encoding HEIC needs an encoder the host may not have. The decode side
-        // is what ships and it is the same code either way, so a host without
-        // one has nothing to say here rather than something to fail about.
-        guard !heic.isEmpty else { return }
+        try #require(!heic.isEmpty, "the host encodes HEIC, so an empty fixture is a bug here")
         #expect(try PhotoImport.prepare(heic).mediaType == "image/jpeg")
     }
 
@@ -413,51 +516,16 @@ struct PhotoImportTests {
 
     // MARK: Fixtures
 
-    /// Flat grey unless `noisy`, which fills the buffer with something that
-    /// will not compress — the only way to get a large file at small
-    /// dimensions.
     func makeImage(
         width: Int, height: Int, type: UTType, orientation: Int? = nil, noisy: Bool = false
     ) -> Data {
-        var pixels = [UInt8](repeating: 128, count: width * height * 4)
-        if noisy {
-            // xorshift rather than anything periodic: a repeating pattern is
-            // exactly what PNG is good at, and the fixture only earns its keep
-            // if it refuses to compress.
-            var state: UInt64 = 0x2545_F491_4F6C_DD1D
-            for index in pixels.indices {
-                state ^= state << 13
-                state ^= state >> 7
-                state ^= state << 17
-                pixels[index] = UInt8(truncatingIfNeeded: state)
-            }
-        }
-        let image: CGImage? = pixels.withUnsafeMutableBytes { buffer in
-            CGContext(
-                data: buffer.baseAddress, width: width, height: height,
-                bitsPerComponent: 8, bytesPerRow: width * 4,
-                space: CGColorSpaceCreateDeviceRGB(),
-                bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
-            )?.makeImage()
-        }
-        let out = NSMutableData()
-        guard let image, let writer = CGImageDestinationCreateWithData(
-            out, type.identifier as CFString, 1, nil
-        ) else { return Data() }
-        var properties: [CFString: Any] = [:]
-        if let orientation { properties[kCGImagePropertyOrientation] = orientation }
-        CGImageDestinationAddImage(writer, image, properties as CFDictionary)
-        guard CGImageDestinationFinalize(writer) else { return Data() }
-        return out as Data
+        TestImage.make(
+            width: width, height: height, type: type, orientation: orientation, noisy: noisy
+        )
     }
 
     func dimensions(_ data: Data) -> (width: Int, height: Int)? {
-        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil)
-                as? [CFString: Any],
-              let width = properties[kCGImagePropertyPixelWidth] as? Int,
-              let height = properties[kCGImagePropertyPixelHeight] as? Int else { return nil }
-        return (width, height)
+        TestImage.dimensions(data)
     }
 }
 
@@ -484,6 +552,29 @@ struct OfficeMatcherTests {
     func matchesByPostcode() {
         #expect(
             OfficeMatcher.match("Somewhere, EC2R 5BB", against: offices)?.id == london.id
+        )
+    }
+
+    /// Two offices in one building is a shape the app invites — a floor and its
+    /// annexe, each with its own colour and perimeter. A postcode shared by
+    /// both stops being the unambiguous thing, so it stops deciding.
+    @Test("A postcode two offices share decides nothing on its own")
+    func aSharedPostcodeIsNotAnAnswer() {
+        let annexe = OfficeMatcher.Candidate(
+            id: UUID(), name: "Ropemaker Annexe", postcode: "EC2R 5BB", address: "London"
+        )
+        // The name tells them apart, so the answer is the annexe — not
+        // whichever of the two the fetch happened to return first.
+        #expect(
+            OfficeMatcher.match("Ropemaker Annexe, EC2R 5BB", against: [london, annexe])?.id
+                == annexe.id,
+            "the postcode no longer preempts the name rule that can decide"
+        )
+        // And where the name cannot tell them apart, nothing does: this is the
+        // question the sheet has to ask.
+        #expect(
+            OfficeMatcher.match("Somewhere, EC2R 5BB", against: [london, annexe]) == nil,
+            "one of two buildings picked by fetch order is the wrong perimeter half the time"
         )
     }
 
@@ -553,6 +644,55 @@ struct OfficeMatcherTests {
         )
         let matched = OfficeMatcher.match("Coleman", against: [london, taught])
         #expect(matched?.id == taught.id, "the answer wins over the resemblance")
+    }
+
+    /// Every word in "Level 5" is either a noise word or a number, so it
+    /// tokenises to nothing — and a name that tokenises to nothing used to
+    /// match no alias at all, including its own. The sheet asked forever and
+    /// the office collected a copy of the answer each time.
+    @Test("A name made only of noise words and numbers is still recognisable")
+    func namesThatTokeniseToNothing() {
+        #expect(OfficeMatcher.matches("Level 5", "Level 5"))
+        #expect(OfficeMatcher.matches("The Building", "the building"))
+        #expect(OfficeMatcher.matches(" Level 5 ", "Level 5"), "as printed, spacing and all")
+
+        let taught = OfficeMatcher.Candidate(
+            id: UUID(), name: "Euroclear London", postcode: "", address: "",
+            aliases: ["Level 5"]
+        )
+        #expect(OfficeMatcher.match("Level 5", against: [taught])?.id == taught.id)
+    }
+
+    /// The fallback is a comparison, not a surrender: two different names that
+    /// both tokenise to nothing are still two different names.
+    @Test("Two different noise-only names are not the same name")
+    func differentNoiseOnlyNamesDoNotMatch() {
+        #expect(OfficeMatcher.matches("Level 5", "Level 6") == false)
+        #expect(OfficeMatcher.matches("Level 5", "The Building") == false)
+        #expect(OfficeMatcher.matches("Level 5", "Coleman") == false, "and neither is a real one")
+
+        let taught = OfficeMatcher.Candidate(
+            id: UUID(), name: "Euroclear London", postcode: "", address: "",
+            aliases: ["Level 5"]
+        )
+        #expect(
+            OfficeMatcher.match("Level 6", against: [taught]) == nil,
+            "the floor above is a different answer, and asking is the right one"
+        )
+    }
+
+    /// An accent is not a reason to ask a question the user has already
+    /// answered by typing the name.
+    @Test("An accent typed one way and printed another is the same building")
+    func accentsFold() {
+        let zurich = OfficeMatcher.Candidate(
+            id: UUID(), name: "Zurich", postcode: "", address: ""
+        )
+        #expect(OfficeMatcher.match("Zürich", against: [zurich])?.id == zurich.id)
+        #expect(
+            OfficeMatcher.match("Zagreb", against: [zurich]) == nil,
+            "folding accents is not the same as ignoring letters"
+        )
     }
 
     /// Nothing should ever write this, since remembering strips the name off

@@ -25,6 +25,21 @@ nonisolated struct HaikuClient {
         var outputTokens = 0
     }
 
+    /// `@concurrent` rather than a bare `nonisolated`, and the attribute is
+    /// load-bearing. This project builds with `SWIFT_APPROACHABLE_CONCURRENCY`,
+    /// which makes `nonisolated func … async` mean *nonisolated(nonsending)* —
+    /// the body runs on the caller's executor. The caller is
+    /// `CaptureCoordinator.run()`, on the main actor, so everything below down
+    /// to the `session.data` suspension used to run on the main thread:
+    /// base64-encoding up to four megabytes of image into a five-megabyte
+    /// string, then a JSON serialisation that walks and escapes every byte of
+    /// it. `PhotoImport.prepare` carries the comment "call it off the main
+    /// actor" and is duly pushed onto a detached task; this is the other, equally
+    /// CPU-bound half of the same split, and it stayed on main because the
+    /// compiler gives no hint that `nonisolated` stopped meaning "off the
+    /// caller's actor". Removing `@concurrent` puts it back, silently, on the
+    /// one screen whose whole job is to look busy while this call runs.
+    @concurrent
     func extract(image: Data, mediaType: String, today: Day) async throws -> ([ParsedBooking], Usage) {
         var request = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
         request.httpMethod = "POST"

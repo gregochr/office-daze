@@ -37,6 +37,19 @@ struct BookingScanner: View {
         }
     }
 
+    /// A viewfinder with no shutter reads as a broken camera unless it says
+    /// what it is doing, and the tap is invisible until named — which is the
+    /// whole reason it is named here rather than drawn as a button competing
+    /// with the aiming.
+    ///
+    /// A function rather than a ternary inline in `chrome` because `chrome`
+    /// only ever draws on a device with a camera: off one, `canScan` is false
+    /// and the whole branch is unreachable. Either the two strings are
+    /// assertable without the viewfinder or they are asserted nowhere.
+    static func prompt(isReading: Bool) -> String {
+        isReading ? "Reading the booking…" : "Point at the confirmation, or tap to capture"
+    }
+
     /// White on a scrim rather than the app's palette: this sits over a camera
     /// feed of an unknown wall, and nothing else on screen is ours to match.
     private var chrome: some View {
@@ -51,11 +64,7 @@ struct BookingScanner: View {
                 Spacer()
             }
             Spacer()
-            // A viewfinder with no shutter reads as a broken camera unless it
-            // says what it is doing, and the tap is invisible until named —
-            // which is the whole reason it is named here rather than drawn as
-            // a button competing with the aiming.
-            Text(isReading ? "Reading the booking…" : "Point at the confirmation, or tap to capture")
+            Text(Self.prompt(isReading: isReading))
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(.white)
                 .padding(.horizontal, 18)
@@ -69,7 +78,14 @@ struct BookingScanner: View {
 
 /// `DataScannerViewController` doing live text recognition, with the shutter
 /// wired to `ScanLock` instead of to a finger.
-private struct LockOnScanner: UIViewControllerRepresentable {
+///
+/// Internal rather than `private` so its coordinator can be driven from a test.
+/// The alternative was leaving the whole file at zero: the coordinator is where
+/// the cancellation rule lives — the one that stops a shutter in flight calling
+/// back into a screen the user has already dismissed — and a rule about a race
+/// that is only ever exercised on a device is a rule nobody would notice
+/// breaking.
+struct LockOnScanner: UIViewControllerRepresentable {
 
     @Binding var isReading: Bool
     let onCapture: (Data) -> Void
@@ -110,6 +126,23 @@ private struct LockOnScanner: UIViewControllerRepresentable {
         Coordinator(onCapture: onCapture)
     }
 
+    /// The representable is going away — the cover was dismissed, by Cancel or
+    /// by the capture itself. The shutter takes a few hundred milliseconds, and
+    /// "Reading the booking…" appearing is exactly the cue that makes someone
+    /// who did not mean to fire reach for Cancel, so a shot in flight at this
+    /// moment is the common case rather than the rare one. Without this the
+    /// task simply outlives the view and calls back into it: `onCapture` opens
+    /// the capture sheet on the home screen for a photograph the user cancelled,
+    /// or the error branch restarts scanning on a dismissed controller.
+    ///
+    /// `dismantleUIViewController` rather than `viewWillDisappear` because this
+    /// fires when SwiftUI is finished with the representable, which is the
+    /// question being asked; the view controller's own appearance callbacks
+    /// also fire for things that are not a teardown.
+    static func dismantleUIViewController(_ host: ScannerHost, coordinator: Coordinator) {
+        coordinator.cancelShot()
+    }
+
     @MainActor
     final class Coordinator: NSObject, DataScannerViewControllerDelegate {
 
@@ -118,8 +151,34 @@ private struct LockOnScanner: UIViewControllerRepresentable {
         var onFinish: () -> Void = {}
         private var lock = ScanLock()
 
+        /// The shutter itself, injectable for one reason: no test host has a
+        /// camera, so `capturePhoto()` off a device neither succeeds nor can be
+        /// held open while Cancel lands on it. Everything the coordinator does
+        /// *with* the photograph — the JPEG encode, the callback out, and the
+        /// cancellation check that stands between the two — is on this side of
+        /// the boundary and is exactly what needs pinning. The real shutter is
+        /// the default, so production goes through the same code path a test
+        /// does rather than a parallel one.
+        var takePhoto: @MainActor (DataScannerViewController) async throws -> UIImage = {
+            try await $0.capturePhoto()
+        }
+
+        /// The shutter in flight, held so that it can be cancelled. Nothing
+        /// else keeps a handle on it, and an unstructured `Task` with no handle
+        /// is a task nobody can stop.
+        private var shot: Task<Void, Never>?
+
         init(onCapture: @escaping (Data) -> Void) {
             self.onCapture = onCapture
+        }
+
+        /// Abandon a shot in flight. `capturePhoto()` is not itself
+        /// cancellable, so this cannot stop the camera — what it stops is
+        /// everything the task would do *with* the photograph once the view it
+        /// belongs to has gone.
+        func cancelShot() {
+            shot?.cancel()
+            shot = nil
         }
 
         func dataScanner(
@@ -143,10 +202,22 @@ private struct LockOnScanner: UIViewControllerRepresentable {
         /// still meet. The newline keeps them separate tokens — joined without
         /// one, two innocent blocks could spell a desk id between them.
         private func consider(_ items: [RecognizedItem], in scanner: DataScannerViewController) {
-            let text = items.compactMap { item in
-                if case .text(let text) = item { return text.transcript } else { return nil }
-            }.joined(separator: "\n")
+            consider(
+                text: items.compactMap { item in
+                    if case .text(let text) = item { return text.transcript } else { return nil }
+                }.joined(separator: "\n"),
+                in: scanner
+            )
+        }
 
+        /// The decision, taken on the joined text rather than on the items.
+        ///
+        /// Split off because `RecognizedItem.Text` has no initializer: a
+        /// recognised frame cannot be constructed at all outside the framework,
+        /// so with the two together the only reachable case off a device is the
+        /// one where nothing was recognised — and the lock firing the shutter,
+        /// which is the entire feature, would be asserted nowhere.
+        func consider(text: String, in scanner: DataScannerViewController) {
             guard lock.observe(text) != nil else { return }
             capture(from: scanner)
         }
@@ -166,9 +237,16 @@ private struct LockOnScanner: UIViewControllerRepresentable {
             scanner.stopScanning()
             onReading(true)
 
-            Task {
+            shot?.cancel()
+            shot = Task { [weak self, takePhoto] in
                 do {
-                    let photo = try await scanner.capturePhoto()
+                    let photo = try await takePhoto(scanner)
+                    // The one check that matters. `capturePhoto()` resolves
+                    // whether or not the screen is still there, so without this
+                    // a cancelled shot goes on to open the capture sheet — and
+                    // send a billed model call — for a photograph the user
+                    // walked away from.
+                    guard let self, !Task.isCancelled else { return }
                     // Near-lossless here for the same reason the picker is —
                     // `PhotoImport` does the real downsizing, and two lossy
                     // passes over small text is one too many. `jpegData` also
@@ -182,7 +260,9 @@ private struct LockOnScanner: UIViewControllerRepresentable {
                     // The frame was lost, not the booking. Going back to
                     // looking costs the user nothing; dismissing to an error
                     // sheet for a dropped frame would cost them the aim they
-                    // were holding.
+                    // were holding — but only if there is still something to
+                    // look through, so a cancelled shot restarts nothing.
+                    guard let self, !Task.isCancelled else { return }
                     onReading(false)
                     lock.reset()
                     try? scanner.startScanning()

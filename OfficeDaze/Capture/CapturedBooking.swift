@@ -51,6 +51,11 @@ nonisolated enum CaptureError: LocalizedError, Equatable {
     case httpStatus(Int, String)
     case modelReturnedNothingUsable(String)
     case refused
+    /// The reading worked and the writing did not — a full disk, a store that
+    /// refused. Its own case because the sheet must never show a booking as
+    /// saved when nothing was written, and because "try again" is the wrong
+    /// offer for it.
+    case couldNotSave(String)
 
     var errorDescription: String? {
         switch self {
@@ -68,6 +73,8 @@ nonisolated enum CaptureError: LocalizedError, Equatable {
             "Nothing usable came back: \(why)"
         case .refused:
             "The model declined to read this document."
+        case .couldNotSave(let why):
+            "That booking couldn't be saved: \(why). Nothing was written."
         }
     }
 }
@@ -165,11 +172,20 @@ nonisolated extension CapturedBooking {
     /// Anything after the date itself is ignored, which is what lets a single
     /// confirmation's `2026-08-25 09:00:00 CEST` through unharmed — the day is
     /// the day whatever timezone the sender printed beside it.
+    ///
+    /// The day is validated against the month rather than against `1...31`.
+    /// `Calendar.date(from:)` is lenient, so `Day(2026, 2, 30)` is a
+    /// constructible value whose `startOfDayUTC` is 2 March: it renders as
+    /// "Monday 2 March" in the review sheet, and then fails to equal the
+    /// `Day(2026, 3, 2)` a stored booking reads back as — so the clash strip
+    /// never appears, `BookingStore.upsert` finds nothing to merge with, and
+    /// the office ends the day with two desks on it. A hallucinated 30 February
+    /// is precisely the misreading this parser exists to refuse.
     static func day(from text: String) -> Day? {
         let parts = text.prefix(10).split(separator: "-")
         guard parts.count == 3,
-              let year = Int(parts[0]), let month = Int(parts[1]), let day = Int(parts[2]),
-              (1...12).contains(month), (1...31).contains(day) else { return nil }
-        return Day(year, month, day)
+              let year = Int(parts[0]), let month = Int(parts[1]), let day = Int(parts[2])
+        else { return nil }
+        return Day(validating: year, month, day)
     }
 }
