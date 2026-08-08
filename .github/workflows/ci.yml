@@ -79,8 +79,13 @@ jobs:
             -destination "id=${{ steps.sim.outputs.udid }}" \
             -resultBundlePath TestResults.xcresult \
             -enableCodeCoverage YES \
-            CODE_SIGNING_ALLOWED=NO \
             | xcbeautify --renderer github-actions
+        # No CODE_SIGNING_ALLOWED=NO here, deliberately, and it is not an
+        # oversight that the two build-only jobs below do set it. A simulator
+        # build still gets an ad-hoc signature, and that signature is what
+        # carries the entitlement the Keychain needs. Turn signing off and
+        # every Keychain test fails with a store that silently refuses to
+        # write — which is exactly how this job failed the first time.
 
       - name: Coverage summary
         if: ${{ !cancelled() }}
