@@ -17,10 +17,21 @@
 	  prompts. When In Use is requested first and Always only once that is
 	  granted — asking for Always cold gets denied.
 
-	  UIBackgroundModes carries "location" because the handoff asks for it.
-	  Strictly, region monitoring does not need it: iOS relaunches the app for
-	  a region crossing regardless. It is here so the capability matches the
-	  brief, not because the geofence would fail without it.
+	  There is deliberately no UIBackgroundModes array. It used to carry
+	  "location", because the handoff asks for it and it seemed harmless to
+	  make the capability list match the brief. It is not harmless. App Review
+	  guideline 2.5.4 rejects an app that declares a background mode it does
+	  not exercise, and this one was trivially detectable: the app calls
+	  startMonitoring on a set of regions and nothing else — no
+	  startUpdatingLocation, no significant-change monitoring, no
+	  CLBackgroundActivitySession, and ArrivalMonitor.init sets
+	  allowsBackgroundLocationUpdates = false in as many words.
+
+	  Removing it costs nothing, which is the part to be sure of before
+	  putting it back: region monitoring is a system service, and iOS
+	  relaunches a terminated app to deliver a region crossing whether or not
+	  the app declares a background mode. The key is only needed to keep
+	  location updates flowing while suspended, which this app never asks for.
 	-->
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Office Daze watches a 50m perimeter around your offices, so it can show you your desk number the moment you arrive.</string>
@@ -40,11 +51,6 @@
 
 	<key>NSCalendarsWriteOnlyAccessUsageDescription</key>
 	<string>Adding a desk booking to your calendar puts the office, the floor and the hours where the rest of your day already is. Office Daze only ever writes events; it cannot read your calendar.</string>
-
-	<key>UIBackgroundModes</key>
-	<array>
-		<string>location</string>
-	</array>
 
 	<key>CFBundleDocumentTypes</key>
 	<array>

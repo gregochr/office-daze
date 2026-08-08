@@ -293,7 +293,17 @@ final class Capture {
     var status: CaptureStatus = CaptureStatus.pending
     var inputTokens: Int = 0
     var outputTokens: Int = 0
-    var bookingID: UUID?
+
+    // There was a `bookingID` here, and it was never written and never read.
+    // The link runs the other way — `DeskBooking.captureID` — and `replace`
+    // goes to real trouble to keep that one pointing at the right row across a
+    // delete-and-reinsert. A reverse id declared in the schema reads as a link
+    // maintained with the same care, and nothing here maintained it at all: a
+    // capture would have gone on claiming a booking id that no longer existed.
+    // Removing a stored property is inferable by lightweight migration, so it
+    // costs nothing now and more later. A reverse link, if one is ever wanted,
+    // belongs here together with the `replace`/`delete` bookkeeping that would
+    // keep it honest.
 
     init(
         id: UUID = UUID(),
@@ -301,8 +311,7 @@ final class Capture {
         asset: Data? = nil,
         status: CaptureStatus = .pending,
         inputTokens: Int = 0,
-        outputTokens: Int = 0,
-        bookingID: UUID? = nil
+        outputTokens: Int = 0
     ) {
         self.id = id
         self.receivedAt = receivedAt
@@ -310,7 +319,6 @@ final class Capture {
         self.status = status
         self.inputTokens = inputTokens
         self.outputTokens = outputTokens
-        self.bookingID = bookingID
     }
 }
 

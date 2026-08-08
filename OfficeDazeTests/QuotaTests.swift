@@ -103,6 +103,85 @@ struct QuotaTests {
         #expect(result.forecast == 1)
     }
 
+    /// Attendance is recorded per office, so one calendar day can arrive here as
+    /// two rows — the morning at Coleman, the afternoon in Brussels, or the
+    /// arrival alert answered at a second building. Summing the rows credited
+    /// that date twice and made this function contradict itself: `attendedDays`
+    /// is a set and `forecast` has always treated a date as worth one day.
+    @Test("A date recorded at two offices is one day on prem, not two")
+    func oneDayAtTwoOfficesIsOneDay() {
+        let result = Quota.calculate(.init(
+            month: august,
+            attendance: [.init(Day(2026, 8, 5)), .init(Day(2026, 8, 5))],
+            today: Day(2026, 8, 6)
+        ))
+        #expect(result.attended == 1, "one date, one day")
+        #expect(result.shortfall == 7)
+    }
+
+    /// The limit of that cap, and the reason it is a cap and not a collapse to
+    /// one row per day: half a day at each of two buildings is a whole day
+    /// worked, and rating that date at 0.5 would lose half a day the user
+    /// actually spent on prem.
+    @Test("Half a day at each of two offices is a whole day, not half of one")
+    func twoHalvesAtTwoOfficesMakeADay() {
+        let result = Quota.calculate(.init(
+            month: august,
+            attendance: [.init(Day(2026, 8, 5), 0.5), .init(Day(2026, 8, 5), 0.5)],
+            today: Day(2026, 8, 6)
+        ))
+        #expect(result.attended == 1)
+
+        // And a half that stands alone is still a half — the cap must not round
+        // a part day up to a whole one on its way past.
+        let half = Quota.calculate(.init(
+            month: august,
+            attendance: [.init(Day(2026, 8, 5), 0.5)],
+            today: Day(2026, 8, 6)
+        ))
+        #expect(half.attended == 0.5)
+    }
+
+    /// The consequence that matters. `standing` is `.met` at `attended >=
+    /// target`, so a day counted twice reaches the target a day early — the
+    /// strip says "Target met" on seven days worked, which is precisely the
+    /// claim the four-state enum was built to stop the app making.
+    @Test("A day counted twice does not meet the target a day early")
+    func doubleCountingCannotMeetTheTarget() {
+        // Seven days worked, one of them recorded at two offices. Eight rows,
+        // seven days.
+        var attendance = (3...11).filter { $0 != 8 && $0 != 9 }.map { Quota.DayFraction(Day(2026, 8, $0)) }
+        attendance.append(.init(Day(2026, 8, 5)))
+
+        let result = Quota.calculate(.init(
+            month: august, attendance: attendance, today: Day(2026, 8, 20)
+        ))
+        #expect(result.target == 8)
+        #expect(result.attended == 7, "eight rows, seven days")
+        #expect(result.standing == .behind, "seven days is not eight")
+
+        // The eighth day, genuinely worked, is what meets it.
+        let eighth = Quota.calculate(.init(
+            month: august,
+            attendance: attendance + [.init(Day(2026, 8, 12))],
+            today: Day(2026, 8, 20)
+        ))
+        #expect(eighth.attended == 8)
+        #expect(eighth.standing == .met)
+    }
+
+    /// The cap is per day, so it must not be reached for across dates: eight
+    /// separate whole days are eight, not one.
+    @Test("The cap on a day does not cap the month")
+    func theCapIsPerDay() {
+        let result = Quota.calculate(.init(
+            month: august,
+            attendance: (3...7).map { .init(Day(2026, 8, $0)) },
+            today: Day(2026, 8, 20)
+        ))
+        #expect(result.attended == 5)
+    }
+
     /// "4 days to go" was the gap and nothing else, so a month with four days
     /// already lined up read exactly like a month with nothing arranged at all.
     @Test("The amber strip says what is booked, not only what is missing")
@@ -288,7 +367,12 @@ struct QuotaTests {
             attendance: [.init(Day(2026, 8, 3))],
             today: Day(2026, 8, 6)
         ))
-        #expect(early.shortfall == early.shortfall, "same shortfall")
+        // The claim the sentence above makes: the two months are short by
+        // exactly the same amount, and only the room left to fix it differs.
+        // Written as a comparison with itself, which is true whatever
+        // `calculate` does, so the invariant it names was never checked.
+        #expect(early.shortfall == result.shortfall, "short by exactly as much")
+        #expect(early.daysAvailable > result.daysAvailable, "and only the room differs")
         #expect(early.standing == .behind)
     }
 

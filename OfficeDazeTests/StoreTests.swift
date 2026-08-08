@@ -113,12 +113,16 @@ struct StoreTests {
         }
         let before = try attended()
 
-        // The 3rd at Brussels: a day in the seeded month that is genuinely
-        // past, so the future-day guard is not what this test is about.
+        // The 7th at Brussels: a working day in the seeded month that is
+        // genuinely past by the 10th, so neither the future-day guard nor the
+        // day-already-recorded guard is what this test is about. It used to be
+        // the 3rd, which the seed already holds for Coleman — the assertion
+        // below then read a second row on one date as a second day worked,
+        // which is the very thing the day-level guard now refuses.
         let recorded = try #require(
             try BookingStore.recordAttendance(
-                day: Day(2026, 8, 3), officeID: SeedData.brusselsID,
-                source: .manual, today: Day(2026, 8, 4), in: context
+                day: Day(2026, 8, 7), officeID: SeedData.brusselsID,
+                source: .manual, today: Day(2026, 8, 10), in: context
             )
         )
         #expect(recorded.bookingID == nil, "there was no desk to point at")
@@ -134,7 +138,10 @@ struct StoreTests {
     @Test("A day that has not happened cannot be recorded as attended")
     func attendanceIsNeverInTheFuture() throws {
         let context = container.mainContext
-        let today = Day(2026, 8, 6)
+        // The 7th: a day the seed does not already hold, so what is being
+        // tested below is the future guard on its own rather than the
+        // day-already-recorded one.
+        let today = Day(2026, 8, 7)
         let recorded = try BookingStore.recordAttendance(
             day: today.adding(days: 1), officeID: SeedData.brusselsID,
             source: .manual, today: today, in: context
@@ -235,6 +242,121 @@ struct StoreTests {
         let snapshot = try QuotaService.snapshot(for: SeedData.month, today: day, in: context)
         #expect(snapshot.result.attended == 4.5, "four seeded days and a half")
         #expect(snapshot.attendedByOffice[SeedData.brusselsID] == 1.5)
+    }
+
+    /// The day-level guard, from the direction that actually reaches it. The
+    /// dedupe used to key on the day AND the office, so arriving at a second
+    /// building on a day already recorded — tapping "I'm here" on the second
+    /// alert, which the notification itself says will not move the count —
+    /// wrote a second whole-day row and bought a day nobody worked.
+    @Test("A second office on a day already recorded does not buy another day")
+    func aDayIsRecordedOnceHoweverManyOfficesItTook() throws {
+        let context = container.mainContext
+        // The 3rd is seeded as a whole day at Coleman.
+        let second = try BookingStore.recordAttendance(
+            day: Day(2026, 8, 3), officeID: SeedData.brusselsID,
+            source: .geofence, today: Day(2026, 8, 6), in: context
+        )
+        #expect(second == nil, "the day is already worth a day")
+        #expect(try context.fetchCount(FetchDescriptor<AttendanceDay>()) == 4, "nothing written")
+
+        let snapshot = try QuotaService.snapshot(
+            for: SeedData.month, today: Day(2026, 8, 6), in: context
+        )
+        #expect(snapshot.result.attended == 4, "four days worked, four counted")
+        #expect(
+            snapshot.result.attended == Double(snapshot.attendedDays.count),
+            "the sum and the set cannot disagree about a day"
+        )
+        #expect(
+            snapshot.attendedByOffice.values.reduce(0, +) == snapshot.result.attended,
+            "and the split bar adds up to the gauge above it"
+        )
+    }
+
+    /// The limit of that guard, and why it counts fractions rather than rows:
+    /// a morning at one building and an afternoon at another is a whole day
+    /// worked in two halves, and refusing the second half would lose half a day
+    /// that happened.
+    @Test("Half a day leaves room for the other half, at another office or none")
+    func halvesFillTheDayAndNoMore() throws {
+        let context = container.mainContext
+        let day = Day(2026, 8, 7)
+        func record(_ officeID: UUID, _ fraction: Double) throws -> AttendanceDay? {
+            try BookingStore.recordAttendance(
+                day: day, officeID: officeID, source: .manual,
+                fraction: fraction, today: day, in: context
+            )
+        }
+
+        #expect(try record(SeedData.colemanID, 0.5) != nil, "the morning")
+        #expect(try record(SeedData.brusselsID, 0.5) != nil, "and the afternoon")
+
+        // The same building twice is still the same answer twice, whatever the
+        // fraction says — that guard is what stops "I'm here" tapped again
+        // after lunch writing a second row.
+        #expect(try record(SeedData.colemanID, 0.5) == nil, "already answered for Coleman")
+
+        // And a third building has nothing left to be given: the day is full.
+        #expect(try record(UUID(), 0.5) == nil, "a day is worth at most a day")
+        // As has a whole day laid over a day already half spent.
+        #expect(try record(UUID(), 1.0) == nil)
+
+        #expect(try context.fetchCount(FetchDescriptor<AttendanceDay>()) == 6, "four seeded, two halves")
+        let snapshot = try QuotaService.snapshot(for: SeedData.month, today: day, in: context)
+        #expect(snapshot.result.attended == 5, "four seeded days and the two halves as one")
+        #expect(snapshot.attendedByOffice[SeedData.colemanID] == 3.5)
+        #expect(snapshot.attendedByOffice[SeedData.brusselsID] == 1.5)
+    }
+
+    /// The store refuses to write an over-full day now, but a store written by
+    /// a version that did not has to stop being believed rather than stay
+    /// wrong: the gauge caps the date at a day, and the split bar underneath
+    /// has to add up to the gauge or the screen contradicts itself.
+    @Test("A day recorded twice by an older build still counts once")
+    func rowsFromBeforeTheGuardAreCappedOnRead() throws {
+        let context = container.mainContext
+        // Inserted straight into the context, past `recordAttendance` — which
+        // is exactly the provenance of the rows this cap exists for.
+        context.insert(AttendanceDay(
+            day: Day(2026, 8, 3), officeID: SeedData.brusselsID, source: .geofence
+        ))
+        try context.save()
+
+        let snapshot = try QuotaService.snapshot(
+            for: SeedData.month, today: Day(2026, 8, 6), in: context
+        )
+        #expect(try context.fetchCount(FetchDescriptor<AttendanceDay>()) == 5, "five rows")
+        #expect(snapshot.result.attended == 4, "over four days")
+        #expect(snapshot.attendedByOffice[SeedData.colemanID] == 2.5)
+        #expect(snapshot.attendedByOffice[SeedData.brusselsID] == 1.5)
+        #expect(
+            snapshot.attendedByOffice.values.reduce(0, +) == snapshot.result.attended,
+            "the bar and the gauge tell the same story about a day nobody can split"
+        )
+    }
+
+    /// One assertion existed for this, on the arm where both ends were read.
+    /// The `(nil, end?)` arm is not exotic — `CapturedBooking.parsed()` fills
+    /// `endTime` from a default while leaving `startTime` nil whenever the model
+    /// could not read it, so it is on the ordinary capture path — and swapping
+    /// the two nil arms passed the whole suite while the detail screen printed
+    /// a booking's default end time as though it were its start.
+    @Test(
+        "The hours line says only what was read",
+        arguments: [
+            ("09:00", "17:00", "09:00 – 17:00"),
+            ("09:00", nil, "09:00"),
+            (nil, "17:00", "until 17:00"),
+            (nil, nil, nil),
+        ] as [(String?, String?, String?)]
+    )
+    func hoursText(start: String?, end: String?, expected: String?) {
+        let booking = DeskBooking(
+            officeID: SeedData.colemanID, day: Day(2026, 8, 5), deskID: "3C-114",
+            startTime: start, endTime: end, source: .capture
+        )
+        #expect(booking.hoursText == expected)
     }
 
     /// Editing replaces the row rather than mutating it — the merge would
@@ -551,31 +673,78 @@ struct StoreTests {
         #expect(snapshot.result.attended == 4, "and it still counts toward the month")
     }
 
-    @Test("Wiping everything leaves nothing behind")
-    func wipe() throws {
+    /// A row of each of the three kinds `SeedData` does not lay down.
+    ///
+    /// Without them the wipe tests counted three tables that were empty before
+    /// the wipe as well, which proves nothing — and the emptiest of the three
+    /// is the one that matters most: `Capture.asset` is the user's original
+    /// photograph of a confirmation email, names and desk numbers and all.
+    private func insertTheUnseededModels() throws {
         let context = container.mainContext
-        try Store.wipe(context)
-        let counts = [
-            try context.fetchCount(FetchDescriptor<Office>()),
-            try context.fetchCount(FetchDescriptor<DeskBooking>()),
-            try context.fetchCount(FetchDescriptor<AttendanceDay>()),
-            try context.fetchCount(FetchDescriptor<LeaveDay>()),
+        context.insert(PlannedDay(day: Day(2026, 8, 20), officeID: SeedData.brusselsID))
+        context.insert(ArrivalAlert(
+            day: Day(2026, 8, 5), officeID: SeedData.colemanID, deliveredAt: .now
+        ))
+        context.insert(Capture(
+            receivedAt: .now, asset: Data([0xFF, 0xD8, 0xFF]), status: .parsed
+        ))
+        try context.save()
+    }
+
+    /// Every table in the schema, so a scope that forgets one cannot pass by
+    /// being counted over a table that was empty to begin with.
+    private func counts() throws -> [String: Int] {
+        let context = container.mainContext
+        return [
+            "Office": try context.fetchCount(FetchDescriptor<Office>()),
+            "DeskBooking": try context.fetchCount(FetchDescriptor<DeskBooking>()),
+            "AttendanceDay": try context.fetchCount(FetchDescriptor<AttendanceDay>()),
+            "PlannedDay": try context.fetchCount(FetchDescriptor<PlannedDay>()),
+            "LeaveDay": try context.fetchCount(FetchDescriptor<LeaveDay>()),
+            "ArrivalAlert": try context.fetchCount(FetchDescriptor<ArrivalAlert>()),
+            "Capture": try context.fetchCount(FetchDescriptor<Capture>()),
         ]
-        let allEmpty = counts.allSatisfy { $0 == 0 }
-        #expect(allEmpty)
+    }
+
+    @Test("Wiping everything leaves nothing behind, in all seven tables")
+    func wipe() throws {
+        try insertTheUnseededModels()
+        // The fixture has to have something in every table, or the assertion
+        // below is seven ways of saying nothing.
+        let before = try counts()
+        #expect(before.count == OfficeDazeSchema.all.count, "a table has been added since")
+        // Hoisted out of #expect: `allSatisfy` is `rethrows` and the macro
+        // cannot tell a non-throwing closure from a throwing one inside it.
+        let somethingToLose = before.values.allSatisfy { $0 > 0 }
+        #expect(somethingToLose, "a count over an empty table proves nothing")
+
+        try Store.wipe(container.mainContext, defaults: throwawayDefaults(), forgetSecret: {})
+        let survivors = try counts().filter { $0.value > 0 }
+        #expect(survivors.isEmpty, "nothing behind")
     }
 
     /// The offices are the only thing in the store that was typed in by hand,
     /// so clearing out the sample month must not take them with it.
-    @Test("Wiping the records keeps the offices")
+    @Test("Wiping the records keeps the offices and nothing else")
     func wipeRecordsOnly() throws {
-        let context = container.mainContext
-        try Store.wipe(context, scope: .records)
-        #expect(try context.fetchCount(FetchDescriptor<DeskBooking>()) == 0)
-        #expect(try context.fetchCount(FetchDescriptor<AttendanceDay>()) == 0)
-        #expect(try context.fetchCount(FetchDescriptor<LeaveDay>()) == 0)
+        try insertTheUnseededModels()
+        let somethingToLose = try counts().values.allSatisfy { $0 > 0 }
+        #expect(somethingToLose, "a count over an empty table proves nothing")
 
-        let offices = try context.fetch(FetchDescriptor<Office>())
+        try Store.wipe(
+            container.mainContext, scope: .records,
+            defaults: throwawayDefaults(), forgetSecret: {}
+        )
+
+        let after = try counts()
+        #expect(after["Office"] == 2)
+        // Named, so a failure says which table survived rather than that some
+        // number was not zero. The retained screenshots are the point: they are
+        // the user's photographs, and "Clear records" says it clears them.
+        let survivors = after.filter { $0.key != "Office" && $0.value > 0 }
+        #expect(survivors.isEmpty, "the records scope keeps the buildings and nothing else")
+
+        let offices = try container.mainContext.fetch(FetchDescriptor<Office>())
         #expect(offices.map(\.name).sorted() == ["Brussels", "Coleman"])
         // Not just present — intact. A perimeter that survived the wipe
         // without its coordinates would monitor nothing.
@@ -584,5 +753,136 @@ struct StoreTests {
         // `allSatisfy` is `rethrows` and the macro cannot tell the difference.
         let located = offices.allSatisfy(\.isLocated)
         #expect(located)
+    }
+
+    /// The Anthropic key is the one thing the app holds that is not a row in the
+    /// schema, and it was the one thing a button reading "Everything, including
+    /// 2 offices" left behind — a live, billable credential, on a phone the
+    /// dialog had just promised was cleared.
+    @Test("Everything means the API key too; the records scope leaves it alone")
+    func wipeForgetsTheKeyOnlyForEverything() throws {
+        let context = container.mainContext
+
+        // Records what it is asked, rather than swallowing the call: which
+        // scope reaches for the secret is the entire question here.
+        final class Asked { var scopes: [Store.Scope] = [] }
+        let asked = Asked()
+
+        try Store.wipe(
+            context, scope: .records, defaults: throwawayDefaults(),
+            forgetSecret: { asked.scopes.append(.records) }
+        )
+        #expect(asked.scopes.isEmpty, "the key is as typed-in as the offices are")
+
+        try Store.wipe(
+            context, scope: .everything, defaults: throwawayDefaults(),
+            forgetSecret: { asked.scopes.append(.everything) }
+        )
+        #expect(asked.scopes == [.everything])
+    }
+
+    /// A UserDefaults nobody else is reading. `store.seeded` decides whether the
+    /// app lays the sample month down on the next launch, and a test that wrote
+    /// the real one would be answering that question for the simulator it
+    /// happened to run on.
+    private func throwawayDefaults(
+        _ name: String = "OfficeDazeTests.\(UUID().uuidString)"
+    ) -> UserDefaults {
+        UserDefaults(suiteName: name)!
+    }
+}
+
+/// The gates around the sample month, and the one question both month steppers
+/// ask. Neither had a test: the seeding flag because it is process-wide state
+/// with no seam, which is now injected, and `recordedDays` for no reason at all
+/// — every suite in the target already builds the context it takes.
+@Suite("The store's gates")
+@MainActor
+struct StoreGateTests {
+
+    let container: ModelContainer
+
+    init() throws {
+        container = try Store.makeInMemoryContainer()
+    }
+
+    /// Each case gets its own defaults, so cases running in parallel cannot
+    /// read each other's flag — and the real one is never touched.
+    private func freshDefaults() -> UserDefaults {
+        UserDefaults(suiteName: "OfficeDazeTests.\(UUID().uuidString)")!
+    }
+
+    @Test("A fresh install gets the sample month, and is marked as having had it")
+    func seedsOnce() throws {
+        let context = container.mainContext
+        let defaults = freshDefaults()
+        #expect(!Store.hasSeeded(in: defaults))
+
+        try Store.seedIfNeeded(context, defaults: defaults)
+        #expect(try context.fetchCount(FetchDescriptor<Office>()) == 2)
+        #expect(Store.hasSeeded(in: defaults))
+    }
+
+    /// The whole point of the flag. "Is the store empty" and "has it ever been
+    /// seeded" stop being the same question the moment the store can be wiped:
+    /// an emptied store is empty on purpose, and answering the first question
+    /// would put the sample bookings straight back on the next launch.
+    @Test("A store emptied on purpose is not seeded again")
+    func anEmptiedStoreStaysEmpty() throws {
+        let context = container.mainContext
+        let defaults = freshDefaults()
+        try Store.seedIfNeeded(context, defaults: defaults)
+        try Store.wipe(context, defaults: defaults, forgetSecret: {})
+        #expect(try context.fetchCount(FetchDescriptor<Office>()) == 0)
+        #expect(Store.hasSeeded(in: defaults), "wiping is having had it")
+
+        try Store.seedIfNeeded(context, defaults: defaults)
+        #expect(try context.fetchCount(FetchDescriptor<Office>()) == 0, "nothing came back")
+    }
+
+    /// The second guard, which exists for the install that predates the flag:
+    /// a store with offices in it has plainly been used, so the flag is set
+    /// without laying anything down over the top of them.
+    @Test("A store that already has offices is marked seeded, not seeded over")
+    func aUsedStoreIsNotSeededOver() throws {
+        let context = container.mainContext
+        let defaults = freshDefaults()
+        context.insert(Office(
+            name: "Somewhere", address: "1 A Street", postcode: "N1 1AA",
+            colourHex: OfficeColours.palette[0]
+        ))
+        try context.save()
+
+        try Store.seedIfNeeded(context, defaults: defaults)
+        #expect(try context.fetchCount(FetchDescriptor<Office>()) == 1, "not two more")
+        #expect(try context.fetchCount(FetchDescriptor<DeskBooking>()) == 0)
+        #expect(Store.hasSeeded(in: defaults))
+    }
+
+    /// The sole input to both month steppers. `MonthRangeTests` is thorough
+    /// about the range and feeds it hand-built arrays, so the four fetches and
+    /// the bank-holiday filter that actually build that array were never run —
+    /// dropping any one term left every test green and the back chevron dead at
+    /// the month where that kind of record was the only one.
+    @Test("Every kind of record is a month you can step back to, except a bank holiday")
+    func recordedDaysCoversEveryKind() throws {
+        let context = container.mainContext
+        context.insert(DeskBooking(
+            officeID: SeedData.colemanID, day: Day(2026, 3, 4), deskID: "3C-114",
+            source: .manual
+        ))
+        context.insert(AttendanceDay(
+            day: Day(2026, 4, 6), officeID: SeedData.colemanID, source: .manual
+        ))
+        context.insert(PlannedDay(day: Day(2026, 5, 7), officeID: SeedData.brusselsID))
+        context.insert(LeaveDay(day: Day(2026, 6, 8), kind: .annual))
+        // Derived from the calendar rather than entered, so a month holding
+        // nothing else is still an empty month — the same grounds every other
+        // reader leaves them out on.
+        context.insert(LeaveDay(day: Day(2026, 7, 9), kind: .bankHoliday))
+        try context.save()
+
+        let recorded = try Store.recordedDays(in: context).sorted()
+        #expect(recorded == [Day(2026, 3, 4), Day(2026, 4, 6), Day(2026, 5, 7), Day(2026, 6, 8)])
     }
 }

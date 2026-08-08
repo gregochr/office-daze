@@ -4,19 +4,45 @@ import Foundation
 ///
 /// The data-model document says bank holidays are "seeded, not entered —
 /// refreshed yearly". Eight of the nine are pure functions of the year, so we
-/// derive them and keep a table for the ones that aren't: one-off royal
-/// holidays like the 2022 Jubilee and the 2023 Coronation, which no algorithm
-/// predicts. That table is the only thing needing a yearly look.
+/// derive them and keep a table for the ones that aren't: royal holidays like
+/// the 2022 Jubilee and the 2023 Coronation, and the years a derived holiday
+/// was moved off its usual Monday, neither of which any algorithm predicts.
+/// That table is the only thing needing a yearly look.
 ///
 /// Scotland and Northern Ireland differ. This is England & Wales only, as
 /// specified.
 nonisolated enum BankHolidays {
 
-    /// One-off or non-derivable holidays, keyed by year. Add to this when the
-    /// government announces one; everything else derives.
-    static let exceptional: [Int: [Day]] = [
-        2022: [Day(2022, 6, 3), Day(2022, 9, 19)], // Platinum Jubilee, State Funeral
-        2023: [Day(2023, 5, 8)],                   // Coronation
+    /// What a year does that the algorithm cannot know: days the government
+    /// added, and days it took away.
+    ///
+    /// `removed` is not symmetry for its own sake. Both adjustments the UK has
+    /// actually made in living memory were *moves*, not additions — the 2020
+    /// Early May holiday shifted from Monday the 4th to Friday the 8th for VE
+    /// Day 75, and the 2022 Spring holiday shifted from Monday 30 May to
+    /// Thursday 2 June for the Platinum Jubilee. A table that can only union
+    /// cannot say either of those. It leaves the derived day standing beside
+    /// the announced one, so the month carries one bank holiday too many and
+    /// `Quota.calculate` hands the user a target a day too generous — the
+    /// pleasant kind of wrong, which is the kind nobody reports.
+    nonisolated struct Adjustment: Sendable {
+        var added: [Day] = []
+        var removed: [Day] = []
+    }
+
+    /// Keyed by year. Add to this when the government announces one; everything
+    /// else derives. A *move* is one entry with both halves filled in.
+    static let exceptional: [Int: Adjustment] = [
+        // VE Day 75: the Early May holiday moved from Monday 4 May.
+        2020: Adjustment(added: [Day(2020, 5, 8)], removed: [Day(2020, 5, 4)]),
+        // Platinum Jubilee: Spring moved from Monday 30 May to Thursday 2 June,
+        // with Friday 3 June added beside it. September's is the State Funeral.
+        2022: Adjustment(
+            added: [Day(2022, 6, 2), Day(2022, 6, 3), Day(2022, 9, 19)],
+            removed: [Day(2022, 5, 30)]
+        ),
+        // The Coronation, genuinely an addition — nothing moved for it.
+        2023: Adjustment(added: [Day(2023, 5, 8)]),
     ]
 
     /// All England & Wales bank holidays in a year, sorted.
@@ -49,9 +75,14 @@ nonisolated enum BankHolidays {
         placeFixed(Day(year, 12, 25))     // Christmas Day
         placeFixed(Day(year, 12, 26))     // Boxing Day
 
-        holidays.append(contentsOf: exceptional[year] ?? [])
-
-        return Set(holidays).sorted()
+        // Subtract before adding, so a move whose announced date happens to
+        // collide with a derived one still ends up present rather than
+        // cancelled out.
+        let adjustment = exceptional[year] ?? Adjustment()
+        return Set(holidays)
+            .subtracting(adjustment.removed)
+            .union(adjustment.added)
+            .sorted()
     }
 
     /// The ones that fall in a given month, on a weekday. A bank holiday on a

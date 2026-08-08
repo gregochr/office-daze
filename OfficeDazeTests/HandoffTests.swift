@@ -1,3 +1,4 @@
+import EventKit
 import Foundation
 import SwiftData
 import Testing
@@ -302,7 +303,16 @@ struct NudgeSchedulerTests {
 @Suite("Calendar writes")
 struct CalendarWriterTests {
 
+    /// Both zones are pinned, never `.current`: the arithmetic this suite
+    /// guards is right in London in July and wrong in half the world, so a
+    /// test that inherits the simulator's zone proves nothing. London for the
+    /// two days a year the clocks move, New York for the negative offset where
+    /// midnight UTC is the previous evening.
+    let london = TimeZone(identifier: "Europe/London")!
+    let newYork = TimeZone(identifier: "America/New_York")!
+
     func entry(
+        day: Day = Day(2026, 8, 5),
         floor: String? = "Level 3", zone: String? = "C",
         start: String? = "09:00", end: String? = "17:00"
     ) -> CalendarWriter.Entry {
@@ -311,9 +321,15 @@ struct CalendarWriterTests {
             officeName: "Coleman",
             address: "63 Coleman Street, London EC2R 5BB",
             floor: floor, zone: zone,
-            day: Day(2026, 8, 5),
+            day: day,
             startTime: start, endTime: end
         )
+    }
+
+    /// An absolute instant written the way a person would check it — with the
+    /// offset spelled out, so the expectation says which wall clock it is.
+    func instant(_ iso8601: String) throws -> Date {
+        try #require(ISO8601DateFormatter().date(from: iso8601))
     }
 
     /// Natural case, deliberately: this string leaves the app and lands in a
@@ -341,21 +357,67 @@ struct CalendarWriterTests {
         #expect(partial.contains("Office Daze"))
     }
 
-    @Test("Wall-clock times become the event's span")
-    func span() {
-        let span = CalendarWriter.span(entry())
+    /// The instants, not the gap between them. A duration is true of the right
+    /// answer and of every answer an hour either side of it.
+    @Test("Wall-clock times become the event's span at the wall clock they say")
+    func span() throws {
+        let span = CalendarWriter.span(entry(), in: london)
         #expect(!span.isAllDay)
+        #expect(try span.start == instant("2026-08-05T09:00:00+01:00"))
+        #expect(try span.end == instant("2026-08-05T17:00:00+01:00"))
         #expect(span.end.timeIntervalSince(span.start) == 8 * 3600)
+    }
+
+    /// 29 March 2026 is the morning the UK clocks go forward, 25 October the
+    /// morning they go back. Reaching 09:00 by adding 9 × 3600 seconds to
+    /// midnight lands at 10:00 on the first and 08:00 on the second — an hour
+    /// wrong in a calendar entry that says nothing about being a guess.
+    @Test("The clocks moving does not move the desk")
+    func daylightSaving() throws {
+        let spring = CalendarWriter.span(entry(day: Day(2026, 3, 29)), in: london)
+        #expect(try spring.start == instant("2026-03-29T09:00:00+01:00"))
+        #expect(try spring.end == instant("2026-03-29T17:00:00+01:00"))
+
+        let autumn = CalendarWriter.span(entry(day: Day(2026, 10, 25)), in: london)
+        #expect(try autumn.start == instant("2026-10-25T09:00:00+00:00"))
+        #expect(try autumn.end == instant("2026-10-25T17:00:00+00:00"))
+
+        // Said the other way round, because this is the form the user sees:
+        // the event opens at nine o'clock, whatever the clocks did that night.
+        for span in [spring, autumn] {
+            #expect(Day.localCalendar(london).component(.hour, from: span.start) == 9)
+        }
+    }
+
+    /// Midnight UTC on the 5th is eight in the evening on the 4th in New York,
+    /// so an all-day event started there files itself on the wrong day — and
+    /// the user goes to the office a day early.
+    @Test("An all-day event starts at local midnight, so it files on the booked day")
+    func allDayStartsLocally() throws {
+        let allDay = CalendarWriter.span(entry(start: nil, end: nil), in: newYork)
+        #expect(allDay.isAllDay)
+        #expect(try allDay.start == instant("2026-08-05T00:00:00-04:00"))
+        #expect(allDay.end == allDay.start, "one day, not a span of none")
+        #expect(Day(localOf: allDay.start, in: newYork) == Day(2026, 8, 5))
+        #expect(allDay.start != entry().day.startOfDayUTC, "storage midnight is not local midnight")
+
+        // The two branches have to agree with each other: whichever one a
+        // booking takes, the event belongs to the same day.
+        let timed = CalendarWriter.span(entry(), in: newYork)
+        #expect(Day(localOf: timed.start, in: newYork) == Day(localOf: allDay.start, in: newYork))
     }
 
     /// A guessed 09:00 start would be a guess in somebody's calendar, so an
     /// unread time becomes an all-day event instead.
     @Test("Unread or nonsense times become an all-day event, never a guess")
     func allDayWhenUnread() {
-        #expect(CalendarWriter.span(entry(start: nil, end: nil)).isAllDay)
-        #expect(CalendarWriter.span(entry(start: "09:00", end: nil)).isAllDay)
-        #expect(CalendarWriter.span(entry(start: "09:00", end: "08:00")).isAllDay, "ends first")
-        #expect(CalendarWriter.span(entry(start: "9am", end: "5pm")).isAllDay)
+        #expect(CalendarWriter.span(entry(start: nil, end: nil), in: london).isAllDay)
+        #expect(CalendarWriter.span(entry(start: "09:00", end: nil), in: london).isAllDay)
+        #expect(
+            CalendarWriter.span(entry(start: "09:00", end: "08:00"), in: london).isAllDay,
+            "ends first"
+        )
+        #expect(CalendarWriter.span(entry(start: "9am", end: "5pm"), in: london).isAllDay)
     }
 
     @Test("Times are parsed strictly")
@@ -365,5 +427,172 @@ struct CalendarWriterTests {
         #expect(CalendarWriter.minutes("24:00") == nil)
         #expect(CalendarWriter.minutes("8") == nil)
         #expect(CalendarWriter.minutes(nil) == nil)
+    }
+
+    /// A timed event names its zone, so the hour survives being read in
+    /// another one. An all-day event must not: EventKit reads a zone as a
+    /// promise that the event has a clock time, and setting one turns
+    /// `isAllDay` back off — which is asserted here, because it is the sort of
+    /// framework behaviour a tidying edit would undo.
+    @Test("A timed event carries the zone it was written in, an all-day one carries none")
+    func appliedToTheEvent() throws {
+        let store = EKEventStore()
+
+        // New York rather than London, and not because the desk is there: an
+        // EKEvent handed a start date adopts the zone the machine is in, so a
+        // London expectation on a London simulator would hold whether or not
+        // this line was ever written.
+        let timed = EKEvent(eventStore: store)
+        CalendarWriter.apply(entry(), to: timed, in: newYork)
+        #expect(timed.title == "Desk 3C-114 · Coleman")
+        #expect(timed.location == "Coleman, 63 Coleman Street, London EC2R 5BB")
+        #expect(timed.notes?.contains("Floor: Level 3") == true)
+        #expect(!timed.isAllDay)
+        #expect(try timed.startDate == instant("2026-08-05T09:00:00-04:00"))
+        #expect(timed.timeZone == newYork)
+
+        let allDay = EKEvent(eventStore: store)
+        CalendarWriter.apply(entry(start: nil, end: nil), to: allDay, in: newYork)
+        #expect(allDay.isAllDay)
+        #expect(allDay.timeZone == nil)
+    }
+}
+
+/// The rule that made the identifier on the booking worth storing, and the one
+/// this file could not previously see: write-only access can add an event and
+/// can never find it again.
+@Suite("Calendar writing")
+@MainActor
+struct CalendarWriteTests {
+
+    struct CalendarUnavailable: Error, LocalizedError {
+        var errorDescription: String? { "The calendar is unavailable." }
+    }
+
+    /// Records every argument it is handed rather than nodding at them: the
+    /// events it was asked to save are kept whole, so a test asserts what
+    /// would have reached the user's calendar and not merely that something
+    /// did.
+    @MainActor
+    final class FakeCalendar: CalendarBackend {
+        var grantsAccess = true
+        var accessError: Error?
+        var saveError: Error?
+        var identifier = "EVENT-NEW"
+
+        private(set) var accessRequests = 0
+        private(set) var saved: [EKEvent] = []
+        private let store = EKEventStore()
+
+        func requestWriteOnlyAccess() async throws -> Bool {
+            accessRequests += 1
+            if let accessError { throw accessError }
+            return grantsAccess
+        }
+
+        func makeEvent() -> EKEvent { EKEvent(eventStore: store) }
+
+        func save(_ event: EKEvent) throws -> String {
+            if let saveError { throw saveError }
+            saved.append(event)
+            return identifier
+        }
+    }
+
+    func entry(day: Day = Day(2026, 8, 5)) -> CalendarWriter.Entry {
+        .init(
+            deskID: "3C-114", officeName: "Coleman",
+            address: "63 Coleman Street, London EC2R 5BB",
+            floor: "Level 3", zone: "C", day: day,
+            startTime: "09:00", endTime: "17:00"
+        )
+    }
+
+    let london = TimeZone(identifier: "Europe/London")!
+
+    @Test("A first write saves the booking the user is looking at")
+    func addsTheEvent() async throws {
+        let calendar = FakeCalendar()
+        let outcome = await CalendarWriter.write(
+            entry(), existingEventID: nil, in: london, using: calendar
+        )
+        #expect(outcome == .added("EVENT-NEW"))
+        #expect(calendar.accessRequests == 1)
+
+        let event = try #require(calendar.saved.first)
+        #expect(calendar.saved.count == 1)
+        #expect(event.title == "Desk 3C-114 · Coleman")
+        #expect(event.notes?.contains("Zone: C") == true)
+        #expect(
+            event.startDate
+                == ISO8601DateFormatter().date(from: "2026-08-05T09:00:00+01:00")
+        )
+    }
+
+    /// The one that matters. Write-only access cannot read the event back to
+    /// change it, so a second tap used to save a twin — two identical desk
+    /// events on one day, and the first one's identifier overwritten, so
+    /// nothing in the app could ever find it again.
+    @Test("A booking already in the calendar is never written a second time")
+    func refusesToWriteATwin() async {
+        let calendar = FakeCalendar()
+        let outcome = await CalendarWriter.write(
+            entry(), existingEventID: "EVENT-1", in: london, using: calendar
+        )
+        #expect(outcome == .failed(CalendarWriter.alreadyWritten))
+        #expect(calendar.saved.isEmpty)
+        #expect(calendar.accessRequests == 0, "and it does not ask for access to refuse")
+    }
+
+    /// An empty string is not an event. It is what an identifier the calendar
+    /// never gave us would look like, and it must not lock the booking out of
+    /// the calendar for good.
+    @Test("An empty identifier is no identifier")
+    func emptyIdentifierStillWrites() async {
+        let calendar = FakeCalendar()
+        let outcome = await CalendarWriter.write(
+            entry(), existingEventID: "", in: london, using: calendar
+        )
+        #expect(outcome == .added("EVENT-NEW"))
+        #expect(calendar.saved.count == 1)
+    }
+
+    @Test("Refused access is reported, and nothing is written")
+    func deniedAccess() async {
+        let calendar = FakeCalendar()
+        calendar.grantsAccess = false
+        let outcome = await CalendarWriter.write(
+            entry(), existingEventID: nil, in: london, using: calendar
+        )
+        #expect(outcome == .denied)
+        #expect(calendar.accessRequests == 1)
+        #expect(calendar.saved.isEmpty)
+    }
+
+    /// The reason has to reach the user: "Couldn't add to calendar" with no
+    /// cause is a dead end for someone whose calendar is managed by their
+    /// employer.
+    @Test("An access error is carried out, not swallowed")
+    func accessThrows() async {
+        let calendar = FakeCalendar()
+        calendar.accessError = CalendarUnavailable()
+        let outcome = await CalendarWriter.write(
+            entry(), existingEventID: nil, in: london, using: calendar
+        )
+        #expect(outcome == .failed("The calendar is unavailable."))
+        #expect(calendar.saved.isEmpty)
+    }
+
+    /// A failed save must not read as a success, because the caller stores the
+    /// returned identifier and would then refuse to ever write the booking.
+    @Test("A save that throws is a failure, not a silent success")
+    func saveThrows() async {
+        let calendar = FakeCalendar()
+        calendar.saveError = CalendarUnavailable()
+        let outcome = await CalendarWriter.write(
+            entry(), existingEventID: nil, in: london, using: calendar
+        )
+        #expect(outcome == .failed("The calendar is unavailable."))
+        #expect(calendar.saved.isEmpty)
     }
 }

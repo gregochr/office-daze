@@ -68,13 +68,38 @@ struct DetailRow: View {
     let value: String?
     var needsChecking = false
 
+    /// What the right-hand side says, which is the only decision in the row.
+    ///
+    /// Three states and not two: an em dash for a field nobody has filled in is
+    /// not the same as the amber marker for one the model could not read, and
+    /// collapsing them would tell the user a guess is a fact — the rule the
+    /// whole capture path is built around.
+    enum Display: Equatable {
+        /// The amber "Needs checking" pill, and no value at all.
+        case marker
+        case text(String)
+        /// The em dash, in the tertiary grey so it does not read as content.
+        case missing
+    }
+
+    /// The flag wins over the value it accompanies. A field that came back
+    /// unsure may still carry the model's best reading, and showing it beside
+    /// the marker would put a number on the screen the app has already said it
+    /// does not trust.
+    static func display(value: String?, needsChecking: Bool) -> Display {
+        if needsChecking { return .marker }
+        guard let value else { return .missing }
+        return .text(value)
+    }
+
     var body: some View {
         HStack(spacing: 8) {
             Text(label)
                 .font(.system(size: 16))
                 .foregroundStyle(Palette.rowLabel)
             Spacer(minLength: 8)
-            if needsChecking {
+            switch Self.display(value: value, needsChecking: needsChecking) {
+            case .marker:
                 Text("Needs checking")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(Palette.warningText)
@@ -82,10 +107,14 @@ struct DetailRow: View {
                     .padding(.horizontal, 8)
                     .background(Palette.warningSurface)
                     .clipShape(Capsule())
-            } else {
-                Text(value ?? "—")
+            case .text(let value):
+                Text(value)
                     .font(.system(size: 16))
-                    .foregroundStyle(value == nil ? Palette.tertiary : Palette.text)
+                    .foregroundStyle(Palette.text)
+            case .missing:
+                Text("—")
+                    .font(.system(size: 16))
+                    .foregroundStyle(Palette.tertiary)
             }
         }
         .padding(.vertical, 13)
@@ -141,10 +170,19 @@ struct RowStack<Item: Identifiable, Row: View>: View {
             VStack(spacing: 0) {
                 ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                     row(item)
-                    if index < items.count - 1 { RowDivider(inset: inset) }
+                    if Self.hasDivider(after: index, of: items.count) {
+                        RowDivider(inset: inset)
+                    }
                 }
             }
         }
+    }
+
+    /// Between rows and never at the ends. A hairline under the last row draws
+    /// a line across a card with nothing beneath it, which is precisely the
+    /// tell that a hand-built list is not a `List`.
+    static func hasDivider(after index: Int, of count: Int) -> Bool {
+        index < count - 1
     }
 }
 
@@ -155,14 +193,17 @@ struct RowStack<Item: Identifiable, Row: View>: View {
 /// it does. The gauge above it is an inventory; red here means the target
 /// cannot be reached this month, and nothing else in the app is red.
 struct StatusStrip: View {
-    enum Tone { case warning, success, neutral, danger }
+    /// `CaseIterable` so a test can hold every tone to the rule rather than the
+    /// four that happened to be written down — a fifth tone added without its
+    /// own colours would otherwise wear another one's silently.
+    enum Tone: CaseIterable { case warning, success, neutral, danger }
 
     let tone: Tone
     let leading: String
     var trailing: String?
     var dot = false
 
-    private var surface: Color {
+    static func surface(_ tone: Tone) -> Color {
         switch tone {
         case .warning: Palette.warningSurface
         case .success: Palette.successSurface
@@ -171,7 +212,7 @@ struct StatusStrip: View {
         }
     }
 
-    private var text: Color {
+    static func text(_ tone: Tone) -> Color {
         switch tone {
         case .warning: Palette.warningText
         case .success: Palette.successText
@@ -182,7 +223,7 @@ struct StatusStrip: View {
 
     /// Follows the tone. It was amber whatever the strip was, which only went
     /// unnoticed while the green strip had nothing on its right.
-    private var secondary: Color {
+    static func secondary(_ tone: Tone) -> Color {
         switch tone {
         case .warning: Palette.warningSecondary
         case .success: Palette.successText
@@ -193,7 +234,12 @@ struct StatusStrip: View {
 
     /// The two loud states keep the card shape and the roomier padding; the two
     /// quiet ones are a pill under the dial.
-    private var isLoud: Bool { tone == .success || tone == .danger }
+    static func isLoud(_ tone: Tone) -> Bool { tone == .success || tone == .danger }
+
+    private var surface: Color { Self.surface(tone) }
+    private var text: Color { Self.text(tone) }
+    private var secondary: Color { Self.secondary(tone) }
+    private var isLoud: Bool { Self.isLoud(tone) }
 
     var body: some View {
         HStack(spacing: 10) {

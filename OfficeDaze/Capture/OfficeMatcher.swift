@@ -38,10 +38,22 @@ nonisolated enum OfficeMatcher {
         if claiming.count == 1 { return claiming.first }
         if claiming.count > 1 { return nil }
 
-        // A postcode is unambiguous when it appears, so it goes first.
-        if let byPostcode = offices.first(where: {
+        // A postcode is unambiguous when it appears, so it goes first — but
+        // only when one office claims it. `first(where:)` here was the single
+        // rule in this file that would pick among several, and the app's own
+        // model invites the case it picked wrongly in: two offices in one
+        // building ("Coleman, London" and "Coleman Annexe") share a postcode,
+        // and whichever the fetch happened to return first won.
+        //
+        // Several claims fall through to the name rule rather than returning
+        // nil, because that rule can still tell them apart — "Coleman Annexe,
+        // EC2V 7NQ" names the annexe — and where it cannot it refuses on its
+        // own terms. Returning here would have thrown away a correct answer to
+        // avoid a wrong one.
+        let byPostcode = offices.filter {
             !$0.postcode.isEmpty && printed.localizedCaseInsensitiveContains($0.postcode)
-        }) { return byPostcode }
+        }
+        if byPostcode.count == 1 { return byPostcode.first }
 
         let parts = tokens(printed)
         guard !parts.isEmpty else { return nil }
@@ -66,17 +78,36 @@ nonisolated enum OfficeMatcher {
     /// is printed with a floor in front of it on some rows and not on others —
     /// "03, Coleman, London" and "Coleman, London" are one answer, and an alias
     /// that had to be taught twice would not feel taught at all.
+    /// Some real names tokenise to nothing at all: `tokens("Level 5")`,
+    /// `tokens("The Building")` and `tokens("Office")` are all empty, because
+    /// every word in them is either noise or a number. The old rule answered
+    /// false for those against *any* alias, including a byte-identical one — so
+    /// an office column printed `Level 5` could never be recognised however
+    /// often it was taught, `CaptureCoordinator.remember` appended the alias
+    /// again on every capture, and the sheet asked the same question forever
+    /// off an ever-growing list. When there is nothing to compare as tokens,
+    /// compare the names as names.
     static func matches(_ printed: String, _ alias: String) -> Bool {
-        let tokens = tokens(printed)
-        return !tokens.isEmpty && tokens == Self.tokens(alias)
+        let printedTokens = tokens(printed), aliasTokens = tokens(alias)
+        guard !printedTokens.isEmpty, !aliasTokens.isEmpty else {
+            return printed.trimmingCharacters(in: .whitespacesAndNewlines).compare(
+                alias.trimmingCharacters(in: .whitespacesAndNewlines),
+                options: [.caseInsensitive, .diacriticInsensitive]
+            ) == .orderedSame
+        }
+        return printedTokens == aliasTokens
     }
 
-    /// Lower-cased words, punctuation dropped, and the noise words a booking
-    /// system pads a building name with removed.
+    /// Lower-cased words, punctuation dropped, accents folded, and the noise
+    /// words a booking system pads a building name with removed.
+    ///
+    /// Folded because an office typed as "Zurich" and printed as "Zürich" is
+    /// one building, and a diacritic is not a reason to ask a question.
     private static func tokens(_ text: String) -> Set<String> {
         let noise: Set<String> = ["the", "office", "building", "floor", "level"]
         return Set(
-            text.lowercased()
+            text.folding(options: .diacriticInsensitive, locale: nil)
+                .lowercased()
                 .components(separatedBy: CharacterSet.alphanumerics.inverted)
                 .filter { $0.count > 1 && !noise.contains($0) && Int($0) == nil }
         )

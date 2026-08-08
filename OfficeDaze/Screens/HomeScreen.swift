@@ -24,6 +24,15 @@ struct HomeScreen: View {
     /// The booking a row's menu sent to the editor, if any.
     @State private var editing: DeskBooking?
 
+    /// The booking whose row was told to delete when the row is holding two
+    /// records — the desk and the day worked. Set means the dialog is up
+    /// asking which of the two was meant. See `deletion(for:attendance:)`.
+    @State private var choosingDelete: DeskBooking?
+
+    /// Set only by a write that did not land — one the store refused, or one
+    /// that threw. Non-nil puts the alert up. See `Answer`.
+    @State private var failure: String?
+
     enum ManualEntry: String, Identifiable {
         case booking, attendance
         var id: String { rawValue }
@@ -55,6 +64,17 @@ struct HomeScreen: View {
             }
         }
 
+        /// Which building the row is about. Every kind of row has one, and it
+        /// is half of the day-and-office pairing everything on this screen
+        /// matches on — including the sentence that has to explain a refusal.
+        var officeID: UUID? {
+            switch self {
+            case .booking(let booking): booking.officeID
+            case .attended(let record): record.officeID
+            case .planned(let record): record.officeID
+            }
+        }
+
         /// The booking behind this row, for the rows that have one.
         var booking: DeskBooking? {
             if case .booking(let booking) = self { return booking }
@@ -62,9 +82,11 @@ struct HomeScreen: View {
         }
     }
 
-    private var monthBookings: [DeskBooking] {
-        bookings.filter { month.contains($0.day) }
-    }
+    // A `monthBookings` used to sit here, filtering the desk bookings to the
+    // month. Nothing read it: `entries` does that filtering itself, and has to,
+    // because the rule it exists for is which *other* records a booked day
+    // speaks for. A second, subtly different month filter beside it was an
+    // invitation to answer the same question two ways.
 
     private var monthEntries: [Entry] {
         Self.entries(
@@ -109,19 +131,72 @@ struct HomeScreen: View {
         ).sorted { $0.day < $1.day }
     }
 
+    /// The attendance record that speaks for a booking's day, if there is one.
+    ///
+    /// Matched on day *and* office, the pairing `entries` and `isAttended` both
+    /// use, so no two parts of this screen can disagree about which record a
+    /// row is standing for. A day worked at the other building is a different
+    /// row's record, and removing it from this one would delete something this
+    /// row never showed.
+    static func attendanceRecord(
+        for booking: DeskBooking, in attendance: [AttendanceDay]
+    ) -> AttendanceDay? {
+        attendance.first { $0.day == booking.day && $0.officeID == booking.officeID }
+    }
+
+    /// What a row's Delete means, once you know what is behind the row.
+    ///
+    /// A booked day that was also turned up for is two records under one row.
+    /// That single row is deliberate — see `entries` — but it cost the
+    /// attendance its only delete: `deleteAttendance` has one caller in the
+    /// app, this screen's `.attended` row, and `entries` never emits one for a
+    /// booked day. Nothing else reached it either. The detail screen's
+    /// "Attended — confirmed" strip is a label, and `recordAttendance` refuses
+    /// a second row for the same day and office, so a mis-tapped "I'm here" on
+    /// a booked day — the likeliest mis-tap there is, since a booked day is
+    /// exactly the day the arrival alert fires on — went on counting toward the
+    /// eight with no way in the app to take it back.
+    ///
+    /// So Delete on such a row asks which record it means rather than silently
+    /// taking the desk. Every other row holds one record and still deletes
+    /// without a question: an extra tap on every delete would be a worse trade
+    /// than the one this buys.
+    enum Deletion {
+        /// One record behind the row. Delete means it, and acts.
+        case record
+        /// A booking, and the attendance for the same day at the same office.
+        case bookingOrAttendance(AttendanceDay)
+    }
+
+    static func deletion(for entry: Entry, attendance: [AttendanceDay]) -> Deletion {
+        guard let booking = entry.booking,
+              let record = attendanceRecord(for: booking, in: attendance)
+        else { return .record }
+        return .bookingOrAttendance(record)
+    }
+
     private var snapshot: QuotaService.Snapshot? {
         try? QuotaService.snapshot(for: month, today: .today, in: context)
     }
 
     var body: some View {
+        // Read once, then threaded down. `snapshot` is a computed property over
+        // four unfiltered fetches, so every syntactic mention of it was another
+        // four — and `officeShares` mentioned it inside a map over the offices,
+        // which made the bill scale with how many buildings you have. One body
+        // pass now costs one snapshot rather than four plus one per office.
+        let snapshot = self.snapshot
         ScrollView {
             VStack(spacing: 0) {
-                gaugeCard
+                gaugeCard(snapshot)
                 // Two or more, because this exists to split the month between
                 // offices. With one there is nothing to split: the bar would be
                 // one colour end to end, saying the number the gauge has just
                 // said with a name on it.
-                let shares = officeShares
+                let shares = Self.officeShares(
+                    offices: offices,
+                    attendedByOffice: snapshot?.attendedByOffice ?? [:]
+                )
                 if shares.count > 1 {
                     officeSplit(shares).padding(.top, Metrics.cardGap)
                 }
@@ -159,6 +234,47 @@ struct HomeScreen: View {
         .sheet(item: $editing) { booking in
             NavigationStack { BookingEditorScreen(booking: booking) }
         }
+        // A booked day that was also worked is two records under one row, and
+        // Delete has to say which of them it means. Titled rather than silent,
+        // because both answers are destructive and the difference between them
+        // is the whole point: one loses the desk, the other loses the day off
+        // the gauge.
+        .confirmationDialog(
+            "Delete what?",
+            isPresented: Binding(
+                get: { choosingDelete != nil },
+                set: { if !$0 { choosingDelete = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: choosingDelete
+        ) { booking in
+            Button("The desk booking", role: .destructive) {
+                // Let go of the row first. The dialog is presenting this
+                // booking, and the next line deletes it out from under it.
+                choosingDelete = nil
+                delete(.booking(booking))
+            }
+            // Worded as the menu that adds one words it — you added a "Day in
+            // the office", so that is the thing you are taking away.
+            Button("The day in the office", role: .destructive) {
+                choosingDelete = nil
+                removeAttendance(from: booking)
+            }
+        } message: { _ in
+            Text("The desk and the day worked are separate records. Removing the day takes it off the gauge and leaves the booking.")
+        }
+        // Where a write that did not happen is said out loud. Every button on
+        // this screen that changes the store routes its refusals and its throws
+        // here; before it, all of them were `try?` and a tap that did nothing
+        // was indistinguishable from a tap that worked.
+        .alert(
+            "Not saved",
+            isPresented: Binding(get: { failure != nil }, set: { if !$0 { failure = nil } })
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(failure ?? "")
+        }
         .fullScreenCover(isPresented: $camera) {
             // Full screen, because a camera in a card with the app showing
             // round the edges is a viewfinder you have to aim through.
@@ -170,7 +286,9 @@ struct HomeScreen: View {
 
     // MARK: The gauge
 
-    private var gaugeCard: some View {
+    /// Takes the snapshot rather than reading it: the card mentions it four
+    /// times, and as a property each mention was four fetches of its own.
+    private func gaugeCard(_ snapshot: QuotaService.Snapshot?) -> some View {
         Card(padding: EdgeInsets(top: 12, leading: 16, bottom: 16, trailing: 16)) {
             VStack(spacing: 0) {
                 monthStepper
@@ -229,7 +347,13 @@ struct HomeScreen: View {
     private var isThisMonth: Bool { month == Day.today.month_ }
 
     private var monthStepper: some View {
-        HStack {
+        // Formatted once. `Month.text` builds a DateFormatter and a Locale and
+        // parses a format string on every call, and the label and the
+        // accessibility label are the same words — so asking twice paid for the
+        // most expensive routine operation in Foundation to get an answer we
+        // already had.
+        let title = month.text
+        return HStack {
             stepButton("chevron.left", enabled: canStepBack) {
                 month = month.adding(months: -1)
             }
@@ -241,7 +365,7 @@ struct HomeScreen: View {
             Button {
                 month = Day.today.month_
             } label: {
-                Text(month.text)
+                Text(title)
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(isThisMonth ? Palette.text : Palette.tint)
                     .padding(.vertical, 6)
@@ -250,7 +374,7 @@ struct HomeScreen: View {
             }
             .buttonStyle(.plain)
             .disabled(isThisMonth)
-            .accessibilityLabel(isThisMonth ? month.text : "\(month.text), back to this month")
+            .accessibilityLabel(isThisMonth ? title : "\(title), back to this month")
             Spacer(minLength: 8)
             stepButton("chevron.right") { month = month.adding(months: 1) }
         }
@@ -427,9 +551,18 @@ struct HomeScreen: View {
 
     /// Offices with days against them this month, biggest first. An office with
     /// nothing recorded has no share of the figure and no segment in the bar.
-    private var officeShares: [(office: Office, days: Double)] {
+    ///
+    /// Handed the already-computed split rather than reaching back for
+    /// `snapshot`: the map runs once per office, and a property read inside it
+    /// re-ran the whole four-fetch snapshot each time round — the one place in
+    /// the screen where the cost of a re-render grew with the user's data.
+    /// Taking it as a parameter is what makes that impossible to reintroduce,
+    /// and it makes the ordering rule testable without a store.
+    static func officeShares(
+        offices: [Office], attendedByOffice: [UUID: Double]
+    ) -> [(office: Office, days: Double)] {
         offices
-            .map { ($0, snapshot?.attendedByOffice[$0.id] ?? 0) }
+            .map { ($0, attendedByOffice[$0.id] ?? 0) }
             .filter { $0.1 > 0 }
             .sorted { $0.1 > $1.1 }
     }
@@ -439,6 +572,17 @@ struct HomeScreen: View {
     }
 
     // MARK: Bookings
+
+    /// The heading over the list has to name the month the list is showing.
+    ///
+    /// It was the literal "This month" over rows the stepper moves freely in
+    /// both directions, so two chevrons forward the heading claimed October's
+    /// bookings were this month's — while the empty state four lines below it
+    /// got the same question right. `SectionHeader` uppercases, so a stepped
+    /// month reads OCTOBER 2026, in the style of the headings around it.
+    static func bookingsTitle(month: Month, today: Day) -> String {
+        month == today.month_ ? "This month" : month.text
+    }
 
     private var bookingsSection: some View {
         VStack(spacing: 8) {
@@ -451,7 +595,7 @@ struct HomeScreen: View {
             // pressed. Scanning goes first because it is the fastest way in —
             // the confirmation is nearly always on a monitor in front of you,
             // and there is not even a shutter to press.
-            SectionHeader(title: "This month") {
+            SectionHeader(title: Self.bookingsTitle(month: month, today: .today)) {
                 Menu {
                     Button("Scan a booking", systemImage: "camera") { camera = true }
                     Button("Desk booking", systemImage: "square.and.pencil") {
@@ -475,7 +619,7 @@ struct HomeScreen: View {
                         // record is a day and an office, and the screen that
                         // takes those can only add another one.
                         edit: entry.booking.map { booking in { editing = booking } },
-                        delete: { delete(entry) }
+                        delete: { deleteRequested(entry) }
                     ) {
                         VStack(spacing: 0) {
                             switch entry {
@@ -611,38 +755,175 @@ struct HomeScreen: View {
         .buttonStyle(.plain)
     }
 
-    private func answerYes(_ entry: Entry) {
-        switch entry {
-        case .booking(let booking):
-            try? BookingStore.recordAttendance(
-                day: booking.day, officeID: booking.officeID,
-                source: .manual, bookingID: booking.id, in: context
-            )
-        case .planned(let record):
-            try? BookingStore.recordAttendance(
-                day: record.day, officeID: record.officeID,
-                source: .manual, in: context
-            )
-        case .attended:
-            break
-        }
-        answered()
+    /// What answering a row's question did.
+    ///
+    /// `refused` is the case that used to be invisible, and it is why this is an
+    /// enum rather than a `try?`. `recordAttendance` answers a write it will not
+    /// make by *returning nil*, not by throwing, so `try?` on it flattened three
+    /// different outcomes — written, declined, and thrown — into the same silent
+    /// nothing, and the screen went on to `answered()` as though the day had
+    /// been counted.
+    ///
+    /// The reachable decline is a day whose recorded fractions already total a
+    /// whole day at another office. The question is still asked on such a row,
+    /// because `isUnanswered` matches on this row's own office, so Yes was live,
+    /// wrote nothing, said nothing, and left the row asking.
+    enum Answer: Equatable {
+        case written
+        case refused
+        case failed(String)
+        /// Nothing to answer. `.attended` rows never ask the question, so this
+        /// is unreachable from the buttons; it exists so the switch below has
+        /// somewhere honest to put that case rather than reporting a success.
+        case nothing
     }
 
-    /// A booking keeps its row and stops asking — the desk was reserved, which
-    /// happened whether or not the day was. An intention that came to nothing
-    /// leaves no trace worth keeping: it only ever counted toward the forecast,
-    /// and the forecast is days ahead.
-    private func answerNo(_ entry: Entry) {
+    /// Yes: the day was worked. The store call arrives as a closure for the
+    /// reason `AttendanceEditorScreen.record` takes its two — the outcome worth
+    /// getting right is a refusal, and a refusal is a branch SwiftData will not
+    /// take on request.
+    ///
+    /// The closure is handed the booking's id for a booked day and nil for a
+    /// planned one, which is the difference between an attendance row that knows
+    /// which desk it belongs to and one that floats free.
+    static func answerYes(
+        _ entry: Entry, record: (Day, UUID?, UUID?) throws -> Bool
+    ) -> Answer {
+        let bookingID: UUID?
         switch entry {
-        case .booking(let booking):
-            try? BookingStore.markNotAttended(booking, in: context)
-        case .planned(let record):
-            try? BookingStore.deletePlanned(record, in: context)
-        case .attended:
+        case .booking(let booking): bookingID = booking.id
+        case .planned: bookingID = nil
+        case .attended: return .nothing
+        }
+        do {
+            return try record(entry.day, entry.officeID, bookingID) ? .written : .refused
+        } catch {
+            return .failed(
+                "\(entry.day.dayAndMonth) couldn't be recorded: \(error.localizedDescription). Nothing was saved."
+            )
+        }
+    }
+
+    /// No. A booking keeps its row and stops asking — the desk was reserved,
+    /// which happened whether or not the day was. An intention that came to
+    /// nothing leaves no trace worth keeping: it only ever counted toward the
+    /// forecast, and the forecast is days ahead.
+    ///
+    /// Two closures rather than one, because those are two different writes to
+    /// two different records and the branch between them is the rule above. A
+    /// single closure would let a booking be deleted where it should have been
+    /// marked and nothing here would notice.
+    ///
+    /// Neither call can decline, so there is no `refused` on this side — only a
+    /// throw, which used to be swallowed and left the row asking a question the
+    /// user had already answered.
+    static func answerNo(
+        _ entry: Entry,
+        mark: (DeskBooking) throws -> Void,
+        forget: (PlannedDay) throws -> Void
+    ) -> Answer {
+        do {
+            switch entry {
+            case .booking(let booking):
+                try mark(booking)
+            case .planned(let record):
+                try forget(record)
+            case .attended:
+                return .nothing
+            }
+            return .written
+        } catch {
+            return .failed(
+                "\(entry.day.dayAndMonth) couldn't be answered: \(error.localizedDescription). Nothing was saved."
+            )
+        }
+    }
+
+    /// Why the store refused a Yes, said in terms of what is actually on that
+    /// day. The store answers with nil and no reason; every reason it has is
+    /// visible from the rows this screen already holds.
+    ///
+    /// Only the middle sentence is reachable from a row's Yes button — the first
+    /// describes a day this row would not be asking about, and the last is the
+    /// reason we do not have. They are written out anyway because a fallback
+    /// that says "could not be recorded" and nothing else is what the user gets
+    /// if a future guard is added to the store and nobody updates this.
+    static func refusal(
+        day: Day, officeID: UUID?, attendance: [AttendanceDay]
+    ) -> String {
+        if attendance.contains(where: { $0.day == day && $0.officeID == officeID }) {
+            return "\(day.dayAndMonth) is already recorded at this office. Nothing was added."
+        }
+        let elsewhere = attendance.filter { $0.day == day }.reduce(0) { $0 + $1.fraction }
+        if elsewhere > 0 {
+            return "\(day.dayAndMonth) already has \(amount(elsewhere)) recorded at another office, and a whole day here would take it over one. Remove that day first if it is wrong."
+        }
+        return "\(day.dayAndMonth) could not be recorded. Nothing was added."
+    }
+
+    /// `half a day` / `a whole day`, so the sentence above reads as English
+    /// rather than as a decimal. Exact rather than approximate: the attendance
+    /// editor's picker offers exactly those two fractions and every other writer
+    /// in the app records 1.0, so there is no third value to round.
+    static func amount(_ fraction: Double) -> String {
+        fraction < 1 ? "half a day" : "a whole day"
+    }
+
+    /// Every delete on this screen can only fail by throwing — nothing declines
+    /// a delete — so all it needs is somewhere for the throw to land. Silence
+    /// left the row sitting there with no reason given, which reads as a tap
+    /// that missed rather than as a save that failed.
+    static func deletionFailure(_ entry: Entry, _ error: Error) -> String {
+        let what = switch entry {
+        case .booking: "The desk booking"
+        case .attended: "The day in the office"
+        case .planned: "The planned day"
+        }
+        return "\(what) for \(entry.day.dayAndMonth) couldn't be removed: \(error.localizedDescription)."
+    }
+
+    private func answerYes(_ entry: Entry) {
+        settle(
+            Self.answerYes(entry) { day, officeID, bookingID in
+                try BookingStore.recordAttendance(
+                    day: day, officeID: officeID, source: .manual,
+                    bookingID: bookingID, in: context
+                ) != nil
+            },
+            entry
+        )
+    }
+
+    private func answerNo(_ entry: Entry) {
+        settle(
+            Self.answerNo(
+                entry,
+                mark: { try BookingStore.markNotAttended($0, in: context) },
+                forget: { try BookingStore.deletePlanned($0, in: context) }
+            ),
+            entry
+        )
+    }
+
+    /// One landing place for both buttons, so a refusal and a throw are treated
+    /// the same way whichever of them produced it — and so `answered()` runs
+    /// only when something was actually written. It used to run unconditionally,
+    /// which withdrew the evening nudge for a day that had not been recorded:
+    /// the question disappeared from the one place left that would have asked it
+    /// again.
+    private func settle(_ answer: Answer, _ entry: Entry) {
+        switch answer {
+        case .written:
+            answered()
+        case .refused:
+            failure = Self.refusal(
+                day: entry.day, officeID: entry.officeID, attendance: attendance
+            )
+        case .failed(let why):
+            failure = why
+        case .nothing:
             break
         }
-        answered()
     }
 
     /// The evening nudge may already be holding a question about the day just
@@ -751,23 +1032,60 @@ struct HomeScreen: View {
         .contentShape(Rectangle())
     }
 
+    /// The row's Delete, before it is known what Delete means. A row standing
+    /// for two records asks; every other row acts.
+    private func deleteRequested(_ entry: Entry) {
+        switch Self.deletion(for: entry, attendance: attendance) {
+        case .record:
+            delete(entry)
+        case .bookingOrAttendance:
+            choosingDelete = entry.booking
+        }
+    }
+
+    /// Takes the day off the gauge without touching the desk.
+    ///
+    /// It deletes the record rather than storing a no. `notAttended` is the
+    /// booking's own answer and it is already false here, so with the record
+    /// gone the row returns to asking "Were you there?" and can be answered
+    /// again — including at a half day, which is otherwise uncorrectable, since
+    /// `recordAttendance` refuses a second row for the same day and office.
+    /// Presuming the answer was no would take that back: a mis-tapped Yes is
+    /// not the same statement as a day that was not worked.
+    private func removeAttendance(from booking: DeskBooking) {
+        guard let record = Self.attendanceRecord(for: booking, in: attendance) else { return }
+        do {
+            try BookingStore.deleteAttendance(record, in: context)
+        } catch {
+            failure = Self.deletionFailure(.attended(record), error)
+            return
+        }
+        // The day is an open question again, and the evening nudge may be
+        // holding one that was decided while it was not.
+        answered()
+    }
+
     private func delete(_ entry: Entry) {
-        switch entry {
-        case .booking(let booking):
-            // The booking only. Attendance is the record that the day was
-            // worked, and it outlives the desk.
-            try? BookingStore.delete(booking, in: context)
-        case .attended(let record):
-            try? BookingStore.deleteAttendance(record, in: context)
-        case .planned(let record):
-            try? BookingStore.deletePlanned(record, in: context)
+        do {
+            switch entry {
+            case .booking(let booking):
+                // The booking only. Attendance is the record that the day was
+                // worked, and it outlives the desk.
+                try BookingStore.delete(booking, in: context)
+            case .attended(let record):
+                try BookingStore.deleteAttendance(record, in: context)
+            case .planned(let record):
+                try BookingStore.deletePlanned(record, in: context)
+            }
+        } catch {
+            failure = Self.deletionFailure(entry, error)
         }
     }
 
     /// Attendance is its own record, not a flag on the booking — you can book
     /// and not go. Matching on day and office is what ties the two together.
     private func isAttended(_ booking: DeskBooking) -> Bool {
-        attendance.contains { $0.day == booking.day && $0.officeID == booking.officeID }
+        Self.attendanceRecord(for: booking, in: attendance) != nil
     }
 }
 

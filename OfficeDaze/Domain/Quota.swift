@@ -6,7 +6,7 @@ import Foundation
 ///     eligible    = workingDays − sum(leave.fraction)
 ///     relief      = floor(leave ÷ 5) × 2
 ///     target      = clamp(8 − relief, 0 ... eligible)
-///     attended    = sum(attendance.fraction)   // counts
+///     attended    = sum over days of min(1, sum(fraction))  // counts
 ///     forecast    = desk bookings and planned days after today  // does not
 ///     shortfall   = max(0, target − attended − forecast)
 ///
@@ -163,9 +163,29 @@ nonisolated enum Quota {
         // two rather than to nothing.
         let target = Int(min(max(0, baseTarget - relief), max(0, eligible)).rounded(.down))
 
-        let attended = input.attendance
+        // Grouped by day before it is summed, and each day capped at a day.
+        //
+        // More than one row can describe the same date — attendance is recorded
+        // per office, and two offices in one day is unusual but supported — so a
+        // straight `reduce` over the rows credited the same calendar day twice
+        // and put `attended` at 2.0 for one day on prem. That also made this
+        // function disagree with itself: `attendedDays` three lines down is a
+        // *set*, and `forecast` and `daysAvailable` have always treated a date
+        // as worth one day. The gauge read "5 of 8" for four days worked, and
+        // `standing` could reach `.met` a whole day early — the exact
+        // conflation the AttendanceDay/DeskBooking split exists to prevent.
+        //
+        // Capped rather than collapsed to a set, which was the tempting fix and
+        // is wrong: a morning at one site and an afternoon at another is two
+        // 0.5 rows that legitimately make one whole day, and a set would rate
+        // that date at 0.5. The invariant is not "one row per day", it is "a
+        // day is worth at most a day".
+        let perDay = input.attendance
             .filter { month.contains($0.day) }
-            .reduce(0) { $0 + $1.fraction }
+            .reduce(into: [Day: Double]()) { totals, row in
+                totals[row.day, default: 0] += row.fraction
+            }
+        let attended = perDay.values.reduce(0) { $0 + min(1, $1) }
         let attendedDays = Set(input.attendance.map(\.day))
 
         // Forecast is what is intended ahead and not yet turned up for, whether

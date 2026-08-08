@@ -17,10 +17,9 @@ import SwiftUI
 /// rule in every month. Judgement lives in the strip underneath, once, from
 /// `Quota.Standing`.
 ///
-/// Drawn in `GaugeMetrics.boxSize` and scaled to whatever it is given, so the
-/// mock's radii can be used verbatim rather than re-derived as fractions of the
-/// frame. Everything about angles lives in `GaugeMetrics`; this file only turns
-/// those into strokes.
+/// Drawn at a fixed `GaugeMetrics.boxSize`, so the mock's radii can be used
+/// verbatim rather than re-derived as fractions of the frame. Everything about
+/// angles lives in `GaugeMetrics`; this file only turns those into strokes.
 struct AttendanceGauge: View {
     let attended: Double
     /// Days booked ahead and not yet worked. The number the old dial left out
@@ -36,7 +35,7 @@ struct AttendanceGauge: View {
 
     var body: some View {
         ZStack {
-            Canvas { context, size in draw(in: &context, size: size) }
+            Canvas { context, _ in draw(in: &context) }
                 .frame(
                     width: GaugeMetrics.boxSize.width,
                     height: GaugeMetrics.boxSize.height
@@ -121,13 +120,22 @@ struct AttendanceGauge: View {
 
     // MARK: Drawing
 
-    private func draw(in context: inout GraphicsContext, size: CGSize) {
-        // The mock's coordinates are 256 wide; honour whatever width we are
-        // given so the dial can shrink on a small phone without re-deriving
-        // every radius.
-        let scale = size.width / GaugeMetrics.boxSize.width
-        context.scaleBy(x: scale, y: scale)
-
+    /// The Canvas is pinned to `GaugeMetrics.boxSize`, so it is drawn in the
+    /// mock's own 256×208 coordinates and no `size` is passed in.
+    ///
+    /// There used to be a `context.scaleBy(size.width / boxSize.width)` here,
+    /// under a comment saying the dial shrank to fit a small phone. It never
+    /// did: the Canvas, the label overlays and the enclosing ZStack are all
+    /// framed at `boxSize`, so the factor was structurally 1 and the shrinking
+    /// was a promise the code could not keep. It is deleted rather than made
+    /// real because it does not need to be real — the narrowest phone iOS 26
+    /// supports is 375pt, which leaves 311pt of card interior after the
+    /// screen and card padding, against a 256pt box. If that ever stops being
+    /// true, scaling the context is not enough on its own: the two label
+    /// overlays are positioned in `boxSize` too, so they would have to be
+    /// driven from a measured width at the same time, or they will drift onto
+    /// the arc.
+    private func draw(in context: inout GraphicsContext) {
         drawSegments(&context)
         drawTicks(&context)
         drawMarker(&context)

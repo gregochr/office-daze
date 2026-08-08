@@ -4,11 +4,14 @@ import UserNotifications
 
 /// Schedules — and, more importantly, withdraws — the evening nudge.
 ///
-/// The trigger repeats daily, so the schedule survives the app not running.
-/// The *decision* cannot: whether tomorrow needs a nudge changes every day. So
-/// the app re-evaluates whenever it is awake — at launch, and after anything
-/// that could change the answer — and removes the pending notification when
-/// the conditions no longer hold.
+/// The prompt to book tomorrow repeats daily, so that schedule survives the app
+/// not running. The *decision* cannot: whether tomorrow needs a nudge changes
+/// every day. So the app re-evaluates whenever it is awake — at launch, and
+/// after anything that could change the answer — and removes the pending
+/// notification when the conditions no longer hold.
+///
+/// The question about today does not repeat, because its content names a day
+/// and its buttons write that day. See `EveningNudge.request`.
 @MainActor
 enum NudgeScheduler {
 
@@ -23,6 +26,13 @@ enum NudgeScheduler {
 
     /// Defaults to 18:00 — late enough to know how the day went, early enough
     /// to still book something for tomorrow.
+    ///
+    /// Wall-clock time on the *device's* clock, not a Day-domain value: 18:00
+    /// means six in the evening wherever the phone is, which is what a person
+    /// setting a reminder means. Anything reading or writing this must use
+    /// `Day.localCalendar()`, never `Day.calendar` — that one is pinned to UTC,
+    /// and putting a UTC hour into a trigger that fires locally is how this
+    /// reminder spent every British summer going off at five.
     static var time: DateComponents {
         get {
             let defaults = UserDefaults.standard
@@ -40,11 +50,46 @@ enum NudgeScheduler {
         }
     }
 
+    /// The picker hands back a `Date`; the trigger wants an hour and a minute on
+    /// the device's clock. Both directions live here rather than inline in the
+    /// settings screen, because the screen had them *both* wrong in the same
+    /// direction — it read and wrote through `Day.calendar`, which is UTC — and
+    /// two matching errors cancel on screen while the trigger keeps the mistake.
+    /// A user in BST chose 18:00, 17 was stored, the picker redisplayed 18:00,
+    /// and the reminder arrived at five with nothing anywhere admitting it.
+    /// Isolated here they can be tested against a pinned zone.
+    static func components(
+        from picked: Date, in zone: TimeZone = .autoupdatingCurrent
+    ) -> DateComponents {
+        Day.localCalendar(zone).dateComponents([.hour, .minute], from: picked)
+    }
+
+    /// The `Date` to hand back to the picker. The day is only scaffolding — the
+    /// picker shows hours and minutes — but it has to be a real one, so it is
+    /// today's by default rather than an arbitrary epoch.
+    static func pickerDate(
+        for time: DateComponents, on day: Day = .today,
+        in zone: TimeZone = .autoupdatingCurrent
+    ) -> Date {
+        Day.localCalendar(zone).date(from: DateComponents(
+            year: day.year, month: day.month, day: day.day,
+            hour: time.hour ?? 18, minute: time.minute ?? 0
+        )) ?? .now
+    }
+
     /// Swapped in tests so nothing reaches the notification centre.
-    nonisolated(unsafe) static var schedule: (UNNotificationRequest) -> Void = { request in
+    ///
+    /// Plain `static var`, not `nonisolated(unsafe)`: the enum is `@MainActor`,
+    /// so these are main-actor isolated and fully checked for free, which is how
+    /// `ArrivalLedger.post`/`withdraw` — the same seam, one file over — have
+    /// always been declared. The annotation bought nothing and silenced the one
+    /// check that matters on shared mutable state: with it, a future
+    /// `Task.detached` reading `schedule` compiles clean under Complete checking
+    /// and races the main actor's write.
+    static var schedule: (UNNotificationRequest) -> Void = { request in
         UNUserNotificationCenter.current().add(request)
     }
-    nonisolated(unsafe) static var withdraw: () -> Void = {
+    static var withdraw: () -> Void = {
         UNUserNotificationCenter.current()
             .removePendingNotificationRequests(withIdentifiers: [EveningNudge.identifier])
     }
