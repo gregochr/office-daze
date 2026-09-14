@@ -164,16 +164,16 @@ struct SpikeDumpTests {
         let recorded = Recorded()
         coordinator.spikeRecorder = { recorded.add($0) }
         let prepared = Data("prepared".utf8)
-        coordinator.preparer = { _ in (prepared, "image/jpeg") }
-        coordinator.extractor = { data, _, _ in
+        coordinator.preparer = { _ in prepared }
+        coordinator.extractor = { data, _ in
             recorded.extractorSaw(data)
-            return (CaptureSamples.one, CaptureSamples.usage)
+            return CaptureSamples.one
         }
 
         await coordinator.receive(photo: CaptureSamples.pixel)
 
         #expect(recorded.images == [CaptureSamples.pixel], "the full frame, before the preparer")
-        #expect(recorded.sent == [prepared], "and the model still gets the prepared one")
+        #expect(recorded.sent == [prepared], "and the reader still gets what the check passed")
     }
 
     @Test("The default recorder does nothing while the switch is off")

@@ -4,8 +4,8 @@ import Vision
 
 /// Vision's document reader, run on the bytes as they arrived.
 ///
-/// This is the on-device half of what the Claude call used to do — reading
-/// the pixels. What it makes of them is `BookingParser`'s job.
+/// Reading the pixels, and nothing else. What they say is `BookingParser`'s
+/// job.
 nonisolated enum DocumentReader {
 
     /// What one image was read as: Vision's observations, whole, and their
@@ -34,9 +34,9 @@ nonisolated enum DocumentReader {
     /// `PhotoImport` steps around with `kCGImageSourceCreateThumbnailWithTransform`,
     /// handled here the way Vision itself expects it to be.
     ///
-    /// `@concurrent` for the reason `HaikuClient.extract` gives: under
-    /// approachable concurrency a bare `nonisolated` async function runs on
-    /// the caller's executor, and the caller is the main actor.
+    /// `@concurrent` because this project builds with approachable
+    /// concurrency, under which a bare `nonisolated` async function runs on
+    /// the caller's executor — and the caller is the main actor.
     @concurrent
     static func read(_ data: Data) async throws -> Result {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),

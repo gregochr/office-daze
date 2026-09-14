@@ -44,7 +44,7 @@ struct VisionExtractorTests {
 
     @Test("A blank page is reported as no text, not as no booking")
     func blankPageIsNoText() async {
-        await #expect(throws: CaptureError.modelReturnedNothingUsable("no text was found in the image")) {
+        await #expect(throws: CaptureError.nothingUsable("no text was found in the image")) {
             try await VisionExtractor.extract(image: CaptureSamples.pixel, today: Day(2026, 9, 14))
         }
     }
@@ -55,7 +55,7 @@ struct VisionExtractorTests {
             draw("Funds   ESA   Systems   Team   Office   APIs", 40, 40)
             draw("Nothing about a desk here.", 40, 120)
         }
-        await #expect(throws: CaptureError.modelReturnedNothingUsable("no complete booking in the document")) {
+        await #expect(throws: CaptureError.nothingUsable("no complete booking in the document")) {
             try await VisionExtractor.extract(image: try Self.png(of: page), today: Day(2026, 9, 14))
         }
     }
@@ -68,7 +68,7 @@ struct VisionExtractorTests {
         let fromTheSixth = try await VisionExtractor.extract(image: image, today: Day(2026, 10, 6))
         #expect(fromTheSixth.map(\.day) == [Day(2026, 10, 6)], "today is not the past")
 
-        await #expect(throws: CaptureError.modelReturnedNothingUsable(
+        await #expect(throws: CaptureError.nothingUsable(
             "all 2 bookings in the document have already passed"
         )) {
             try await VisionExtractor.extract(image: image, today: Day(2026, 10, 7))
@@ -92,18 +92,14 @@ struct VisionExtractorTests {
         }
     }
 
-    // MARK: The switch
+    // MARK: In the coordinator's seat
 
-    /// The debug switch that puts this reader in the coordinator's seat. Off,
-    /// the coordinator asks for a key; on, it reads on the phone and needs
-    /// none — which is the whole comparison the office day is for.
-    @Test("With the switch on, the coordinator reads on the device and needs no key")
+    /// The real extractor is the coordinator's default, so a capture that
+    /// arrives with nothing stubbed is read on the device, recorded, and put
+    /// up for review.
+    @Test("The coordinator reads on the device by default and records the capture")
     @MainActor
-    func theSwitchReplacesTheModelCall() async throws {
-        let was = VisionExtractor.isPreferred
-        VisionExtractor.isPreferred = true
-        defer { VisionExtractor.isPreferred = was }
-
+    func theCoordinatorReadsOnTheDevice() async throws {
         let container = try Store.makeInMemoryContainer(seeded: true)
         let coordinator = CaptureCoordinator(context: container.mainContext)
         coordinator.parsingFloor = .zero
@@ -114,21 +110,13 @@ struct VisionExtractorTests {
         #expect(coordinator.position?.total == 2)
         let capture = try #require(try container.mainContext.fetch(FetchDescriptor<Capture>()).first)
         #expect(capture.status == .parsed)
-        #expect(capture.inputTokens == 0 && capture.outputTokens == 0, "nothing was billed")
     }
 
-    @Test("The switch is off unless someone turned it on")
-    func offByDefault() {
-        #expect(!VisionExtractor.isPreferred)
-    }
-
-    @Test("Passthrough keeps the bytes and still refuses what is not an image")
-    func passthrough() throws {
+    @Test("The check at the door keeps the bytes and refuses what is not an image")
+    func prepareIsACheck() throws {
         let image = try Self.png(of: Self.list())
-        let passed = try PhotoImport.passthrough(image)
-        #expect(passed.data == image)
-        #expect(passed.mediaType == "image/png")
-        #expect(throws: CaptureError.unreadableImage) { try PhotoImport.passthrough(Data("nope".utf8)) }
+        #expect(try PhotoImport.prepare(image) == image, "every pixel goes through")
+        #expect(throws: CaptureError.unreadableImage) { try PhotoImport.prepare(Data("nope".utf8)) }
     }
 
     // MARK: Drawing the page

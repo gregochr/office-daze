@@ -1,8 +1,7 @@
 import Foundation
 
-/// The on-device reader, end to end: bytes in, bookings out. The shape of
-/// `CaptureCoordinator.extractor`, minus the usage the Claude call reports —
-/// there is nothing to bill.
+/// The reader, end to end: bytes in, bookings out. Runs on the phone, so
+/// nothing leaves it and nothing is billed.
 nonisolated enum VisionExtractor {
 
     /// `today` draws the line under the past: a booking for an earlier day is
@@ -12,7 +11,7 @@ nonisolated enum VisionExtractor {
         let all = BookingParser.parse(reading)
         let upcoming = all.filter { $0.day >= today }
         guard !upcoming.isEmpty else {
-            throw CaptureError.modelReturnedNothingUsable(Self.nothingUsable(
+            throw CaptureError.nothingUsable(Self.nothingUsable(
                 readNothing: reading.isEmpty, pastBookings: all.count
             ))
         }
@@ -28,17 +27,4 @@ nonisolated enum VisionExtractor {
         default: return "all \(pastBookings) bookings in the document have already passed"
         }
     }
-
-    #if DEBUG
-    private static let preferredKey = "visionExtractorPreferred"
-
-    /// Whether the coordinator reads with this instead of Claude. Debug builds
-    /// only, switched in Settings, so both readers can be pointed at the same
-    /// page in the office and compared. Off by default: Claude stays the
-    /// reader until the fixtures from the office say otherwise.
-    static var isPreferred: Bool {
-        get { UserDefaults.standard.bool(forKey: preferredKey) }
-        set { UserDefaults.standard.set(newValue, forKey: preferredKey) }
-    }
-    #endif
 }

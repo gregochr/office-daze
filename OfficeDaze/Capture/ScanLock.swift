@@ -1,15 +1,15 @@
 import Foundation
 
-/// Watches the text the camera is reading and says when the frame is worth a
-/// model call.
+/// Watches the text the camera is reading and says when the frame is worth
+/// photographing.
 ///
-/// The split it exists to enforce: on-device recognition decides *when*, one
-/// Claude call decides *what*. Recognition is free and runs at frame rate;
-/// a capture is around 0.4p, so a call per frame would be several pounds a
-/// minute. Nothing here tries to read the booking itself — the group-heading
-/// dates, the two-letter site code and the rule against inventing a value are
-/// the prompt's job, and a regex reimplementation of them is how you get a
-/// booking that is confidently wrong.
+/// The split it exists to enforce: live recognition decides *when*, one
+/// reading of a still decides *what*. Live recognition runs at frame rate on
+/// whatever is sharp; the document reader wants one good frame and a page's
+/// worth of layout to work from. Nothing here tries to read the booking
+/// itself — the date cards, the site code and the rule against inventing a
+/// value are `BookingParser`'s job, and a second, looser reading of them here
+/// is how you get a booking that is confidently wrong.
 ///
 /// The one real risk is firing on the wrong frame, so the bar is deliberately
 /// high: a desk id in the site's own shape, a word that only a booking

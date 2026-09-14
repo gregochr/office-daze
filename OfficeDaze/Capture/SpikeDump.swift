@@ -3,17 +3,15 @@ import Foundation
 import ImageIO
 import UniformTypeIdentifiers
 
-/// The OCR spike's recorder: every image that enters the capture flow is also
-/// run through Vision's document reader, and what came back is written down
+/// The fixture recorder: every image that enters the capture flow is also run
+/// through the document reader on its own, and what came back is written down
 /// beside the image.
 ///
-/// This exists for one day in the office. The question the spike has to answer
-/// is whether a photograph of the booking system's table comes back from
-/// `RecognizeDocumentsRequest` as a table or as loose paragraphs, and the only
-/// way to find out is to point the phone at the real thing. Everything here is
-/// in service of that: the real capture flow carries on untouched, and this
-/// taps the bytes on their way in, so the office day is spent capturing rather
-/// than building.
+/// It began as the OCR spike's tap, for finding out what a photograph of the
+/// booking system's list came back as. It stays because the answer changes: a
+/// page that reads badly in the office is a page whose reading belongs in the
+/// test bundle, and this is how it gets there. The real capture flow carries
+/// on untouched; this taps the bytes on their way in.
 ///
 /// Four files per capture, in a folder named for the moment it landed:
 ///

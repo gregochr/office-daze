@@ -2,14 +2,14 @@ import Foundation
 
 /// What a page of the booking system says, read as bookings.
 ///
-/// This is the other half of what the Claude call used to do — the reasoning
-/// the prompt spelled out in prose: which layout this is, which date a row
-/// belongs to, which rows are whole, which are confirmed. It reads the lines
+/// The reasoning a remote model's prompt used to spell out in prose: which
+/// layout this is, which date a row belongs to, which rows are whole, which
+/// are confirmed. It reads the lines
 /// of a `DocumentReading` in page order and nothing else, so it works the
 /// same whether Vision returned a table or a column of paragraphs, and it can
 /// be tested from a list of strings.
 ///
-/// The prompt's first rule survives as a property of the code rather than a
+/// That prompt's first rule survives as a property of the code rather than a
 /// request: a parser can only emit what it found. There is no path here that
 /// produces a date, a desk or a time from anything but a line that printed
 /// one. The one thing it derives is the floor and zone inside a desk id, and

@@ -1,42 +1,8 @@
 import SwiftData
 import SwiftUI
 
-/// The Keychain, as far as this screen is concerned: read it, write it, forget
-/// it.
-///
-/// An environment value rather than the defaulted closures the statics below
-/// used to carry, because a default is only reachable from a call site that
-/// omits it — and `body` was exactly such a call site. `.task` read the real
-/// Keychain and `.onChange(of: apiKey)` wrote back through it, so merely
-/// rendering this screen put the developer's live, billable Anthropic key in
-/// the path of the run: one read of it, and one rewrite. That is why this
-/// screen had no render coverage at all until now. With the seam a test hands
-/// in its own store and `body` has no way to reach the real one, so the
-/// defaults are gone from `write`, `reload` and `wipe` as well: `real` below is
-/// now the only line in the settings screen that names `Keychain`, and a call
-/// site that wants the true one has to say so.
-///
-/// `nonisolated` for the reason `AlertReadiness` is: an environment key's
-/// `defaultValue` is read without an actor, and a `KeychainAccess.real` bound
-/// to the main actor could not supply it.
-nonisolated struct KeychainAccess: Sendable {
-    var read: @Sendable () -> String?
-    var write: @Sendable (String) -> Bool
-    var forget: @Sendable () -> Void
-
-    static let real = KeychainAccess(
-        read: { Keychain.apiKey },
-        write: { Keychain.store($0) },
-        forget: { Keychain.apiKey = nil }
-    )
-}
-
-extension EnvironmentValues {
-    @Entry var keychain = KeychainAccess.real
-}
-
-/// Everything that is set up once and then left alone: the offices, the key,
-/// the reminder.
+/// Everything that is set up once and then left alone: the offices and the
+/// reminder.
 ///
 /// Offices used to have a screen of their own off the home toolbar, which gave
 /// the app's least-visited list its most prominent link. It is a section here
@@ -45,21 +11,16 @@ extension EnvironmentValues {
 /// Every line this screen prints is decided by a `static` in
 /// `SettingsScreenDecisions.swift` rather than inline in `body`. That is not
 /// tidiness: each of them is a claim about something the user cannot otherwise
-/// check — whether the key is stored, whether the alert will fire, what a
-/// delete would take — and a claim made inside a `View` cannot be tested, which
-/// is precisely how the key row came to say "Key saved" on the strength of what
-/// was in its own text field.
+/// check — whether the alert will fire, what a delete would take — and a claim
+/// made inside a `View` cannot be tested, which is precisely how a row on this
+/// screen once came to report a state it had not checked.
 struct SettingsScreen: View {
     @Environment(\.modelContext) private var context
     @Environment(ArrivalMonitor.self) private var arrival
-    @Environment(\.keychain) private var keychain
     @Query(sort: \Office.name) private var offices: [Office]
     @Query private var captures: [Capture]
     @Query private var leave: [LeaveDay]
 
-    @State private var apiKey = ""
-    /// What the Keychain says it holds — not what the field says it was given.
-    @State private var key = KeyState()
     @State private var loaded = false
     @State private var confirmingWipe = false
     /// Set only by a delete that did not land. Non-nil raises the alert below,
@@ -68,10 +29,6 @@ struct SettingsScreen: View {
     @State private var wipeFailure: String?
     @State private var nudgeEnabled = false
     @State private var nudgeTime = Date()
-
-    private var keyRow: KeyRow {
-        Self.keyRow(key, lastUsed: Self.lastSuccessfulUse(in: captures))
-    }
 
     var body: some View {
         Form {
@@ -124,52 +81,6 @@ struct SettingsScreen: View {
             }
 
             Section {
-                SecureField("sk-ant-…", text: $apiKey)
-                    .autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
-                    .onChange(of: apiKey) { _, new in
-                        // Only what the user typed. `.task` below loads the
-                        // stored key into this field, and SwiftUI delivers that
-                        // assignment here exactly as it delivers a keystroke —
-                        // so opening Settings rewrote the key it had just read.
-                        // Invisible while securityd agrees and a lie when it
-                        // does not: a refused rewrite put "Key not saved — the
-                        // Keychain refused it. Try typing it again." under a key
-                        // that was stored, intact, and that the user had not
-                        // touched.
-                        guard Self.shouldWrite(typed: new, stored: key.stored) else { return }
-                        // Written straight through: there is no Save button to
-                        // forget, and the Keychain is the only copy. What comes
-                        // back is what the Keychain then holds, which is the
-                        // only thing the row below is entitled to report.
-                        key = Self.write(new, store: keychain.write, readBack: keychain.read)
-                    }
-                // The field saves on every keystroke into a store nothing can
-                // read back, so there was no way to tell a saved key from a
-                // typo until a capture failed at the moment the key was needed.
-                // This says which of the two it is, and when it last worked.
-                HStack(spacing: 8) {
-                    Image(systemName: keyRow.symbol)
-                        .font(.system(size: 14))
-                        .foregroundStyle(Self.colour(keyRow.tone))
-                    Text(keyRow.text)
-                        .font(.system(size: 13))
-                        .foregroundStyle(
-                            keyRow.tone == .alarm ? Palette.warningText : Palette.secondary
-                        )
-                }
-            } header: {
-                Text("Anthropic API key")
-            } footer: {
-                Text(
-                    "Stored in the iOS Keychain — never in the app's settings, and "
-                        + "never in a backup. Reading an image sends it to Anthropic "
-                        + "to be read by Claude, and costs about a penny; everything "
-                        + "else in the app works without a key."
-                )
-            }
-
-            Section {
                 Toggle("Evening reminder", isOn: $nudgeEnabled)
                     .onChange(of: nudgeEnabled) { _, new in
                         NudgeScheduler.isEnabled = new
@@ -213,11 +124,17 @@ struct SettingsScreen: View {
                 )
             }
 
-            Section("This month") {
-                let cost = Self.cost(of: captures, in: Day.today.month_)
-                LabeledContent("Screenshots read", value: "\(cost.read)")
-                LabeledContent("Tokens in", value: cost.inputTokens.formatted())
-                LabeledContent("Tokens out", value: cost.outputTokens.formatted())
+            Section {
+                LabeledContent(
+                    "Screenshots read", value: "\(Self.reads(of: captures, in: Day.today.month_))"
+                )
+            } header: {
+                Text("This month")
+            } footer: {
+                Text(
+                    "Every image is read on this phone. Nothing is sent anywhere, "
+                        + "nothing is kept, and nothing is billed."
+                )
             }
 
             #if DEBUG
@@ -253,8 +170,6 @@ struct SettingsScreen: View {
             await arrival.refreshNotificationStatus()
             guard !loaded else { return }
             loaded = true
-            key = Self.reload(readBack: keychain.read)
-            apiKey = key.stored ?? ""
             nudgeEnabled = NudgeScheduler.isEnabled
             // The other half of the pair above. Both ends now read the device's
             // clock, so what the picker shows is what the trigger will match.
@@ -285,8 +200,8 @@ struct SettingsScreen: View {
             Text("Attendance is the only record that a day was worked on prem — there is no other copy.")
         }
         // A delete that threw used to report exactly what a delete that worked
-        // reported: the perimeters refreshed, the reminder redone, a fresh key
-        // row, and not a word on screen. The user was told their data was gone
+        // reported: the perimeters refreshed, the reminder redone, and not a
+        // word on screen. The user was told their data was gone
         // while all of it was still there — which for the one feature in the app
         // whose whole purpose is removing data is the worst direction to be
         // wrong in, because the person who believes it hands the phone on.
@@ -303,17 +218,7 @@ struct SettingsScreen: View {
     }
 
     private func wipe(_ scope: Store.Scope) {
-        let wiped = Self.wipe(
-            scope, in: context, arrival: arrival,
-            forgetSecret: keychain.forget, readKey: keychain.read
-        )
-        key = wiped.key
-        // The field is showing a key that, under `.everything`, no longer
-        // exists — see `SettingsScreen.wipe`. Filled from the read-back rather
-        // than simply emptied, so a delete that failed leaves on screen the key
-        // the user still has.
-        apiKey = key.stored ?? ""
-        wipeFailure = wiped.failure
+        wipeFailure = Self.wipe(scope, in: context, arrival: arrival).failure
     }
 
     // MARK: Offices

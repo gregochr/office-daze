@@ -1,13 +1,14 @@
 import Foundation
 
-/// What the model returns for one row of the table, and the mapping into
-/// something the app can commit.
+/// What the reader found for one booking, and the mapping into something the
+/// app can commit.
 ///
-/// Kept separate from `DeskBooking` so the model's vocabulary never leaks into
+/// Kept separate from `DeskBooking` so the reader's vocabulary never leaks into
 /// the store, and so the never-guess rule is *enforced* here rather than merely
-/// requested: a field the model named in `unsureFields` is discarded even if it
-/// also supplied a value, because a value arriving beside its own name in that
-/// list is exactly the plausible guess the design forbids storing.
+/// assumed: a field named in `unsureFields` is discarded even if a value was
+/// also supplied, because a value arriving beside its own name in that list is
+/// exactly the plausible guess the design forbids storing. `Decodable` so a
+/// test can write a row as JSON.
 nonisolated struct CapturedBooking: Decodable, Equatable, Sendable {
     var office: String?
     var date: String?
@@ -17,10 +18,6 @@ nonisolated struct CapturedBooking: Decodable, Equatable, Sendable {
     var startTime: String?
     var endTime: String?
     var unsureFields: [String]
-}
-
-nonisolated struct CapturedResponse: Decodable, Sendable {
-    var bookings: [CapturedBooking]
 }
 
 /// One row, mapped and ready for review. The office is not resolved yet — that
@@ -41,16 +38,14 @@ nonisolated struct ParsedBooking: Equatable, Sendable, Identifiable {
 }
 
 nonisolated enum CaptureError: LocalizedError, Equatable {
-    case noAPIKey
     case unsupportedFile(String)
     /// Chosen from the library and then unreadable — a format ImageIO does not
     /// decode, or bytes that are not an image at all. Distinct from
     /// `unsupportedFile`, which knows what the thing was.
     case unreadableImage
-    case network(String)
-    case httpStatus(Int, String)
-    case modelReturnedNothingUsable(String)
-    case refused
+    /// The image was read and no booking came of it — nothing printed, no
+    /// whole row, or nothing still to come. The reason is the reader's.
+    case nothingUsable(String)
     /// The reading worked and the writing did not — a full disk, a store that
     /// refused. Its own case because the sheet must never show a booking as
     /// saved when nothing was written, and because "try again" is the wrong
@@ -59,20 +54,12 @@ nonisolated enum CaptureError: LocalizedError, Equatable {
 
     var errorDescription: String? {
         switch self {
-        case .noAPIKey:
-            "No API key yet. Add one in Settings to read screenshots."
         case .unsupportedFile(let ext):
             "Office Daze can't read a .\(ext.uppercased()) file."
         case .unreadableImage:
             "That image couldn't be opened. Try a screenshot or a photo instead."
-        case .network(let why):
-            "The network request failed: \(why)"
-        case .httpStatus(let code, let why):
-            "The model call failed (\(code)): \(why)"
-        case .modelReturnedNothingUsable(let why):
+        case .nothingUsable(let why):
             "Nothing usable came back: \(why)"
-        case .refused:
-            "The model declined to read this document."
         case .couldNotSave(let why):
             "That booking couldn't be saved: \(why). Nothing was written."
         }
@@ -88,7 +75,7 @@ nonisolated extension CapturedBooking {
     /// desk. Everything else is optional by design.
     ///
     /// `honouring` is the enforcement: a field named in `unsureFields` comes
-    /// back nil whatever the model put in it.
+    /// back nil whatever value came with it.
     func parsed() -> ParsedBooking? {
         func honouring(_ name: String, _ value: String?) -> String? {
             guard !unsureFields.contains(name) else { return nil }
@@ -105,9 +92,8 @@ nonisolated extension CapturedBooking {
         // question, and the field is not flagged for review.
         let end = honouring("endTime", endTime) ?? Self.defaultEndTime
 
-        // A field the model left blank without naming it is still unread — the
-        // schema asks for null and a name, but the flag has to hold even when
-        // the model forgets half of that.
+        // A field left blank without being named is still unread — the flag
+        // has to hold whether or not the reader said so.
         var unsure = unsureFields.filter { $0 != "endTime" }
         for (name, value) in [
             ("floor", honouring("floor", floor)),
@@ -145,11 +131,10 @@ nonisolated extension CapturedBooking {
     /// either position is a misreading — `C003A424` for `CO03A424`, which is
     /// the one that came back from a photograph of a monitor.
     ///
-    /// The prompt already says this and justifies it, and the model still got
-    /// it wrong, which is the argument for the rule living here as well. It is
-    /// the one correction the app can make without guessing: those two
-    /// characters are known to be letters, so no reading of them as digits can
-    /// be right, and that is true whether the model believes it or not.
+    /// `DeskID` undoes this and more before a booking gets here, so on the
+    /// on-device path this is a second net under the same rule. It is the one
+    /// correction the app can make without guessing: those two characters are
+    /// known to be letters, so no reading of them as digits can be right.
     ///
     /// All or nothing across the pair. Half a correction would leave an id that
     /// is neither what was printed nor what was read, and no one downstream
@@ -165,8 +150,8 @@ nonisolated extension CapturedBooking {
         return String(characters)
     }
 
-    /// `2026-08-05`. Strict: a date the model reformatted into something else
-    /// is a date we did not read, and guessing at `05/08/2026` is exactly the
+    /// `2026-08-05`. Strict: a date reformatted into something else is a date
+    /// we did not read, and guessing at `05/08/2026` is exactly the
     /// day/month coin-flip the app must not make.
     ///
     /// Anything after the date itself is ignored, which is what lets a single

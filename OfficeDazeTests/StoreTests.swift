@@ -718,7 +718,7 @@ struct StoreTests {
         let somethingToLose = before.values.allSatisfy { $0 > 0 }
         #expect(somethingToLose, "a count over an empty table proves nothing")
 
-        try Store.wipe(container.mainContext, defaults: throwawayDefaults(), forgetSecret: {})
+        try Store.wipe(container.mainContext, defaults: throwawayDefaults())
         let survivors = try counts().filter { $0.value > 0 }
         #expect(survivors.isEmpty, "nothing behind")
     }
@@ -731,10 +731,7 @@ struct StoreTests {
         let somethingToLose = try counts().values.allSatisfy { $0 > 0 }
         #expect(somethingToLose, "a count over an empty table proves nothing")
 
-        try Store.wipe(
-            container.mainContext, scope: .records,
-            defaults: throwawayDefaults(), forgetSecret: {}
-        )
+        try Store.wipe(container.mainContext, scope: .records, defaults: throwawayDefaults())
 
         let after = try counts()
         #expect(after["Office"] == 2)
@@ -753,32 +750,6 @@ struct StoreTests {
         // `allSatisfy` is `rethrows` and the macro cannot tell the difference.
         let located = offices.allSatisfy(\.isLocated)
         #expect(located)
-    }
-
-    /// The Anthropic key is the one thing the app holds that is not a row in the
-    /// schema, and it was the one thing a button reading "Everything, including
-    /// 2 offices" left behind — a live, billable credential, on a phone the
-    /// dialog had just promised was cleared.
-    @Test("Everything means the API key too; the records scope leaves it alone")
-    func wipeForgetsTheKeyOnlyForEverything() throws {
-        let context = container.mainContext
-
-        // Records what it is asked, rather than swallowing the call: which
-        // scope reaches for the secret is the entire question here.
-        final class Asked { var scopes: [Store.Scope] = [] }
-        let asked = Asked()
-
-        try Store.wipe(
-            context, scope: .records, defaults: throwawayDefaults(),
-            forgetSecret: { asked.scopes.append(.records) }
-        )
-        #expect(asked.scopes.isEmpty, "the key is as typed-in as the offices are")
-
-        try Store.wipe(
-            context, scope: .everything, defaults: throwawayDefaults(),
-            forgetSecret: { asked.scopes.append(.everything) }
-        )
-        #expect(asked.scopes == [.everything])
     }
 
     /// A UserDefaults nobody else is reading. `store.seeded` decides whether the
@@ -832,7 +803,7 @@ struct StoreGateTests {
         let context = container.mainContext
         let defaults = freshDefaults()
         try Store.seedIfNeeded(context, defaults: defaults)
-        try Store.wipe(context, defaults: defaults, forgetSecret: {})
+        try Store.wipe(context, defaults: defaults)
         #expect(try context.fetchCount(FetchDescriptor<Office>()) == 0)
         #expect(Store.hasSeeded(in: defaults), "wiping is having had it")
 

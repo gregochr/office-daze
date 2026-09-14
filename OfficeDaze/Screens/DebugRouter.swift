@@ -22,7 +22,7 @@ struct DebugRouter: View {
             case .booking:
                 if let booking = bookings.first { BookingDetailScreen(booking: booking) }
             case .unread:
-                // The booking whose zone the model could not read, so the
+                // The booking whose zone the reader could not read, so the
                 // needs-checking marker can be looked at.
                 if let booking = bookings.first(where: \.needsChecking) {
                     BookingDetailScreen(booking: booking)
@@ -40,8 +40,8 @@ struct DebugRouter: View {
             }
         }
         // `-capture table|one|confirmation|page|slow|failed` drives the real capture flow with a
-        // stubbed extractor, so the sheets can be looked at without a network
-        // call or a share-sheet hand-off.
+        // stubbed extractor, so the sheets can be looked at without a
+        // photograph or a share-sheet hand-off.
         .task {
             let which = ProcessInfo.processInfo.argument(after: "-capture")
             guard let stub = Self.stub(for: which) else { return }
@@ -98,28 +98,25 @@ struct DebugRouter: View {
     }
 
     /// The stand-in extractor, which is the whole point of the flag: the sheets
-    /// can be looked at without a network call, an API key, or a share-sheet
-    /// hand-off.
-    static func extractor(
-        for stub: Stub
-    ) -> (Data, String, Day) async throws -> ([ParsedBooking], HaikuClient.Usage) {
+    /// can be looked at without a photograph or a share-sheet hand-off.
+    static func extractor(for stub: Stub) -> (Data, Day) async throws -> [ParsedBooking] {
         switch stub {
         case .table:
-            { _, _, _ in (CaptureSamples.colemanWeek, CaptureSamples.usage) }
+            { _, _ in CaptureSamples.colemanWeek }
         case .one:
-            { _, _, _ in (CaptureSamples.one, CaptureSamples.usage) }
+            { _, _ in CaptureSamples.one }
         case .confirmation:
-            { _, _, _ in (CaptureSamples.confirmation, CaptureSamples.usage) }
+            { _, _ in CaptureSamples.confirmation }
         case .page:
-            { _, _, _ in (CaptureSamples.reservationPage, CaptureSamples.usage) }
+            { _, _ in CaptureSamples.reservationPage }
         case .slow:
             // Long enough to read the progress sheet, and to try cancelling it.
-            { _, _, _ in
+            { _, _ in
                 try? await Task.sleep(for: .seconds(30))
-                return (CaptureSamples.one, CaptureSamples.usage)
+                return CaptureSamples.one
             }
         case .failed:
-            { _, _, _ in throw CaptureError.noAPIKey }
+            { _, _ in throw CaptureError.nothingUsable("no complete booking in the document") }
         }
     }
 }

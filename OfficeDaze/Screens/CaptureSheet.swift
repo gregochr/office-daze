@@ -67,7 +67,7 @@ struct CaptureSheet: View {
     ///
     /// A `.review` phase with nothing at its index draws nothing rather than an
     /// empty card under a "Confirm" title — the coordinator only reaches that
-    /// state if a parse yields no rows, which `HaikuClient` refuses, and a blank
+    /// state if a parse yields no rows, which the reader refuses, and a blank
     /// sheet with a Cancel button is the worst possible way to find out it got
     /// through anyway.
     enum Shown: Equatable {
@@ -110,7 +110,7 @@ struct CaptureSheet: View {
                 // Named, because the image leaves the phone to be read. Who is
                 // doing the reading is the user's business, and a screen that
                 // only says "Reading" implies the app is doing it here.
-                Text("Reading with Claude AI")
+                Text("Reading on this phone")
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(Palette.text)
                     .padding(.top, 16)
@@ -322,9 +322,9 @@ struct CaptureSheet: View {
         var needsChecking = false
     }
 
-    /// The five rows, and which of them the model admitted it could not read.
+    /// The five rows, and which of them the reader admitted it could not read.
     ///
-    /// Office is the exception: a name the model was unsure of is not worth
+    /// Office is the exception: a name the reader was unsure of is not worth
     /// flagging once the matcher has resolved it anyway, because the row then
     /// shows the office's own stored name and there is nothing left to check.
     /// Hours is the other: it is two fields printed as one, so either being
@@ -487,7 +487,7 @@ struct CaptureSheet: View {
     /// What broke, in the sheet's own two words and in its heading.
     ///
     /// Both used to be hard-coded to the reading, which was true of every
-    /// failure that could reach this card — until a booking the model had read
+    /// failure that could reach this card — until a booking the reader had read
     /// perfectly failed to *write*. "Couldn't read that screenshot" then sent
     /// someone off to re-share an image that was never the problem, past the one
     /// offer on the card that could have helped them. The body underneath is
@@ -499,8 +499,7 @@ struct CaptureSheet: View {
     static func failureTitle(for error: CaptureError) -> String {
         switch error {
         case .couldNotSave: "Couldn't save it"
-        case .noAPIKey, .unsupportedFile, .unreadableImage, .network, .httpStatus,
-            .modelReturnedNothingUsable, .refused:
+        case .unsupportedFile, .unreadableImage, .nothingUsable:
             "Couldn't read it"
         }
     }
@@ -508,8 +507,7 @@ struct CaptureSheet: View {
     static func failureHeader(for error: CaptureError) -> String {
         switch error {
         case .couldNotSave: "Couldn't save that booking"
-        case .noAPIKey, .unsupportedFile, .unreadableImage, .network, .httpStatus,
-            .modelReturnedNothingUsable, .refused:
+        case .unsupportedFile, .unreadableImage, .nothingUsable:
             "Couldn't read that screenshot"
         }
     }

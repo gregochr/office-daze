@@ -16,7 +16,6 @@ import UniformTypeIdentifiers
 struct SpikeDumpsScreen: View {
 
     @State private var enabled = SpikeDump.isEnabled
-    @State private var preferVision = VisionExtractor.isPreferred
     @State private var dumps: [URL] = []
     @State private var failure: String?
 
@@ -25,17 +24,12 @@ struct SpikeDumpsScreen: View {
             Section {
                 Toggle("Record every capture", isOn: $enabled)
                     .onChange(of: enabled) { _, new in SpikeDump.isEnabled = new }
-                Toggle("Read on the phone instead of with Claude", isOn: $preferVision)
-                    .onChange(of: preferVision) { _, new in VisionExtractor.isPreferred = new }
             } footer: {
                 Text(
-                    "Recording runs every image the app reads — shared, "
-                        + "photographed or picked — through Vision's document "
-                        + "reader on the phone as well, and keeps the image and "
-                        + "the result here; the Claude call still happens. The "
-                        + "second switch replaces the Claude call with the "
-                        + "on-device reader, so the two can be compared on the "
-                        + "same page."
+                    "While this is on, every image the app reads — shared, "
+                        + "photographed or picked — is kept here with what the "
+                        + "reader made of it, so a page that reads badly can "
+                        + "become a test."
                 )
             }
 

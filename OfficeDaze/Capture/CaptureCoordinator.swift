@@ -13,8 +13,8 @@ import UniformTypeIdentifiers
 final class CaptureCoordinator {
 
     /// The three-step checklist on the loading sheet, driven by real progress:
-    /// received when the file lands, finding when the request goes out,
-    /// matching when the response is parsed.
+    /// received when the file lands, finding when the reading starts,
+    /// matching when the bookings are out.
     enum Step: Int, Comparable, Sendable {
         case received, finding, matching
 
@@ -44,45 +44,29 @@ final class CaptureCoordinator {
     var parsingFloor: Duration = .milliseconds(500)
 
     /// Kept so `Try again` has something to retry with.
-    private var lastInput: (data: Data, mediaType: String)?
+    private var lastInput: Data?
     private var captureID: UUID?
 
     /// Which run the phase belongs to.
     ///
-    /// A run has two suspension points — the model call and the floor above —
+    /// A run has two suspension points — the reading and the floor above —
     /// and the user can cancel or retry across either. Without this the run
     /// that was abandoned still wakes up and writes its result: Cancel, then
     /// half a second later the sheet reappears holding bookings from a capture
     /// the user has already dismissed.
     private var generation = 0
 
-    /// Swapped in tests so nothing reaches the network.
-    var extractor: (Data, String, Day) async throws -> ([ParsedBooking], HaikuClient.Usage) = { data, mediaType, today in
-        #if DEBUG
-        // The on-device reader, when Settings has asked for it. No usage: there
-        // is nothing to bill, and the month's cost line counts a free read.
-        if VisionExtractor.isPreferred {
-            return (try await VisionExtractor.extract(image: data, today: today), HaikuClient.Usage())
-        }
-        #endif
-        guard let key = Keychain.apiKey, !key.isEmpty else { throw CaptureError.noAPIKey }
-        return try await HaikuClient(apiKey: key).extract(
-            image: data, mediaType: mediaType, today: today
-        )
+    /// The reader. Swapped in tests so nothing runs Vision.
+    var extractor: (Data, Day) async throws -> [ParsedBooking] = { data, today in
+        try await VisionExtractor.extract(image: data, today: today)
     }
 
-    /// The re-encode in front of the call, injectable for one reason: it is a
+    /// The check in front of the reading, injectable for one reason: it is a
     /// suspension point the user can cancel across, and the only way to prove
     /// Cancel is honoured there is to hold it open on demand. `@Sendable`
     /// because it runs off the main actor — that is the whole point of it.
-    var preparer: @Sendable (Data) throws -> (data: Data, mediaType: String) = {
-        #if DEBUG
-        // Vision wants the full frame, and the preparer's whole job is to make
-        // it smaller for the API. When the on-device reader is chosen, the
-        // bytes go through as they are.
-        if VisionExtractor.isPreferred { return try PhotoImport.passthrough($0) }
-        #endif
-        return try PhotoImport.prepare($0)
+    var preparer: @Sendable (Data) throws -> Data = {
+        try PhotoImport.prepare($0)
     }
 
     #if DEBUG
@@ -105,7 +89,7 @@ final class CaptureCoordinator {
     ///
     /// There are two, and neither is the thing the user came here to do: the
     /// office name the sheet had to ask about, so the next capture does not ask
-    /// again, and the capture's own line in the month's call count and cost.
+    /// again, and the capture's own line in the month's count.
     /// Naming them is what lets a failure be reported as what was missed, and
     /// what stops the double that stands in for the store in a test being handed
     /// nothing it can be held to.
@@ -113,9 +97,9 @@ final class CaptureCoordinator {
         /// The answer to "which office is this?", written onto that office and
         /// taken off every other one on the way.
         case officeName(String, officeID: UUID)
-        /// One call, its outcome and what it cost — the whole of what Settings'
-        /// monthly total is made of.
-        case captureCost(id: UUID, status: CaptureStatus, inputTokens: Int, outputTokens: Int)
+        /// One capture and its outcome — the whole of what Settings' monthly
+        /// count is made of.
+        case captureRecord(id: UUID, status: CaptureStatus)
     }
 
     /// An aside whose save did not go through, and why.
@@ -130,7 +114,7 @@ final class CaptureCoordinator {
     /// deliberately not nothing. The `try?` that used to stand in its place was a
     /// failure the app could not notice, a test could not reach and no future
     /// screen could ever report. Whatever eventually wants to say "your month's
-    /// cost is short by a call" or "you will be asked which office this is
+    /// count is short by one" or "you will be asked which office this is
     /// again" reads this. It accumulates for the life of the app, which is a
     /// couple of small values per capture and the only span over which the
     /// question is worth asking.
@@ -166,7 +150,7 @@ final class CaptureCoordinator {
     /// every booking in the table that has not been saved yet. Spending that on
     /// the office alias — a convenience whose entire consequence when lost is
     /// that the sheet asks which office this is once more — or on a line in
-    /// Settings' monthly cost would be losing the user's bookings to protect
+    /// Settings' monthly count would be losing the user's bookings to protect
     /// their bookkeeping. The booking's own write is the one that has earned the
     /// screen, and it already has it.
     ///
@@ -252,21 +236,20 @@ final class CaptureCoordinator {
     /// The one intake every path goes through, because every path can hand over
     /// a 12MP camera frame: the share sheet as readily as the picker.
     ///
-    /// The re-encode runs before `lastInput` is set, so `Try again` repeats the
-    /// model call and not the conversion — and an image that never decoded
-    /// leaves `lastInput` nil, which is what `canRetry` reads to hide a retry
-    /// that could only fail the same way twice.
+    /// The check runs before `lastInput` is set, so `Try again` repeats the
+    /// reading and not the check — and an image that never decoded leaves
+    /// `lastInput` nil, which is what `canRetry` reads to hide a retry that
+    /// could only fail the same way twice.
     private func receive(image data: Data, unreadableAs ext: String?) async {
-        // The sheet appears the instant the file lands, not when the response
-        // does — the call takes a couple of seconds and a blank screen for
-        // those seconds reads as a hang.
+        // The sheet appears the instant the file lands, not when the reading
+        // does — it takes a second or two and a blank screen for those seconds
+        // reads as a hang.
         //
-        // Which means Cancel is live while the re-encode runs off-actor, and
-        // the re-encode of a 12MP frame is a few hundred milliseconds of it.
-        // `run()` guards its own two suspension points on this counter for
-        // exactly the same reason; this one was missed, and the cancelled
-        // capture would wake up, re-arm `lastInput`, spend an API call and
-        // re-present the sheet the user had just dismissed.
+        // Which means Cancel is live while the check runs off-actor. `run()`
+        // guards its own two suspension points on this counter for exactly
+        // the same reason; this one was missed, and the cancelled capture
+        // would wake up, re-arm `lastInput`, read the image and re-present the
+        // sheet the user had just dismissed.
         generation += 1
         let attempt = generation
         phase = .parsing(step: .received)
@@ -278,7 +261,7 @@ final class CaptureCoordinator {
         do {
             let prepared = try await Task.detached { [preparer] in try preparer(data) }.value
             guard attempt == generation else { return }
-            lastInput = (prepared.data, prepared.mediaType)
+            lastInput = prepared
             await run()
         } catch {
             guard attempt == generation else { return }
@@ -295,9 +278,8 @@ final class CaptureCoordinator {
     /// Why the bytes never became an image, in the only terms the app can
     /// honestly claim.
     ///
-    /// `PhotoImport.prepare` throws `.unreadableImage` from four places — no
-    /// image source, an empty one, a failed thumbnail, a failed encode — and
-    /// only the first of those is ever about the format. Deciding the message
+    /// `PhotoImport.prepare` throws `.unreadableImage` for bytes ImageIO cannot
+    /// open, and that is only sometimes about the format. Deciding the message
     /// from the extension alone told someone whose screenshot arrived truncated
     /// that "Office Daze can't read a .PNG file", which is false about the
     /// app's commonest input and sends them off to type the booking in by hand
@@ -318,7 +300,7 @@ final class CaptureCoordinator {
         phase = .failed(error)
     }
 
-    /// False when the failure happened before there was anything to send —
+    /// False when the failure happened before there was anything to read —
     /// an unreadable file, an unsupported one. Offering `Try again` there is
     /// offering a button that does nothing.
     var canRetry: Bool { lastInput != nil }
@@ -330,19 +312,19 @@ final class CaptureCoordinator {
     }
 
     private func run() async {
-        guard let (data, mediaType) = lastInput else { return }
+        guard let data = lastInput else { return }
         generation += 1
         let run = generation
         let started = ContinuousClock.now
         do {
             phase = .parsing(step: .finding)
-            let (bookings, usage) = try await extractor(data, mediaType, .today)
+            let bookings = try await extractor(data, .today)
             guard run == generation else { return }
 
-            // A parse with nothing in it is a failure, not a review. Today the
-            // only extractor refuses an empty list itself, so nothing reaches
-            // here — but taking the extractor's word for it made `.review` the
-            // one phase that could be entered with nothing to show: `current`
+            // A parse with nothing in it is a failure, not a review. The real
+            // extractor refuses an empty list itself, so nothing reaches here
+            // — but taking the extractor's word for it made `.review` the one
+            // phase that could be entered with nothing to show: `current`
             // nil, `isLast` false, `position` nil, and a sheet titled "Confirm"
             // holding no card and no way out but Cancel. The sheet was hardened
             // to draw no card there, which stops it looking broken; only
@@ -350,17 +332,13 @@ final class CaptureCoordinator {
             // alternative — leaving the invariant to whoever writes the next
             // extractor — is how it got here in the first place.
             guard !bookings.isEmpty else {
-                // Recorded with the usage, unlike the `catch` below: the call
-                // went out and was billed, and Settings' monthly cost is wrong
-                // by exactly that call if a response that came back empty is
-                // written down as having cost nothing.
-                record(status: .failed, usage: usage)
-                phase = .failed(.modelReturnedNothingUsable("no bookings in the document"))
+                record(status: .failed)
+                phase = .failed(.nothingUsable("no bookings in the document"))
                 return
             }
             phase = .parsing(step: .matching)
 
-            captureID = record(status: .parsed, usage: usage)
+            captureID = record(status: .parsed)
             // Only the success path waits. A failure is a screen the user has
             // to read and act on, and holding it back would be delaying bad
             // news for the sake of an animation.
@@ -372,11 +350,13 @@ final class CaptureCoordinator {
             phase = .review(bookings: bookings, index: 0, saved: [])
         } catch let error as CaptureError {
             guard run == generation else { return }
-            record(status: .failed, usage: nil)
+            record(status: .failed)
             phase = .failed(error)
         } catch {
+            // Vision's own errors, which are not the app's to enumerate.
             guard run == generation else { return }
-            phase = .failed(.network(error.localizedDescription))
+            record(status: .failed)
+            phase = .failed(.nothingUsable(error.localizedDescription))
         }
     }
 
@@ -495,7 +475,7 @@ final class CaptureCoordinator {
             )
         } catch {
             // Through `failed`, which also clears `lastInput`: retrying reruns
-            // the model call, not the save, so the one button that could not
+            // the reading, not the save, so the one button that could not
             // possibly help is hidden.
             failed(.couldNotSave(error.localizedDescription))
             return
@@ -552,7 +532,7 @@ final class CaptureCoordinator {
 
     // MARK: The capture record
 
-    /// A monthly call count and cost, without instrumenting anything else.
+    /// A monthly count, without instrumenting anything else.
     ///
     /// It used to keep the image too, for a "view original screenshot" screen.
     /// That screen was never built — there is no reader of `Capture.asset`
@@ -562,35 +542,24 @@ final class CaptureCoordinator {
     /// the life of the install and with no way to view or remove one. A failed
     /// capture kept its image as well, so an accidentally-shared photo of
     /// something else entirely was kept forever too. Keeping bytes nobody can
-    /// read is a privacy cost with no matching benefit; the four fields below
-    /// are the ones Settings actually shows. If the original is ever wanted
-    /// back, it needs a reader, a bound and a line of copy saying it is kept —
-    /// not a silent write.
+    /// read is a privacy cost with no matching benefit; the fields below are
+    /// the ones Settings actually shows. If the original is ever wanted back,
+    /// it needs a reader, a bound and a line of copy saying it is kept — not a
+    /// silent write.
     @discardableResult
-    private func record(status: CaptureStatus, usage: HaikuClient.Usage?) -> UUID {
-        let capture = Capture(
-            receivedAt: .now,
-            asset: nil,
-            status: status,
-            inputTokens: usage?.inputTokens ?? 0,
-            outputTokens: usage?.outputTokens ?? 0
-        )
+    private func record(status: CaptureStatus) -> UUID {
+        let capture = Capture(receivedAt: .now, asset: nil, status: status)
         context.insert(capture)
         // Read off the row rather than off the arguments, so an aside cannot
-        // claim a cost the record does not hold: the whole worth of the payload
-        // is that a test can hold this to the tokens actually written down.
+        // claim an outcome the record does not hold: the worth of the payload
+        // is that a test can hold this to what was actually written down.
         //
         // Not raised to the user for the reason `write(_:)` gives, and here the
         // case is starker still — two of the three callers are already on their
         // way to an error screen the user has to read and act on, and replacing
-        // "the network request failed" with a complaint about bookkeeping would
+        // "nothing usable came back" with a complaint about bookkeeping would
         // be answering the wrong question at the worst moment.
-        write(.captureCost(
-            id: capture.id,
-            status: capture.status,
-            inputTokens: capture.inputTokens,
-            outputTokens: capture.outputTokens
-        ))
+        write(.captureRecord(id: capture.id, status: capture.status))
         return capture.id
     }
 }
