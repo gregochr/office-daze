@@ -631,12 +631,18 @@ struct HomeScreenRenderTests {
     /// The ordinary screen: a gauge, a split between two buildings, and a row
     /// per record. The split is the one card with a condition on it — two
     /// offices or more — and this is the state that satisfies it.
+    ///
+    /// The one exception to reading the clock: the state here is the seed's,
+    /// and the seed is August 2026 whatever the date, so the helpers are asked
+    /// about `SeedData.month` and pinned to a day inside it, as the tests above
+    /// are. Only the render at the end opens on the real month.
     @Test("The seeded month draws its gauge, its split between two offices, and its rows")
     func theSeededMonthDraws() throws {
         let container = try Store.makeInMemoryContainer(seeded: true)
         let context = container.mainContext
-        let month = Day.today.month_
-        let snapshot = try QuotaService.snapshot(for: month, today: .today, in: context)
+        let month = SeedData.month
+        let today = Day(2026, 8, 13)
+        let snapshot = try QuotaService.snapshot(for: month, today: today, in: context)
 
         let shares = HomeScreen.officeShares(
             offices: try context.fetch(FetchDescriptor<Office>()),
