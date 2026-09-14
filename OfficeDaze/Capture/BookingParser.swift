@@ -227,6 +227,11 @@ nonisolated enum BookingParser {
     /// misreading of one or the other with no way to say which, so the floor
     /// is left unread rather than picked. An id from a site whose scheme is
     /// unknown contributes nothing, and the page's floor stands alone.
+    ///
+    /// The office is printed or decoded, in that order: what the page says,
+    /// then the building label, then the site code — so a page from a known
+    /// site always names its office, and the sheet never has to ask which
+    /// building a Coleman desk is in.
     static func booking(
         date: String, desk: DeskID, range: TimeRange?, location: Location?, building: String?
     ) -> CapturedBooking {
@@ -240,7 +245,7 @@ nonisolated enum BookingParser {
             floor = printed
         }
         return CapturedBooking(
-            office: location?.office ?? building,
+            office: location?.office ?? building ?? desk.decodedOffice,
             date: date,
             deskId: desk.text,
             floor: floor,
@@ -359,7 +364,7 @@ nonisolated enum BookingParser {
     /// London` is the same office with no floor, as the details form prints
     /// it, and the dot becomes the comma so the two read as one name.
     static func location(in line: String) -> Location? {
-        if let match = line.firstMatch(of: /\b(\d{1,2}),\s*([A-Za-z]+(?:,\s*[A-Za-z]+)*)/) {
+        if let match = line.firstMatch(of: /\b(\d{1,2}),\s*([A-Za-z]+(?: [A-Za-z]+)*(?:,\s*[A-Za-z]+(?: [A-Za-z]+)*)*)/) {
             return Location(
                 floor: String(match.1),
                 office: String(match.2).trimmingCharacters(in: .whitespaces)

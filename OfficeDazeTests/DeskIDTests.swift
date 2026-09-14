@@ -15,6 +15,7 @@ struct DeskIDTests {
         #expect(id.desk == "117")
         #expect(id.text == "CO03C117")
         #expect(id.isDecodable)
+        #expect(id.decodedOffice == "Coleman, London")
         #expect(id.decodedFloor == "03")
         #expect(id.decodedZone == "C")
     }
@@ -26,6 +27,7 @@ struct DeskIDTests {
         let id = try #require(DeskID.parse("BR02A014"))
         #expect(id.text == "BR02A014")
         #expect(!id.isDecodable)
+        #expect(id.decodedOffice == nil)
         #expect(id.decodedFloor == nil)
         #expect(id.decodedZone == nil)
     }

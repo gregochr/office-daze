@@ -10,13 +10,16 @@ import Foundation
 ///
 /// The decoding is only trusted for the one site whose scheme is known. An id
 /// from another site is accepted in the same shape, because a booking there
-/// is still a booking, but its floor and zone come from the page or not at
-/// all — reading them out of an id whose scheme nobody has confirmed would be
-/// the guess the whole capture path exists to refuse.
+/// is still a booking, but its office, floor and zone come from the page or
+/// not at all — reading them out of an id whose scheme nobody has confirmed
+/// would be the guess the whole capture path exists to refuse.
 nonisolated struct DeskID: Equatable, Sendable {
 
-    /// The site whose scheme is known: Coleman, the London office.
-    static let knownSite = "CO"
+    /// The sites whose scheme is known, and the office each one is. `CO` is
+    /// the Coleman building, which is the London office; the booking system
+    /// prints it as "Coleman, London" in the list and "Coleman" on a
+    /// reservation page, and the matcher takes either.
+    static let knownSites: [String: String] = ["CO": "Coleman, London"]
 
     var site: String
     var floor: String
@@ -26,8 +29,12 @@ nonisolated struct DeskID: Equatable, Sendable {
     /// The id as it should be printed.
     var text: String { site + floor + zone + desk }
 
-    /// Whether floor and zone can be read off the id.
-    var isDecodable: Bool { site == Self.knownSite }
+    /// Whether the office, floor and zone can be read off the id.
+    var isDecodable: Bool { Self.knownSites[site] != nil }
+
+    /// The office, when the id's scheme is known. A page that prints no
+    /// office still names its building in every desk id on it.
+    var decodedOffice: String? { Self.knownSites[site] }
 
     /// The floor, when the id's scheme is known.
     var decodedFloor: String? { isDecodable ? floor : nil }

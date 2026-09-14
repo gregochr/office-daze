@@ -451,7 +451,7 @@ struct BookingParserTests {
         #expect(booking.unsureFields == ["zone"])
     }
 
-    @Test("A page with no floor anywhere but the id takes the id's")
+    @Test("A page with nothing but the id still knows its floor, zone and office")
     func floorFromTheIdAlone() throws {
         let page = """
             2026-10-05
@@ -461,8 +461,30 @@ struct BookingParserTests {
         let booking = try #require(Self.parse(page).first)
         #expect(booking.floor == "03")
         #expect(booking.zone == "C")
-        #expect(booking.officeName == nil, "no office printed, so the sheet asks")
+        #expect(booking.officeName == "Coleman, London", "CO is Coleman, and the sheet need not ask")
         #expect(booking.unsureFields == ["startTime"])
+    }
+
+    /// The page's own words come first. The site code only fills a gap.
+    @Test("An office the page prints is kept over the one the id decodes to")
+    func printedOfficeWins() throws {
+        let page = """
+            2026-10-05
+            CO03C102
+            03, Coleman Annexe, London
+            Confirmed
+            """
+        #expect(try #require(Self.parse(page).first).officeName == "Coleman Annexe, London")
+    }
+
+    @Test("An id from an unknown site names no office, and the sheet asks")
+    func unknownSiteNamesNoOffice() throws {
+        let page = """
+            2026-10-05
+            BR02A014
+            Confirmed
+            """
+        #expect(try #require(Self.parse(page).first).officeName == nil)
     }
 
     // MARK: Reading a line
