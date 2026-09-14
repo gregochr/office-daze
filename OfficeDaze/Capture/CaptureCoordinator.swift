@@ -58,6 +58,13 @@ final class CaptureCoordinator {
 
     /// Swapped in tests so nothing reaches the network.
     var extractor: (Data, String, Day) async throws -> ([ParsedBooking], HaikuClient.Usage) = { data, mediaType, today in
+        #if DEBUG
+        // The on-device reader, when Settings has asked for it. No usage: there
+        // is nothing to bill, and the month's cost line counts a free read.
+        if VisionExtractor.isPreferred {
+            return (try await VisionExtractor.extract(image: data), HaikuClient.Usage())
+        }
+        #endif
         guard let key = Keychain.apiKey, !key.isEmpty else { throw CaptureError.noAPIKey }
         return try await HaikuClient(apiKey: key).extract(
             image: data, mediaType: mediaType, today: today
@@ -69,7 +76,13 @@ final class CaptureCoordinator {
     /// Cancel is honoured there is to hold it open on demand. `@Sendable`
     /// because it runs off the main actor — that is the whole point of it.
     var preparer: @Sendable (Data) throws -> (data: Data, mediaType: String) = {
-        try PhotoImport.prepare($0)
+        #if DEBUG
+        // Vision wants the full frame, and the preparer's whole job is to make
+        // it smaller for the API. When the on-device reader is chosen, the
+        // bytes go through as they are.
+        if VisionExtractor.isPreferred { return try PhotoImport.passthrough($0) }
+        #endif
+        return try PhotoImport.prepare($0)
     }
 
     #if DEBUG

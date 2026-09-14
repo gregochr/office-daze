@@ -42,6 +42,19 @@ nonisolated enum PhotoImport {
         UTType.webP.identifier: "image/webp",
     ]
 
+    /// The bytes as they are, for a reader that wants the full frame — the
+    /// on-device one, which reads better the more pixels it is given. The one
+    /// thing still checked is that they decode at all, so an unreadable file
+    /// fails at the door with the same error whichever reader is behind it.
+    static func passthrough(_ data: Data) throws -> (data: Data, mediaType: String) {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              CGImageSourceGetCount(source) > 0 else {
+            throw CaptureError.unreadableImage
+        }
+        let type = (CGImageSourceGetType(source) as String?).flatMap { UTType($0) }
+        return (data, type?.preferredMIMEType ?? "application/octet-stream")
+    }
+
     /// CPU-bound — decodes and re-encodes an image. Call it off the main actor.
     static func prepare(_ data: Data) throws -> (data: Data, mediaType: String) {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),

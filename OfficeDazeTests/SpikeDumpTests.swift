@@ -10,57 +10,16 @@ import UniformTypeIdentifiers
 /// four files on disk.
 ///
 /// One of these runs Vision's document reader for real, on an image drawn
-/// here. That is deliberate and it is the most useful test in the file: the
-/// office day depends on `RecognizeDocumentsRequest` working on this OS, and
-/// whether it works on the CI simulator is a question worth answering before
-/// anyone stands in front of a monitor with a phone.
+/// here. That is deliberate: the office day depends on
+/// `RecognizeDocumentsRequest` working on this OS, and whether it works on
+/// the CI simulator was a question worth answering before anyone stood in
+/// front of a monitor with a phone. (It does.)
 @Suite("The OCR spike recorder")
 struct SpikeDumpTests {
 
     /// A fresh directory per test, nowhere near `Documents/Spike`.
     let directory = FileManager.default.temporaryDirectory
         .appending(path: "SpikeDumpTests-\(UUID().uuidString)", directoryHint: .isDirectory)
-
-    // MARK: The reading
-
-    @Test("A reading renders one line per row, paragraph and item")
-    func renderingIsOneLinePerThing() {
-        let reading = SpikeDump.Reading(
-            title: "My reservations",
-            tables: [[["Tuesday 4 August 2026"], ["CO03A424", "03, Coleman, London", "Confirmed"]]],
-            paragraphs: ["Reservation for CO03C117"],
-            lists: [["Starts 08:00", "Ends 17:00"]],
-            detected: ["Tuesday 4 August 2026"]
-        )
-        #expect(reading.rendered == """
-            Title: My reservations
-            Table 1: 2 rows
-            | Tuesday 4 August 2026 |
-            | CO03A424 | 03, Coleman, London | Confirmed |
-            Paragraphs: 1
-            • Reservation for CO03C117
-            List 1: 2 items
-            - Starts 08:00
-            - Ends 17:00
-            Detected: Tuesday 4 August 2026
-            """)
-    }
-
-    @Test("An empty reading still says how much it found, which is nothing")
-    func emptyReadingRenders() {
-        let reading = SpikeDump.Reading()
-        #expect(reading.isEmpty)
-        #expect(reading.rendered == "Paragraphs: 0")
-    }
-
-    @Test("A reading survives its own JSON — the fixture format has to")
-    func readingRoundTripsThroughJSON() throws {
-        let reading = SpikeDump.Reading(
-            tables: [[["a", "b"], ["c", "d"]]], paragraphs: ["p"], detected: ["d"]
-        )
-        let data = try JSONEncoder().encode(reading)
-        #expect(try JSONDecoder().decode(SpikeDump.Reading.self, from: data) == reading)
-    }
 
     // MARK: Names and formats
 
@@ -82,11 +41,11 @@ struct SpikeDumpTests {
     @Test("The EXIF orientation is read out of the header, and defaults to upright")
     func orientationIsReadFromTheHeader() throws {
         let source = try #require(CGImageSourceCreateWithData(CaptureSamples.pixel as CFData, nil))
-        #expect(SpikeDump.orientation(of: source) == .up, "a screenshot carries none")
+        #expect(DocumentReader.orientation(of: source) == .up, "a screenshot carries none")
 
         let rotated = try Self.jpeg(of: Self.document(), orientation: .right)
         let rotatedSource = try #require(CGImageSourceCreateWithData(rotated as CFData, nil))
-        #expect(SpikeDump.orientation(of: rotatedSource) == .right)
+        #expect(DocumentReader.orientation(of: rotatedSource) == .right)
     }
 
     // MARK: On disk
@@ -110,7 +69,7 @@ struct SpikeDumpTests {
                 "the bytes as they arrived, untouched")
 
         let reading = try JSONDecoder().decode(
-            SpikeDump.Reading.self, from: Data(contentsOf: folder.appending(path: "reading.json"))
+            DocumentReading.self, from: Data(contentsOf: folder.appending(path: "reading.json"))
         )
         let text = try String(contentsOf: folder.appending(path: "reading.txt"), encoding: .utf8)
         #expect(text == reading.rendered, "the text is the JSON, rendered")
@@ -119,11 +78,7 @@ struct SpikeDumpTests {
         // Whether the rows come back as a table or as paragraphs is the very
         // question the spike exists to answer, so this asserts only that the
         // words arrived somewhere.
-        var pieces: [String] = reading.paragraphs
-        if let title = reading.title { pieces.append(title) }
-        for table in reading.tables { pieces.append(contentsOf: table.joined()) }
-        for list in reading.lists { pieces.append(contentsOf: list) }
-        let everything = pieces.joined(separator: "\n")
+        let everything = reading.lines.joined(separator: "\n")
         #expect(everything.contains("Coleman"), "\(text)")
         #expect(everything.contains("Confirmed"), "\(text)")
         #expect(everything.contains("CO03C117"), "\(text)")
