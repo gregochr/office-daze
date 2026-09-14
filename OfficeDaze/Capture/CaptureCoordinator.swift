@@ -62,7 +62,7 @@ final class CaptureCoordinator {
         // The on-device reader, when Settings has asked for it. No usage: there
         // is nothing to bill, and the month's cost line counts a free read.
         if VisionExtractor.isPreferred {
-            return (try await VisionExtractor.extract(image: data), HaikuClient.Usage())
+            return (try await VisionExtractor.extract(image: data, today: today), HaikuClient.Usage())
         }
         #endif
         guard let key = Keychain.apiKey, !key.isEmpty else { throw CaptureError.noAPIKey }

@@ -16,7 +16,7 @@ struct VisionExtractorTests {
 
     @Test("A drawn list gives its bookings, and a row cut off at the top gives none")
     func readsADrawnList() async throws {
-        let bookings = try await VisionExtractor.extract(image: Self.png(of: Self.list()))
+        let bookings = try await VisionExtractor.extract(image: Self.png(of: Self.list()), today: Day(2026, 9, 14))
 
         #expect(bookings.map(\.day) == [Day(2026, 10, 5), Day(2026, 10, 6)])
         #expect(bookings.map(\.deskID) == ["CO03C102", "CO03D218"])
@@ -45,7 +45,7 @@ struct VisionExtractorTests {
     @Test("A blank page is reported as no text, not as no booking")
     func blankPageIsNoText() async {
         await #expect(throws: CaptureError.modelReturnedNothingUsable("no text was found in the image")) {
-            try await VisionExtractor.extract(image: CaptureSamples.pixel)
+            try await VisionExtractor.extract(image: CaptureSamples.pixel, today: Day(2026, 9, 14))
         }
     }
 
@@ -56,14 +56,39 @@ struct VisionExtractorTests {
             draw("Nothing about a desk here.", 40, 120)
         }
         await #expect(throws: CaptureError.modelReturnedNothingUsable("no complete booking in the document")) {
-            try await VisionExtractor.extract(image: try Self.png(of: page))
+            try await VisionExtractor.extract(image: try Self.png(of: page), today: Day(2026, 9, 14))
         }
+    }
+
+    /// The drawn list is for 5 and 6 October. Seen from the 6th, the 5th has
+    /// gone; seen from the 7th, both have, and the page says so.
+    @Test("Bookings for days that have gone are left out, and a page of them says so")
+    func pastBookingsAreLeftOut() async throws {
+        let image = try Self.png(of: Self.list())
+        let fromTheSixth = try await VisionExtractor.extract(image: image, today: Day(2026, 10, 6))
+        #expect(fromTheSixth.map(\.day) == [Day(2026, 10, 6)], "today is not the past")
+
+        await #expect(throws: CaptureError.modelReturnedNothingUsable(
+            "all 2 bookings in the document have already passed"
+        )) {
+            try await VisionExtractor.extract(image: image, today: Day(2026, 10, 7))
+        }
+    }
+
+    @Test("The reason nothing came back is the first one that applies")
+    func reasons() {
+        #expect(VisionExtractor.nothingUsable(readNothing: true, pastBookings: 3) == "no text was found in the image")
+        #expect(VisionExtractor.nothingUsable(readNothing: false, pastBookings: 0) == "no complete booking in the document")
+        #expect(VisionExtractor.nothingUsable(readNothing: false, pastBookings: 1)
+                == "the only booking in the document has already passed")
+        #expect(VisionExtractor.nothingUsable(readNothing: false, pastBookings: 2)
+                == "all 2 bookings in the document have already passed")
     }
 
     @Test("Bytes that are not an image fail at the door")
     func unreadableBytes() async {
         await #expect(throws: CaptureError.unreadableImage) {
-            try await VisionExtractor.extract(image: Data("nope".utf8))
+            try await VisionExtractor.extract(image: Data("nope".utf8), today: Day(2026, 9, 14))
         }
     }
 

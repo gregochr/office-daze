@@ -69,8 +69,17 @@ nonisolated enum BookingParser {
 
     // MARK: Parsing
 
+    /// Every booking the page describes, whenever it is for.
     static func parse(_ reading: DocumentReading) -> [ParsedBooking] {
         captured(from: reading.lines).compactMap { $0.parsed() }
+    }
+
+    /// The bookings still to come: today's and later. A day that has gone
+    /// cannot be planned for, and the only thing a past booking could do is
+    /// land on a day whose attendance the evening nudge has already asked
+    /// about — so the list's history is read and then set aside.
+    static func parse(_ reading: DocumentReading, from today: Day) -> [ParsedBooking] {
+        parse(reading).filter { $0.day >= today }
     }
 
     /// The bookings on the page, before `CapturedBooking.parsed()` applies the

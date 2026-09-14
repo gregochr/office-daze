@@ -5,17 +5,28 @@ import Foundation
 /// there is nothing to bill.
 nonisolated enum VisionExtractor {
 
-    static func extract(image: Data) async throws -> [ParsedBooking] {
+    /// `today` draws the line under the past: a booking for an earlier day is
+    /// read and then left out, and a page holding nothing else says so.
+    static func extract(image: Data, today: Day) async throws -> [ParsedBooking] {
         let reading = try await DocumentReader.read(image).reading
-        let bookings = BookingParser.parse(reading)
-        guard !bookings.isEmpty else {
-            throw CaptureError.modelReturnedNothingUsable(
-                reading.isEmpty
-                    ? "no text was found in the image"
-                    : "no complete booking in the document"
-            )
+        let all = BookingParser.parse(reading)
+        let upcoming = all.filter { $0.day >= today }
+        guard !upcoming.isEmpty else {
+            throw CaptureError.modelReturnedNothingUsable(Self.nothingUsable(
+                readNothing: reading.isEmpty, pastBookings: all.count
+            ))
         }
-        return bookings
+        return upcoming
+    }
+
+    /// Why nothing came back, in the order the reasons would have stopped it.
+    static func nothingUsable(readNothing: Bool, pastBookings: Int) -> String {
+        if readNothing { return "no text was found in the image" }
+        switch pastBookings {
+        case 0: return "no complete booking in the document"
+        case 1: return "the only booking in the document has already passed"
+        default: return "all \(pastBookings) bookings in the document have already passed"
+        }
     }
 
     #if DEBUG

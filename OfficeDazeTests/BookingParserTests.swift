@@ -403,6 +403,21 @@ struct BookingParserTests {
         #expect(BookingParser.parse(DocumentReading()).isEmpty)
     }
 
+    // MARK: The past
+
+    /// The list photographed on 14 September starts on the 16th. Seen from
+    /// 6 October, the first two have gone and today's is still a booking.
+    @Test("Bookings before today are set aside, and today's is kept")
+    func thePastIsSetAside() {
+        let reading = DocumentReading(blocks: [.init(Self.list, top: 1)])
+        #expect(BookingParser.parse(reading, from: Day(2026, 10, 6)).map(\.day) == [
+            Day(2026, 10, 6), Day(2026, 10, 7), Day(2026, 10, 8),
+        ])
+        #expect(BookingParser.parse(reading, from: Day(2026, 9, 14)).count == 5, "nothing has passed yet")
+        #expect(BookingParser.parse(reading, from: Day(2026, 10, 9)).isEmpty, "everything has")
+        #expect(BookingParser.parse(reading).count == 5, "and the unfiltered read still has them all")
+    }
+
     // MARK: Floor and zone
 
     /// Two sources for the floor: the id and the page. When they disagree,
