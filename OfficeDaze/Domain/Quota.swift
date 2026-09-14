@@ -7,7 +7,7 @@ import Foundation
 ///     relief      = floor(leave ÷ 5) × 2
 ///     target      = clamp(8 − relief, 0 ... eligible)
 ///     attended    = sum over days of min(1, sum(fraction))  // counts
-///     forecast    = desk bookings and planned days after today  // does not
+///     forecast    = desk bookings and planned days from today on  // does not
 ///     shortfall   = max(0, target − attended − forecast)
 ///
 /// Derived on read, never stored. Nothing in here is authored data.
@@ -46,7 +46,7 @@ nonisolated enum Quota {
         /// would deduct the same day twice.
         let leave: [DayFraction]
         let attendance: [DayFraction]
-        /// Days with a desk booking that counts to quota. Only those strictly
+        /// Days with a desk booking that counts to quota. Only those on or
         /// after `today` and not already attended become forecast.
         let deskBookingDays: Set<Day>
         /// Days intended on prem with no desk — a workshop, a meeting. They
@@ -115,9 +115,9 @@ nonisolated enum Quota {
         /// "18 DAYS TO RUN".
         ///
         /// Exclusive of today, which the mock's own numbers force: on 4 August
-        /// 2026 it reads 18, and 4 August inclusive would be 19. It is also the
-        /// same boundary `forecast` uses, so the two figures can't disagree
-        /// about whether today is still in play.
+        /// 2026 it reads 18, and 4 August inclusive would be 19. `forecast`
+        /// does not share this boundary: a desk booked for today is still
+        /// ahead of you until you turn up or the day is gone.
         let daysToRun: Int
         /// Days the target could still be met on: working days from today
         /// onward, less the ones already worked and the ones booked off.
@@ -192,10 +192,17 @@ nonisolated enum Quota {
         // a desk was reserved or not. A day already attended is not forecast —
         // it has converted. Unioned, so a day both booked and planned is one
         // day rather than two.
+        //
+        // Today counts. It used to be `> today`, which left a desk booked for
+        // this morning in neither figure — not attended yet, and not ahead — so
+        // a month with eight days lined up read "+2 booked, 1 more day to book"
+        // above a list showing all eight. Until the day is out the booking can
+        // still convert; once it does, `attendedDays` takes it back out, and
+        // tomorrow it is past. The same reasoning `daysAvailable` uses below.
         let forecast = Double(
             input.deskBookingDays.union(input.plannedDays)
                 .filter { workingDaySet.contains($0) }
-                .filter { $0 > input.today }
+                .filter { $0 >= input.today }
                 .subtracting(attendedDays)
                 .count
         )

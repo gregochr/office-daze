@@ -550,3 +550,40 @@ struct QuotaTests {
         #expect(line(1).contains("1 day's leave"), "one day is singular")
     }
 }
+
+/// Today's booking, kept apart so the suite's body stays under the linter's
+/// type length; an extension's members are not counted against the struct.
+extension QuotaTests {
+
+    /// Found on the phone on 14 September 2026: five days worked, a desk that
+    /// morning and two more after it read "+2 booked" and "1 more day to book"
+    /// above a list of all eight. Today's desk was in neither figure.
+    @Test("A desk booked for today and not yet attended is forecast")
+    func todaysBookingIsForecast() {
+        let september = Month(year: 2026, month: 9)
+        let result = Quota.calculate(.init(
+            month: september,
+            attendance: [7, 8, 9, 10, 11].map { .init(Day(2026, 9, $0)) },
+            deskBookingDays: Set([14, 15, 16].map { Day(2026, 9, $0) }),
+            today: Day(2026, 9, 14)
+        ))
+        #expect(result.attended == 5)
+        #expect(result.forecast == 3)
+        #expect(result.shortfall == 0)
+        #expect(result.standing == .onTrack)
+    }
+
+    /// Turning up today converts it, so it moves from one figure to the other
+    /// rather than appearing in both.
+    @Test("A desk booked for today and attended is attended, not forecast")
+    func todaysBookingAttended() {
+        let result = Quota.calculate(.init(
+            month: august,
+            attendance: [.init(Day(2026, 8, 4))],
+            deskBookingDays: [Day(2026, 8, 4)],
+            today: Day(2026, 8, 4)
+        ))
+        #expect(result.attended == 1)
+        #expect(result.forecast == 0)
+    }
+}
