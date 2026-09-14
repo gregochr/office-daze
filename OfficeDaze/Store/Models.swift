@@ -283,16 +283,19 @@ nonisolated enum CaptureStatus: String, Codable, Sendable {
     case pending, parsed, failed
 }
 
-/// Keeps the original so "view original screenshot" works, and gives a monthly
-/// call count and cost without instrumenting anything else.
+/// One capture: when it landed and what became of it. That is the whole of
+/// what Settings' monthly count is made of.
+///
+/// There were token counts here from when the reading was a billed API call.
+/// The reading happens on the phone now and costs nothing, so they went the
+/// way of `bookingID` below: removing a stored property is inferable by
+/// lightweight migration.
 @Model
 final class Capture {
     var id: UUID = UUID()
     var receivedAt: Date = Date.distantPast
     @Attribute(.externalStorage) var asset: Data?
     var status: CaptureStatus = CaptureStatus.pending
-    var inputTokens: Int = 0
-    var outputTokens: Int = 0
 
     // There was a `bookingID` here, and it was never written and never read.
     // The link runs the other way — `DeskBooking.captureID` — and `replace`
@@ -309,16 +312,12 @@ final class Capture {
         id: UUID = UUID(),
         receivedAt: Date,
         asset: Data? = nil,
-        status: CaptureStatus = .pending,
-        inputTokens: Int = 0,
-        outputTokens: Int = 0
+        status: CaptureStatus = .pending
     ) {
         self.id = id
         self.receivedAt = receivedAt
         self.asset = asset
         self.status = status
-        self.inputTokens = inputTokens
-        self.outputTokens = outputTokens
     }
 }
 

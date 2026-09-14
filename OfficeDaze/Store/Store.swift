@@ -107,34 +107,20 @@ enum Store {
     /// One thing neither scope can undo: an `AttendanceDay` is the only record
     /// that a day was ever worked on prem, and there is no other copy.
     ///
-    /// `forgetSecret` is the Anthropic API key, which is the one thing the app
-    /// holds that no `context.delete(model:)` can reach — it is in the Keychain,
-    /// not the schema. It was being left behind by a button that says
-    /// "Everything, including 2 offices", which is the one item in the store
-    /// where being left behind actually costs something: it is a live, billable
-    /// third-party credential, and iOS does not purge a generic-password item
-    /// when the app is deleted either, so neither wiping nor uninstalling took
-    /// it off the phone. Handing the device on did exactly what the dialog said
-    /// it would not.
-    ///
-    /// Only `.everything` reaches for it. `.records` is the scope that keeps
-    /// what the user typed in, and the key is squarely that.
-    ///
-    /// Injected rather than called inline so a test can assert which scopes
-    /// reach for it without reaching into the simulator's real Keychain — the
-    /// whole point of the finding is *which* scope forgets it, and that is not
-    /// assertable through a side effect on a device.
+    /// Everything the app holds is a row in the schema now. There was once a
+    /// secret outside it — the API key for a remote reader, in the Keychain —
+    /// and `.everything` reached for that too. The reading happens on the
+    /// phone, so there is no longer anything a `context.delete(model:)` cannot
+    /// reach.
     static func wipe(
         _ context: ModelContext,
         scope: Scope = .everything,
-        defaults: UserDefaults = .standard,
-        forgetSecret: () -> Void = { Keychain.apiKey = nil }
+        defaults: UserDefaults = .standard
     ) throws {
         for model in scope.models {
             try context.delete(model: model)
         }
         try context.save()
-        if scope == .everything { forgetSecret() }
         // So the sample month does not come back on the next launch. Set for
         // either scope: re-seeding over the offices someone kept would put the
         // sample bookings back under them.

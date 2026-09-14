@@ -12,9 +12,8 @@ import UIKit
 /// camera roll, and not saving it is also why no library permission is needed.
 struct CameraPicker: UIViewControllerRepresentable {
 
-    /// Near-lossless. The real downsizing is `PhotoImport`'s job, and
-    /// compressing hard here would mean two lossy passes over the small text
-    /// the model has to read.
+    /// Near-lossless. The reader sees this frame as it is, and compressing
+    /// hard here would ring the small text it has to read.
     static let quality = 0.95
 
     let onCapture: (Data) -> Void

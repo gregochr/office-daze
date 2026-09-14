@@ -35,9 +35,9 @@ struct CaptureSheetTests {
     }
 
     func stub(_ bookings: [ParsedBooking]) {
-        coordinator.extractor = { [sent] data, mediaType, today in
-            sent.record(data, mediaType, today)
-            return (bookings, CaptureSamples.usage)
+        coordinator.extractor = { [sent] data, today in
+            sent.record(data, today)
+            return bookings
         }
     }
 
@@ -109,8 +109,7 @@ struct CaptureSheetTests {
     @Test("Every failure before the write still says the reading was what went wrong")
     func readingFailuresKeepTheirWording() {
         let reading: [CaptureError] = [
-            .noAPIKey, .unsupportedFile("pdf"), .unreadableImage, .network("offline"),
-            .httpStatus(529, "overloaded"), .modelReturnedNothingUsable("no rows"), .refused,
+            .unsupportedFile("pdf"), .unreadableImage, .nothingUsable("no rows"),
         ]
         for error in reading {
             #expect(CaptureSheet.failureHeader(for: error) == "Couldn't read that screenshot")
@@ -118,12 +117,12 @@ struct CaptureSheetTests {
         }
         #expect(
             CaptureSheet.failureHeader(for: .couldNotSave("the disk is full"))
-                != CaptureSheet.failureHeader(for: .refused),
+                != CaptureSheet.failureHeader(for: .nothingUsable("no rows")),
             "the two halves of the pipeline do not share a heading"
         )
         #expect(
             CaptureSheet.title(for: .failed(.couldNotSave("the disk is full")))
-                != CaptureSheet.title(for: .failed(.refused))
+                != CaptureSheet.title(for: .failed(.nothingUsable("no rows")))
         )
     }
 
@@ -140,11 +139,11 @@ struct CaptureSheetTests {
 
         let entered = AsyncStream<Void>.makeStream()
         let release = AsyncStream<Void>.makeStream()
-        coordinator.extractor = { [sent] data, mediaType, today in
-            sent.record(data, mediaType, today)
+        coordinator.extractor = { [sent] data, today in
+            sent.record(data, today)
             entered.continuation.yield()
             for await _ in release.stream { break }
-            return (CaptureSamples.colemanWeek, CaptureSamples.usage)
+            return CaptureSamples.colemanWeek
         }
 
         let running = Task { await coordinator.receive(data: image, filename: "week.png") }
@@ -162,14 +161,14 @@ struct CaptureSheetTests {
         }
         #expect(booking.deskID == "CO03A424", "and on the first row of the table")
         #expect(CaptureSheet.title(for: coordinator.phase) == "Confirm")
-        #expect(sent.mediaType == "image/png", "the bytes the sheet was drawn for")
+        #expect(sent.image == image, "the bytes the sheet was drawn for")
 
         coordinator.abort()
         #expect(shown() == .nothing, "cancelling takes the card away, which dismisses the sheet")
     }
 
     /// `body` guards the review card on `coordinator.current` rather than on
-    /// the phase alone, and this is the state that guard is for. `HaikuClient`
+    /// the phase alone, and this is the state that guard is for. The reader
     /// refuses an empty parse, so nothing should reach it — but an empty white
     /// card under a "Confirm" title, with only Cancel on it, is the worst
     /// possible way to discover that something did.
@@ -546,7 +545,7 @@ struct CaptureSheetTests {
         coordinator.phase = .parsing(step: .matching)
         render(sheet)
 
-        coordinator.phase = .failed(.network("offline"))
+        coordinator.phase = .failed(.nothingUsable("the reader was interrupted"))
         #expect(coordinator.canRetry, "the image decoded, so Try again is drawn")
         render(sheet)
 
@@ -616,17 +615,14 @@ struct CaptureSheetTests {
     /// is given.
     final class Sent: @unchecked Sendable {
         private(set) var images: [Data] = []
-        private(set) var mediaTypes: [String] = []
         private(set) var days: [Day] = []
 
         var calls: Int { images.count }
         var image: Data? { images.last }
-        var mediaType: String? { mediaTypes.last }
         var today: Day? { days.last }
 
-        func record(_ image: Data, _ mediaType: String, _ today: Day) {
+        func record(_ image: Data, _ today: Day) {
             images.append(image)
-            mediaTypes.append(mediaType)
             days.append(today)
         }
     }

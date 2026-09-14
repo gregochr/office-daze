@@ -223,7 +223,7 @@ struct LockOnScanner: UIViewControllerRepresentable {
         }
 
         /// The user tapped rather than waiting. Whatever is in front of the
-        /// lens goes to the model as it stands — a frame the lock would have
+        /// lens goes to the reader as it stands — a frame the lock would have
         /// refused is still a frame the review sheet stands in front of.
         func captureNow(from scanner: DataScannerViewController) {
             guard lock.lockNow() else { return }
@@ -243,15 +243,13 @@ struct LockOnScanner: UIViewControllerRepresentable {
                     let photo = try await takePhoto(scanner)
                     // The one check that matters. `capturePhoto()` resolves
                     // whether or not the screen is still there, so without this
-                    // a cancelled shot goes on to open the capture sheet — and
-                    // send a billed model call — for a photograph the user
-                    // walked away from.
+                    // a cancelled shot goes on to open the capture sheet for a
+                    // photograph the user walked away from.
                     guard let self, !Task.isCancelled else { return }
                     // Near-lossless here for the same reason the picker is —
-                    // `PhotoImport` does the real downsizing, and two lossy
-                    // passes over small text is one too many. `jpegData` also
-                    // bakes in the orientation, so a phone held sideways
-                    // arrives upright.
+                    // the reader has to read small text, and it reads the
+                    // frame as it is. `jpegData` also bakes in the
+                    // orientation, so a phone held sideways arrives upright.
                     guard let data = photo.jpegData(compressionQuality: CameraPicker.quality)
                     else { throw CaptureError.unreadableImage }
                     onCapture(data)

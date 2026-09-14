@@ -34,16 +34,16 @@ struct CaptureCoordinatorTests {
     /// one — the exact 400 `PhotoImport` was written to fix — left every test
     /// green, and so would anchoring the model's date resolution to 2020.
     func stub(_ bookings: [ParsedBooking]) {
-        coordinator.extractor = { [sent] data, mediaType, today in
-            sent.record(data, mediaType, today)
-            return (bookings, CaptureSamples.usage)
+        coordinator.extractor = { [sent] data, today in
+            sent.record(data, today)
+            return bookings
         }
     }
 
     /// The same recording, for a stub that fails instead.
     func stub(throwing error: CaptureError) {
-        coordinator.extractor = { [sent] data, mediaType, today in
-            sent.record(data, mediaType, today)
+        coordinator.extractor = { [sent] data, today in
+            sent.record(data, today)
             throw error
         }
     }
@@ -333,18 +333,18 @@ struct CaptureCoordinatorTests {
 
     // MARK: Failure and retry
 
-    /// Retry repeats the model call, not the conversion — which is why the
-    /// bytes are prepared before `lastInput` is set.
+    /// Retry repeats the reading, not the check — which is why the bytes are
+    /// checked before `lastInput` is set.
     @Test("A failed call is surfaced, and retrying repeats only the call")
     func failureThenRetry() async throws {
-        coordinator.extractor = { [sent] data, mediaType, today in
-            sent.record(data, mediaType, today)
-            if sent.calls == 1 { throw CaptureError.network("offline") }
-            return (CaptureSamples.one, CaptureSamples.usage)
+        coordinator.extractor = { [sent] data, today in
+            sent.record(data, today)
+            if sent.calls == 1 { throw CaptureError.nothingUsable("the reader was interrupted") }
+            return CaptureSamples.one
         }
         await coordinator.receive(data: image, filename: "one.png")
 
-        #expect(failure() == .network("offline"))
+        #expect(failure() == .nothingUsable("the reader was interrupted"))
         #expect(coordinator.canRetry, "the image decoded, so there is something to send again")
 
         await coordinator.retry()
@@ -379,41 +379,23 @@ struct CaptureCoordinatorTests {
 
     @Test("A failure raised before any conversion offers no retry either")
     func failedOutright() {
-        coordinator.failed(.noAPIKey)
+        coordinator.failed(.unsupportedFile("pdf"))
 
-        #expect(failure() == .noAPIKey)
+        #expect(failure() == .unsupportedFile("pdf"))
         #expect(coordinator.canRetry == false)
     }
 
-    /// The filename said JPEG and the bytes are a PNG. The bytes win, which is
-    /// the whole of the fix for the 400 a photographed confirmation returned.
-    @Test("The media type sent is the bytes', not the filename's")
-    func mediaTypeFollowsTheBytes() async {
-        stub(CaptureSamples.one)
-        await coordinator.receive(data: image, filename: "screenshot.jpg")
-
-        #expect(sent.mediaType == "image/png")
-    }
-
-    /// The other two arguments, which nothing used to look at. A 12MP frame is
-    /// downsized before it is sent, because the API discards the extra pixels
-    /// and refuses the request outright past 10MB encoded — so sending the
-    /// original is a call that fails, every time, on the exact input the
-    /// conversion was written for. The date is the model's only anchor for a
-    /// screenshot printing "5 Aug" with no year on it.
-    @Test("The model is handed the prepared image and today, not the original and not a fixed day")
-    func theExtractorGetsThePreparedImageAndToday() async throws {
+    /// The reader runs on the phone and wants every pixel, so the frame goes
+    /// through as it came — no downsizing, no re-encode. The date is what
+    /// draws the line under bookings that have already passed.
+    @Test("The reader is handed the frame untouched, and today")
+    func theExtractorGetsTheFrameAndToday() async throws {
         let original = TestImage.make(width: 4000, height: 3000, type: .jpeg)
         stub(CaptureSamples.one)
 
         await coordinator.receive(data: original, filename: "photo.jpg")
 
-        let posted = try #require(sent.image)
-        #expect(posted != original, "the camera frame itself never goes over the wire")
-        #expect(posted.count < original.count)
-        let size = try #require(TestImage.dimensions(posted))
-        #expect(size.width == PhotoImport.maxEdge, "cut to the long edge the API downsizes to")
-        #expect(sent.mediaType == "image/jpeg")
+        #expect(sent.image == original, "the camera frame itself, every pixel of it")
         #expect(sent.today == Day.today, "the day it is where the phone is, not a hardcoded one")
     }
 
@@ -438,7 +420,7 @@ struct CaptureCoordinatorTests {
     /// install, with no way to see or remove one. Asserted as `nil` rather than
     /// left unasserted, because the previous `!= nil` would have passed just as
     /// happily on a placeholder, a thumbnail or the response JSON.
-    @Test("A capture is recorded with its cost, and without the picture")
+    @Test("A capture is recorded, and without the picture")
     func recordsTheCapture() async throws {
         stub(CaptureSamples.one)
         await coordinator.receive(data: image, filename: "one.png")
@@ -446,8 +428,6 @@ struct CaptureCoordinatorTests {
         let captures = try container.mainContext.fetch(FetchDescriptor<Capture>())
         #expect(captures.count == 1)
         #expect(captures.first?.status == .parsed)
-        #expect(captures.first?.inputTokens == CaptureSamples.usage.inputTokens)
-        #expect(captures.first?.outputTokens == CaptureSamples.usage.outputTokens)
         #expect(
             captures.first?.asset == nil,
             "an image nothing can display is a photograph of a workplace kept for nothing"
@@ -457,17 +437,16 @@ struct CaptureCoordinatorTests {
     /// Recorded too, or the monthly count would only ever show what worked.
     @Test("A failed capture is recorded as failed")
     func recordsTheFailure() async throws {
-        stub(throwing: .refused)
+        stub(throwing: .nothingUsable("no complete booking in the document"))
         await coordinator.receive(data: image, filename: "one.png")
 
         let captures = try container.mainContext.fetch(FetchDescriptor<Capture>())
         #expect(captures.count == 1)
         #expect(captures.first?.status == .failed)
-        #expect(captures.first?.inputTokens == 0, "nothing came back to be charged for")
         #expect(captures.first?.asset == nil, "and a capture of the wrong thing is not kept either")
     }
 
-    /// The one phase that could be entered with nothing in it. `HaikuClient`
+    /// The one phase that could be entered with nothing in it. `VisionExtractor`
     /// refuses an empty parse of its own accord, so no shipping path reaches
     /// this — which is the reason it was worth pinning: the coordinator took the
     /// extractor's word for it, and any second extractor (a cache, an on-device
@@ -481,7 +460,7 @@ struct CaptureCoordinatorTests {
 
         await coordinator.receive(data: image, filename: "one.png")
 
-        #expect(failure() == .modelReturnedNothingUsable("no bookings in the document"))
+        #expect(failure() == .nothingUsable("no bookings in the document"))
         #expect(coordinator.current == nil)
         #expect(coordinator.segments.isEmpty, "and no progress bar with no segments in it")
         #expect(coordinator.position == nil)
@@ -490,12 +469,7 @@ struct CaptureCoordinatorTests {
 
         let captures = try container.mainContext.fetch(FetchDescriptor<Capture>())
         #expect(captures.count == 1)
-        #expect(captures.first?.status == .failed)
-        #expect(
-            captures.first?.inputTokens == CaptureSamples.usage.inputTokens,
-            "the call was made and billed, so the month's cost has to count it"
-        )
-        #expect(captures.first?.outputTokens == CaptureSamples.usage.outputTokens)
+        #expect(captures.first?.status == .failed, "the reading happened, so the month counts it")
     }
 
     /// The other half of that guard: one booking is not none, and the refusal
@@ -536,9 +510,9 @@ struct CaptureCoordinatorTests {
     @Test("A failure still arrives at the error screen with a floor set")
     func failuresReachTheErrorScreen() async throws {
         coordinator.parsingFloor = .milliseconds(300)
-        stub(throwing: .refused)
+        stub(throwing: .nothingUsable("no complete booking in the document"))
         await coordinator.receive(data: image, filename: "one.png")
-        #expect(failure() == .refused)
+        #expect(failure() == .nothingUsable("no complete booking in the document"))
     }
 
     /// The floor turned a rare race into a reliable one: half a second in which
@@ -553,11 +527,11 @@ struct CaptureCoordinatorTests {
         coordinator.parsingFloor = .milliseconds(400)
         let entered = AsyncStream<Void>.makeStream()
         let release = AsyncStream<Void>.makeStream()
-        coordinator.extractor = { [sent] data, mediaType, today in
-            sent.record(data, mediaType, today)
+        coordinator.extractor = { [sent] data, today in
+            sent.record(data, today)
             entered.continuation.yield()
             for await _ in release.stream { break }
-            return (CaptureSamples.one, CaptureSamples.usage)
+            return CaptureSamples.one
         }
 
         let running = Task { await coordinator.receive(data: image, filename: "one.png") }
@@ -594,7 +568,7 @@ struct CaptureCoordinatorTests {
         coordinator.preparer = { data in
             entered.continuation.yield()
             release.wait()
-            return (data, "image/png")
+            return data
         }
         stub(CaptureSamples.one)
 
@@ -619,7 +593,7 @@ struct CaptureCoordinatorTests {
         let prepared = Counter()
         coordinator.preparer = { data in
             prepared.count += 1
-            return (data, "image/png")
+            return data
         }
         stub(CaptureSamples.one)
 
@@ -892,13 +866,13 @@ struct CaptureCoordinatorTests {
         #expect(try storedAliases(SeedData.colemanID).isEmpty, "and this time nothing landed")
     }
 
-    /// A month's cost is worth counting and not worth stopping a capture for.
-    /// The user is mid-flow with a booking on screen; an alert saying the token
-    /// tally is short would be answering a question nobody asked, and would cost
-    /// them the table to do it.
-    @Test("A cost record that would not save never reaches the user, and never reaches nobody")
-    func aRefusedCostRecordDoesNotStopTheCapture() async throws {
-        let asides = Asides(saving: container.mainContext, refusing: { $0.captureCost != nil })
+    /// A month's count is worth keeping and not worth stopping a capture for.
+    /// The user is mid-flow with a booking on screen; an alert saying the
+    /// tally is short would be answering a question nobody asked, and would
+    /// cost them the table to do it.
+    @Test("A capture record that would not save never reaches the user, and never reaches nobody")
+    func aRefusedCaptureRecordDoesNotStopTheCapture() async throws {
+        let asides = Asides(saving: container.mainContext, refusing: { $0.captureRecord != nil })
         coordinator.writeAside = { [asides] in try asides.write($0) }
         stub(CaptureSamples.one)
 
@@ -906,14 +880,9 @@ struct CaptureCoordinatorTests {
 
         #expect(failure() == nil, "the month's bookkeeping is not worth the capture")
         #expect(coordinator.current?.deskID == "CO03C407", "the review happened as normal")
-        let unsaved = try #require(coordinator.unsavedAsides.first?.aside.captureCost)
+        let unsaved = try #require(coordinator.unsavedAsides.first?.aside.captureRecord)
         #expect(coordinator.unsavedAsides.count == 1)
-        #expect(unsaved.status == .parsed)
-        #expect(
-            unsaved.inputTokens == CaptureSamples.usage.inputTokens,
-            "what was missed is named by its actual cost, not by a placeholder"
-        )
-        #expect(unsaved.outputTokens == CaptureSamples.usage.outputTokens)
+        #expect(unsaved.status == .parsed, "what was missed is named by what it was")
         #expect(
             try storedCaptures() == 0,
             "the row really is missing — this is the month's total going short, not a false alarm"
@@ -932,20 +901,18 @@ struct CaptureCoordinatorTests {
     /// The failure paths record too, or the monthly count would only ever show
     /// what worked — and they are the ones where nothing follows to flush them,
     /// so the argument the double is handed is the only evidence there is.
-    @Test("A capture that failed is still costed, and the cost says it failed")
-    func theCostRecordOfAFailedCaptureNamesTheFailure() async throws {
+    @Test("A capture that failed is still recorded, and the record says it failed")
+    func theRecordOfAFailedCaptureNamesTheFailure() async throws {
         let asides = Asides(saving: container.mainContext)
         coordinator.writeAside = { [asides] in try asides.write($0) }
-        stub(throwing: .refused)
+        stub(throwing: .nothingUsable("no complete booking in the document"))
 
         await coordinator.receive(data: image, filename: "one.png")
 
-        #expect(failure() == .refused, "and the model's refusal is what the user reads")
-        let asked = try #require(asides.asked.first?.captureCost)
+        #expect(failure() == .nothingUsable("no complete booking in the document"), "and the reader's reason is what the user reads")
+        let asked = try #require(asides.asked.first?.captureRecord)
         #expect(asides.asked.count == 1)
         #expect(asked.status == .failed)
-        #expect(asked.inputTokens == 0, "nothing came back to be charged for")
-        #expect(asked.outputTokens == 0)
         #expect(coordinator.unsavedAsides.isEmpty, "it saved, so there is nothing to report")
         #expect(try storedCaptures() == 1, "and the failed call is counted in the month")
     }
@@ -966,11 +933,9 @@ struct CaptureCoordinatorTests {
         #expect(failure() == nil)
         #expect(coordinator.isActive == false, "the sheet dismissed, as it always did")
         #expect(coordinator.unsavedAsides.isEmpty, "and nothing was noted, because nothing failed")
-        #expect(asides.asked.count == 2, "the cost when the parse landed, the name when it was given")
-        let cost = try #require(asides.asked.first?.captureCost)
-        #expect(cost.status == .parsed)
-        #expect(cost.inputTokens == CaptureSamples.usage.inputTokens)
-        #expect(cost.outputTokens == CaptureSamples.usage.outputTokens)
+        #expect(asides.asked.count == 2, "the record when the parse landed, the name when it was given")
+        let record = try #require(asides.asked.first?.captureRecord)
+        #expect(record.status == .parsed)
         #expect(asides.asked.last?.officeName?.name == "Ropemaker Place")
         #expect(asides.asked.last?.officeName?.officeID == SeedData.colemanID)
         #expect(
@@ -980,7 +945,7 @@ struct CaptureCoordinatorTests {
         let capture = try #require(
             try container.mainContext.fetch(FetchDescriptor<Capture>()).first
         )
-        #expect(cost.id == capture.id, "and the cost named the row it was for")
+        #expect(record.id == capture.id, "and the record named the row it was for")
     }
 
     /// A name the rules already handle is never taught, so there is no alias to
@@ -1064,33 +1029,24 @@ struct CaptureCoordinatorTests {
     /// verifies nothing about what crosses the boundary it stands in for.
     final class Sent: @unchecked Sendable {
         private(set) var images: [Data] = []
-        private(set) var mediaTypes: [String] = []
         private(set) var days: [Day] = []
 
         var calls: Int { images.count }
         var image: Data? { images.last }
-        var mediaType: String? { mediaTypes.last }
         var today: Day? { days.last }
 
-        func record(_ image: Data, _ mediaType: String, _ today: Day) {
+        func record(_ image: Data, _ today: Day) {
             images.append(image)
-            mediaTypes.append(mediaType)
             days.append(today)
         }
     }
 }
 
-/// The four values of a `.captureCost` aside, as a type rather than as a tuple.
-/// Four members is where a tuple stops documenting itself: the two `Int`s are
-/// interchangeable to the compiler, so a reader checking an assertion has to
-/// count positions to know whether they are looking at what was sent or what
-/// came back. The labels here are the same ones the case uses, so every existing
-/// assertion reads unchanged.
-struct CaptureCostAside {
+/// The two values of a `.captureRecord` aside, as a type rather than as a
+/// tuple, so an assertion reads by name.
+struct CaptureRecordAside {
     var id: UUID
     var status: CaptureStatus
-    var inputTokens: Int
-    var outputTokens: Int
 }
 
 /// Reading an aside's payload without a `case let` and a `guard` at every use.
@@ -1101,12 +1057,8 @@ extension CaptureCoordinator.Aside {
         return (name, officeID)
     }
 
-    var captureCost: CaptureCostAside? {
-        guard case .captureCost(let id, let status, let input, let output) = self else {
-            return nil
-        }
-        return CaptureCostAside(
-            id: id, status: status, inputTokens: input, outputTokens: output
-        )
+    var captureRecord: CaptureRecordAside? {
+        guard case .captureRecord(let id, let status) = self else { return nil }
+        return CaptureRecordAside(id: id, status: status)
     }
 }

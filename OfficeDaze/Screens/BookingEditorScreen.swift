@@ -22,7 +22,7 @@ struct BookingEditorScreen: View {
     enum Field: Hashable {
         case desk, floor, zone, startTime, endTime
 
-        /// The names the model uses in `unsureFields`, which are the schema's
+        /// The names the reader uses in `unsureFields`, which are the mapping's
         /// own — this is the one place the two vocabularies meet.
         init?(unsureField: String) {
             switch unsureField {
@@ -109,7 +109,7 @@ struct BookingEditorScreen: View {
 
     /// The first unread field the editor knows how to put a cursor in.
     ///
-    /// `compactMap` before `first`, not `first` then `map`: a name the model
+    /// `compactMap` before `first`, not `first` then `map`: a name the reader
     /// emitted that this screen has no field for — a schema that grew a key
     /// while the editor did not — must be stepped over rather than swallow the
     /// focus, or the amber marker leads to a keyboard on nothing.

@@ -15,8 +15,8 @@ xcuserdata/
 .swiftpm/
 .build/
 
-# Secrets — the Anthropic key lives in the Keychain, never on disk.
-# This line is here so a stray file can't be committed by accident.
+# Secrets. The app holds none any more, but the line stays so a stray file
+# can't be committed by accident.
 *.secret
 
 # The design bundle stays on disk and out of the repo. It is the reference

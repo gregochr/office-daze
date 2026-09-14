@@ -622,9 +622,7 @@ struct DebugRouterTests {
     @Test("Each capture flag hands the sheet the state it was added for")
     func stubsReturnTheirOwnSample() async throws {
         func extract(_ stub: DebugRouter.Stub) async throws -> [ParsedBooking] {
-            try await DebugRouter.extractor(for: stub)(
-                CaptureSamples.pixel, "image/png", Day(2026, 8, 4)
-            ).0
+            try await DebugRouter.extractor(for: stub)(CaptureSamples.pixel, Day(2026, 8, 4))
         }
 
         let table = try await extract(.table)
@@ -642,23 +640,14 @@ struct DebugRouterTests {
         let page = try await extract(.page)
         #expect(page.first?.floor == nil)
         #expect(page.first?.unsureFields == ["floor", "zone"])
-
-        // The usage figure the sheet prints, on the one that carries the most.
-        let usage = try await DebugRouter.extractor(for: .table)(
-            CaptureSamples.pixel, "image/png", Day(2026, 8, 4)
-        ).1
-        #expect(usage.inputTokens == CaptureSamples.usage.inputTokens)
-        #expect(usage.inputTokens > 0, "so the sheet has a figure to show")
     }
 
     /// `-capture failed` exists to look at the failure sheet, so it has to
-    /// actually fail — and with the error whose message names the missing key.
+    /// actually fail — and with the error the reader really throws.
     @Test("The failing capture throws rather than quietly succeeding")
     func failedStubThrows() async {
-        await #expect(throws: CaptureError.noAPIKey) {
-            try await DebugRouter.extractor(for: .failed)(
-                CaptureSamples.pixel, "image/png", Day(2026, 8, 4)
-            )
+        await #expect(throws: CaptureError.nothingUsable("no complete booking in the document")) {
+            try await DebugRouter.extractor(for: .failed)(CaptureSamples.pixel, Day(2026, 8, 4))
         }
     }
 }
