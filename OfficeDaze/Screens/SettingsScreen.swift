@@ -220,6 +220,17 @@ struct SettingsScreen: View {
                 LabeledContent("Tokens out", value: cost.outputTokens.formatted())
             }
 
+            #if DEBUG
+            // The OCR spike's page. Debug builds only, and everything it does
+            // is behind its own switch — see `SpikeDump`.
+            Section {
+                NavigationLink("OCR spike") { SpikeDumpsScreen() }
+                    .foregroundStyle(Palette.tint)
+            } header: {
+                Text("Debug")
+            }
+            #endif
+
             Section {
                 Button("Delete data…", role: .destructive) { confirmingWipe = true }
             } footer: {

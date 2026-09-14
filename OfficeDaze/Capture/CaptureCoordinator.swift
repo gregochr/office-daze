@@ -72,6 +72,14 @@ final class CaptureCoordinator {
         try PhotoImport.prepare($0)
     }
 
+    #if DEBUG
+    /// The OCR spike's tap on the intake, handed the bytes exactly as they
+    /// arrived and before the preparer touches them. Injectable so a test can
+    /// see what it is handed; the default records only when Settings has
+    /// switched it on, which no test does. Debug builds only — see `SpikeDump`.
+    var spikeRecorder: @Sendable (Data) -> Void = { SpikeDump.recordIfEnabled($0) }
+    #endif
+
     /// The booking write, injectable for the same reason: a `context.save()`
     /// cannot be made to fail on demand from outside, and the failure is
     /// exactly what needs pinning — a write that did not land used to be drawn
@@ -249,6 +257,11 @@ final class CaptureCoordinator {
         generation += 1
         let attempt = generation
         phase = .parsing(step: .received)
+        #if DEBUG
+        // Before the preparer, deliberately: the spike wants the full frame,
+        // and the preparer's whole job is to make it smaller.
+        spikeRecorder(data)
+        #endif
         do {
             let prepared = try await Task.detached { [preparer] in try preparer(data) }.value
             guard attempt == generation else { return }
