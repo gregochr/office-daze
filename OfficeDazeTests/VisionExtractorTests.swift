@@ -29,14 +29,22 @@ struct VisionExtractorTests {
     /// The page reads top to bottom, or every date would pair with the wrong
     /// row. Asserted here, off a real reading, because it depends on which
     /// way up Vision's coordinate space is.
+    ///
+    /// Lines are found through `DeskID`, not by their raw text: on the CI
+    /// runner Vision read the cut-off row's id with one character wrong, which
+    /// the parser undoes and a `contains` does not. The test is about order,
+    /// and the fold is exactly what makes order the only thing left to check.
     @Test("The reading's lines run top to bottom")
     func linesAreTopToBottom() async throws {
         let reading = try await DocumentReader.read(Self.png(of: Self.list())).reading
         let lines = reading.lines
-        let first = try #require(lines.firstIndex { $0.contains("CO03C108") })
-        let date = try #require(lines.firstIndex { $0.hasPrefix("2026-10-05") })
-        let second = try #require(lines.firstIndex { $0.contains("CO03C102") })
-        let last = try #require(lines.firstIndex { $0.contains("CO03D218") })
+        func line(with desk: String) throws -> Int {
+            try #require(lines.firstIndex { DeskID.find(in: $0)?.text == desk }, "\(lines)")
+        }
+        let first = try line(with: "CO03C108")
+        let date = try #require(lines.firstIndex { $0.hasPrefix("2026-10-05") }, "\(lines)")
+        let second = try line(with: "CO03C102")
+        let last = try line(with: "CO03D218")
         #expect(first < date, "\(lines)")
         #expect(date < second, "\(lines)")
         #expect(second < last, "\(lines)")
