@@ -141,16 +141,6 @@ struct BookingParserTests {
         #expect(BookingParser.layout(of: []) == .unknown)
     }
 
-    /// The decision, pinned. The details form is the one that may need to
-    /// flip, and when it does this is the test that says so.
-    @Test("A page with no status is confirmed only when it describes an existing reservation")
-    func assumedConfirmation() {
-        #expect(BookingParser.assumesConfirmed(.summary))
-        #expect(BookingParser.assumesConfirmed(.unknown))
-        #expect(BookingParser.assumesConfirmed(.details), "the open question — see the doc comment")
-        #expect(!BookingParser.assumesConfirmed(.list), "a list row prints its status, and is held to it")
-    }
-
     // MARK: The list
 
     @Test("The list gives one booking per date, fully read")
@@ -205,21 +195,36 @@ struct BookingParserTests {
         #expect(Self.parse(page).map(\.deskID) == ["CO03C102"])
     }
 
-    @Test("A row without a status is half a row, and not a booking")
+    /// The status column is the right-hand edge of the list, and a phone held
+    /// close enough to read the desk ids is often too close to keep it in
+    /// frame. The row is still a row the booking system holds.
+    @Test("A row without a status is a booking: its place in the list is its confirmation")
     func rowWithoutStatus() {
         let page = """
             2026-10-05
+            Times shown based on building location
             CO03C102
             03, Coleman, London
             08:00 - 17:00
+            2026-10-06
+            Times shown based on building location
+            CO03D218
+            03, Coleman, London
+            08:00 - 17:00
             """
-        #expect(Self.parse(page).isEmpty)
+        let bookings = Self.parse(page)
+        #expect(bookings.map(\.deskID) == ["CO03C102", "CO03D218"])
+        #expect(bookings.map(\.day) == [Day(2026, 10, 5), Day(2026, 10, 6)])
+        #expect(bookings.allSatisfy { !$0.needsChecking }, "\(bookings.map(\.unsureFields))")
     }
 
-    @Test("Rows that are not confirmed are skipped", arguments: [
-        "Cancelled", "Canceled", "Pending", "Waitlisted", "Declined",
+    /// The rule the user set: the column is not read. A row in the list is a
+    /// booking the system holds, and whatever word sits at its edge does not
+    /// change that.
+    @Test("The status column is not read: a row is a booking whatever it says", arguments: [
+        "Confirmed", "Cancelled", "Canceled", "Pending", "Waitlisted", "Declined",
     ])
-    func unconfirmedRowsAreSkipped(_ status: String) {
+    func statusColumnIsNotRead(_ status: String) {
         let page = """
             2026-10-05
             CO03C102
@@ -232,7 +237,7 @@ struct BookingParserTests {
             08:00 - 17:00
             Confirmed
             """
-        #expect(Self.parse(page).map(\.deskID) == ["CO03D218"])
+        #expect(Self.parse(page).map(\.deskID) == ["CO03C102", "CO03D218"])
     }
 
     @Test("Two rows under one date are two bookings on that day")
@@ -360,9 +365,10 @@ struct BookingParserTests {
         #expect(booking.officeName == "Coleman, London")
     }
 
-    @Test("A reservation page that prints Cancelled is not a booking")
-    func cancelledSummary() {
-        #expect(Self.parse(Self.summary.replacing("Confirmed", with: "Cancelled")).isEmpty)
+    @Test("A reservation page is a booking whatever status word it prints")
+    func summaryStatusIsNotRead() {
+        let read = Self.parse(Self.summary.replacing("Confirmed", with: "Cancelled"))
+        #expect(read.map(\.deskID) == Self.parse(Self.summary).map(\.deskID))
     }
 
     /// The layout the old prompt called the second: a confirmation email with
@@ -514,9 +520,9 @@ struct BookingParserTests {
         ("08:00 - 17:00", [.range(.init(start: "08:00", end: "17:00"))]),
         ("8:00 – 17:00", [.range(.init(start: "08:00", end: "17:00"))]),
         ("All day(08:00 - 17:00) - All day", [.range(.init(start: "08:00", end: "17:00"))]),
-        ("Confirmed", [.status(.confirmed)]),
-        ("CANCELLED", [.status(.cancelled)]),
-        ("Christopher Gregory Confirmed", [.status(.confirmed)]),
+        ("Confirmed", []),
+        ("CANCELLED", []),
+        ("Christopher Gregory Confirmed", []),
         ("03, Coleman, London", [.location(.init(floor: "03", office: "Coleman, London"))]),
         ("Coleman · London", [.location(.init(floor: nil, office: "Coleman, London"))]),
         ("Reservation for CO03C102", [.desk(DeskID.parse("CO03C102")!)]),
@@ -539,7 +545,6 @@ struct BookingParserTests {
         #expect(facts == [
             .desk(DeskID.parse("CO03C102")!),
             .range(.init(start: "08:00", end: "17:00")),
-            .status(.confirmed),
             .location(.init(floor: "03", office: "Coleman, London")),
         ])
     }
@@ -550,12 +555,12 @@ struct BookingParserTests {
             2026-10-05 Times shown based on building location
             Reservation f... CO03C102 03, Coleman, London 08:00 - 17:00 Europe/London Christopher Gregory Confirmed
             2026-10-06 Times shown based on building location
-            Reservation f... CO03D218 03, Coleman, London 08:00 - 17:00 Europe/London Christopher Gregory Cancelled
+            Reservation f... CO03D218 03, Coleman, London 08:00 - 17:00 Europe/London Christopher Gregory
             """
         let bookings = Self.parse(page)
-        #expect(bookings.map(\.deskID) == ["CO03C102"])
-        #expect(bookings.first?.floor == "03")
-        #expect(bookings.first?.startTime == "08:00")
+        #expect(bookings.map(\.deskID) == ["CO03C102", "CO03D218"])
+        #expect(bookings.map(\.day) == [Day(2026, 10, 5), Day(2026, 10, 6)])
+        #expect(bookings.allSatisfy { $0.floor == "03" && $0.startTime == "08:00" })
     }
 
     @Test("The building label's value is found beneath it or beside it")

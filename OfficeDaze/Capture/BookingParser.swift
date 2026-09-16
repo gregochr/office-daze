@@ -27,8 +27,7 @@ nonisolated enum BookingParser {
         /// reserved-items block at the bottom. One booking.
         case summary
         /// The "Reservation details" form: a subject, a date line, a desk
-        /// card. One booking — and possibly not yet a confirmed one; see
-        /// `assumesConfirmed`.
+        /// card. One booking.
         case details
         /// Nothing recognisable — a confirmation email, or a photo of
         /// something else. Read as a single booking, and only ever produces
@@ -51,20 +50,6 @@ nonisolated enum BookingParser {
             return .list
         }
         return .unknown
-    }
-
-    /// Whether a page that prints no status at all is taken as confirmed.
-    ///
-    /// A reservation's own page and a confirmation email describe something
-    /// that exists, so yes. The details form is the open question: it looks
-    /// like the page *before* a booking is confirmed, and if that is what it
-    /// is, this is the one line to change. Pinned by a test so the decision
-    /// is visible rather than implied.
-    static func assumesConfirmed(_ layout: Layout) -> Bool {
-        switch layout {
-        case .summary, .details, .unknown: true
-        case .list: false
-        }
     }
 
     // MARK: Parsing
@@ -91,7 +76,7 @@ nonisolated enum BookingParser {
         case .list:
             return list(lines)
         case .summary, .details, .unknown:
-            return single(lines, assumingConfirmed: assumesConfirmed(layout)).map { [$0] } ?? []
+            return single(lines).map { [$0] } ?? []
         }
     }
 
@@ -131,24 +116,24 @@ nonisolated enum BookingParser {
         return bookings
     }
 
-    /// The bookings in one section, one per desk id, each paired by position
-    /// with a status. Gathered from the section as a bag rather than walked
-    /// in order, because the card's cells sit on one line and Vision may
-    /// hand them back in any order — the time before the desk, the status
-    /// before either.
+    /// The bookings in one section, one per desk id. Gathered from the
+    /// section as a bag rather than walked in order, because the card's cells
+    /// sit on one line and Vision may hand them back in any order — the time
+    /// before the desk, the location before either.
     ///
-    /// Only a row with a status is a row, and only `Confirmed` is a booking.
-    /// A desk with no status to its name is half a row — cut off, or a
-    /// second row sharing one status line — and half a row is not a booking.
+    /// Every desk is a booking. The row is in the list because it was booked;
+    /// that is what the list is. The page prints a status column at its
+    /// right-hand edge, and that column is not read: it is the first thing a
+    /// photograph taken close enough to read the desk ids loses, and a
+    /// booking the system holds is a booking whether or not the word made it
+    /// into the frame.
     static func rows(in section: [Line], on date: String) -> [CapturedBooking] {
         let desks = section.compactMap(\.desk)
-        let statuses = section.compactMap(\.status)
         let ranges = section.compactMap(\.range)
         let locations = section.compactMap(\.location)
 
-        return desks.enumerated().compactMap { index, desk in
-            guard index < statuses.count, statuses[index] == .confirmed else { return nil }
-            return booking(
+        return desks.enumerated().map { index, desk in
+            booking(
                 date: date, desk: desk,
                 range: ranges.count == desks.count ? ranges[index] : ranges.first,
                 location: locations.count == desks.count ? locations[index] : locations.first,
@@ -173,16 +158,9 @@ nonisolated enum BookingParser {
     /// reserved-items line `2026-10-05 • 08:00 - 17:00`, or the `Starts` and
     /// `Ends` stamps, or an email's timestamp. A bare date is taken only when
     /// nothing better is there.
-    static func single(_ lines: [String], assumingConfirmed: Bool) -> CapturedBooking? {
+    static func single(_ lines: [String]) -> CapturedBooking? {
         let classified = lines.flatMap(facts(in:))
         guard let desk = classified.compactMap(\.desk).last else { return nil }
-
-        let statuses = classified.compactMap(\.status)
-        if let printed = statuses.first {
-            guard printed == .confirmed else { return nil }
-        } else if !assumingConfirmed {
-            return nil
-        }
 
         var date: String?
         var range: TimeRange?
@@ -277,14 +255,10 @@ nonisolated enum BookingParser {
         var office: String
     }
 
-    enum Status: Equatable, Sendable {
-        case confirmed, cancelled, pending, waitlisted, declined
-    }
-
     /// One fact a line of the page states. A line states any number of them:
     /// the list card's cells sit on one line, and Vision may hand the whole
     /// row back as one string — `CO03C102 03, Coleman, London 08:00 - 17:00
-    /// Confirmed` — or as five.
+    /// Confirmed` — or as five. A status word states nothing; see `rows`.
     enum Line: Equatable, Sendable {
         /// A date with no time beside it: the list's date card.
         case date(String)
@@ -298,10 +272,8 @@ nonisolated enum BookingParser {
         case desk(DeskID)
         /// `03, Coleman, London`, or `Coleman · London`.
         case location(Location)
-        case status(Status)
 
         var desk: DeskID? { if case .desk(let id) = self { id } else { nil } }
-        var status: Status? { if case .status(let status) = self { status } else { nil } }
         var range: TimeRange? { if case .range(let range) = self { range } else { nil } }
         var location: Location? { if case .location(let location) = self { location } else { nil } }
         var date: String? { if case .date(let date) = self { date } else { nil } }
@@ -343,7 +315,6 @@ nonisolated enum BookingParser {
                 facts.append(.range(TimeRange(start: time(match.1), end: time(match.2))))
             }
         }
-        if let status = status(in: line) { facts.append(.status(status)) }
         if let location = location(in: line) { facts.append(.location(location)) }
         return facts
     }
@@ -353,21 +324,6 @@ nonisolated enum BookingParser {
     static func isBareDate(_ line: String) -> Bool {
         line.trimmingCharacters(in: .whitespaces).wholeMatch(of: /\d{4}-\d{2}-\d{2}/) != nil
     }
-
-    /// The status word on a line, as a whole word. The card prints it as its
-    /// own cell, which is a line of its own or the tail of the row's.
-    static func status(in line: String) -> Status? {
-        let words = Set(line.uppercased().split { !$0.isLetter && $0 != "-" }.map(String.init))
-        return statusWords.first { !$0.words.isDisjoint(with: words) }?.status
-    }
-
-    private static let statusWords: [(words: Set<String>, status: Status)] = [
-        (["CONFIRMED"], .confirmed),
-        (["CANCELLED", "CANCELED"], .cancelled),
-        (["PENDING"], .pending),
-        (["WAITLISTED", "WAIT-LISTED", "WAITLIST"], .waitlisted),
-        (["DECLINED", "REJECTED"], .declined),
-    ]
 
     /// `03, Coleman, London` is floor 03 at "Coleman, London". `Coleman ·
     /// London` is the same office with no floor, as the details form prints
