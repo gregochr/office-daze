@@ -4,7 +4,7 @@ import Foundation
 ///
 ///     workingDays = weekdays(month) − bankHolidays(month)
 ///     eligible    = workingDays − sum(leave.fraction)
-///     relief      = floor(leave ÷ 5) × 2
+///     relief      = min(8, floor(leave ÷ 2))
 ///     target      = clamp(8 − relief, 0 ... eligible)
 ///     attended    = sum over days of min(1, sum(fraction))  // counts
 ///     forecast    = desk bookings and planned days from today on  // does not
@@ -16,17 +16,19 @@ nonisolated enum Quota {
     /// Eight days a month, before leave.
     static let baseTarget: Double = 8
 
-    /// Leave comes off the target in whole blocks: every five days off takes
-    /// two days with it, and anything short of five takes nothing.
+    /// Leave comes off the target in pairs: every two days off takes one day
+    /// with it, and a day short of a pair takes nothing.
     ///
-    /// This replaced a proportional pro-rate, `8 × eligible ÷ workingDays`,
-    /// which moved the target by a fraction of a day for every day booked and
-    /// so moved it by a whole day at an arbitrary point — the fourth day off in
-    /// one month, the third in another, depending on how many working days the
-    /// month happened to have. A block is a rule you can hold in your head: the
-    /// fifth day off is the one that matters, and it is worth two.
-    static let leaveBlock: Double = 5
-    static let blockRelief: Double = 2
+    /// Pairs replaced blocks of five worth two, which had replaced a
+    /// proportional pro-rate, `8 × eligible ÷ workingDays`. The pro-rate moved
+    /// the target by a fraction of a day for every day booked and so moved it
+    /// by a whole day at an arbitrary point — the fourth day off in one month,
+    /// the third in another, depending on how many working days the month
+    /// happened to have. A block fixed the point but put it far off: four days
+    /// booked moved nothing. A pair is still a rule you can hold in your head,
+    /// and the step comes every second day rather than every fifth.
+    static let leaveBlock: Double = 2
+    static let blockRelief: Double = 1
 
     struct DayFraction: Hashable, Sendable {
         let day: Day
@@ -103,9 +105,10 @@ nonisolated enum Quota {
         let workingDays: Int
         let leaveTaken: Double
         let eligible: Double
-        /// Days taken off the base target by leave — always a multiple of two,
-        /// and zero until the fifth day is booked. The screens explain the
-        /// target with this rather than recomputing the rule.
+        /// Days taken off the base target by leave — a whole number of days,
+        /// zero until the second day is booked, and never more than the eight
+        /// there are to take. The screens explain the target with this rather
+        /// than recomputing the rule.
         let relief: Double
         let target: Int
         let attended: Double
@@ -152,15 +155,23 @@ nonisolated enum Quota {
 
         let eligible = Double(workingDays) - leaveTaken
 
-        // Whole blocks only, so four days off changes nothing and the fifth
-        // takes two. `leaveTaken` is always a multiple of a half day, which is
-        // exact in binary, so the floor needs no tolerance.
-        let relief = (leaveTaken / leaveBlock).rounded(.down) * blockRelief
+        // Whole pairs only, so one day off changes nothing and the second takes
+        // one. `leaveTaken` is always a multiple of a half day, which is exact
+        // in binary, so the floor needs no tolerance.
+        //
+        // Capped at the base target, because pairs run past it: sixteen days
+        // off take all eight, and all twenty of August's working days are ten
+        // pairs. Both screens state the target as eight days less this, and
+        // "Target 0 — 8 days less 10" is a sum that does not come out.
+        let relief = min(baseTarget, (leaveTaken / leaveBlock).rounded(.down) * blockRelief)
 
-        // Clamped to the days actually left, or a month spent almost entirely
-        // on leave would still ask for days there is no room for: 19 working
-        // days all booked off is three whole blocks, which takes the target to
-        // two rather than to nothing.
+        // Clamped to the days actually left as well, although pairs never get
+        // there in a real month: a day off the target for every two days off
+        // only asks for more days than remain in a month of sixteen working
+        // days or fewer, and no month in England and Wales is that short. It
+        // stays because it is the promise the target makes whatever the rule —
+        // under blocks of five, 19 days off in a 20-day month would have asked
+        // for two against the one day left.
         let target = Int(min(max(0, baseTarget - relief), max(0, eligible)).rounded(.down))
 
         // Grouped by day before it is summed, and each day capped at a day.

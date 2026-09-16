@@ -72,9 +72,9 @@ struct SettingsScreen: View {
                 Text("Leave")
             } footer: {
                 Text(
-                    "Every whole five days off takes two days off the month's "
-                        + "target: four days change nothing, the fifth drops eight "
-                        + "to six, and ten days drop it to four. Weekends and bank "
+                    "Every two days off takes a day off the month's target: "
+                        + "one day changes nothing, the second drops eight to "
+                        + "seven, and a week off drops it to six. Weekends and bank "
                         + "holidays are outside the count already, so booking one "
                         + "off costs nothing and gains nothing."
                 )

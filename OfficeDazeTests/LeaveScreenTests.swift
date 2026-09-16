@@ -274,7 +274,7 @@ struct LeaveScreenDerivationTests {
         #expect(none.target == 8, "the full month asks for eight")
         #expect(none.leaveTaken == 0)
 
-        // Five days' leave is the first whole block, which takes two off.
+        // Five days' leave is two pairs and a day over, which takes two off.
         let week = Dictionary(
             uniqueKeysWithValues: (3...7).map { (Day(2026, 8, $0), 1.0) }
         )
@@ -387,9 +387,9 @@ struct LeaveScreenDerivationTests {
     // MARK: What the card says
 
     /// Three branches, and the middle one is the reason the sentence exists: a
-    /// user with four days booked wants to know why the target is still 8, and
-    /// "the first 2 come off at 5 days" is the answer.
-    @Test("The explanation names the leave booked and the block it has not reached")
+    /// user with a day booked off wants to know why the target is still 8, and
+    /// "the first comes off at 2 days" is the answer.
+    @Test("The explanation names the leave booked and the pair it has not reached")
     func explanationCoversItsThreeBranches() {
         func sentence(leave: Double) -> String {
             LeaveScreen.explanation(LeaveScreen.result(
@@ -400,18 +400,19 @@ struct LeaveScreenDerivationTests {
         }
 
         let noLeave = sentence(leave: 0)
-        #expect(noLeave == "8 days a month, across 20 working days. Every 5 days' leave takes 2 off.")
+        #expect(noLeave == "8 days a month, across 20 working days. Every 2 days' leave takes 1 off.")
 
-        // Booked, but short of the first block: named, with the threshold.
+        // Booked, but short of the first pair: named, with the threshold. A day
+        // and a half is as close as it gets.
         let short = LeaveScreen.explanation(LeaveScreen.result(
             month: august,
-            fractions: Dictionary(uniqueKeysWithValues: (3...6).map { (Day(2026, 8, $0), 1.0) }),
+            fractions: [Day(2026, 8, 3): 1.0, Day(2026, 8, 4): 0.5],
             attendance: [], today: Day(2026, 8, 1)
         ))
-        #expect(short.contains("4 days' leave booked so far"))
-        #expect(short.contains("the first 2 come off at 5 days"))
+        #expect(short.contains("1.5 days' leave booked so far"))
+        #expect(short.contains("the first comes off at 2 days"))
 
-        // Past the block: the relief is stated as a subtraction.
+        // Past a pair: the relief is stated as a subtraction.
         let relieved = LeaveScreen.explanation(LeaveScreen.result(
             month: august,
             fractions: Dictionary(uniqueKeysWithValues: (3...7).map { (Day(2026, 8, $0), 1.0) }),

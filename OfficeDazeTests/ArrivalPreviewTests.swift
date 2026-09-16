@@ -110,7 +110,7 @@ struct ArrivalPreviewTests {
             bookings: try bookings(), today: thirteenth, in: context
         ))
         #expect(content.category == .unbooked)
-        #expect(content.title == "Day 4 of 8", "the count, since there is no desk to show")
+        #expect(content.title == "Day 4 of 7", "the count, since there is no desk to show")
         #expect(content.body == "No desk booked today.\nTap to make it 5.")
     }
 
@@ -273,7 +273,7 @@ struct ArrivalPreviewTests {
         ))
         let card = ArrivalPreviewScreen.cardText(content.body)
         #expect(card.details == ["Level 2"])
-        #expect(card.footer == "Day 4 of 8 for August — tap to make it 5")
+        #expect(card.footer == "Day 4 of 7 for August — tap to make it 5")
     }
 
     /// The bug in the card. A desk whose floor and zone were both unreadable

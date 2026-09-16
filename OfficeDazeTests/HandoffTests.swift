@@ -41,9 +41,9 @@ struct LeaveTests {
         ))
     }
 
-    /// The point of the whole screen: leave moves the target. It moves in
-    /// blocks of five days, so a week off is what shows up and three days does
-    /// not.
+    /// The point of the whole screen: leave moves the target. It moves a day
+    /// for every two days booked off, so three days show up as one and a week
+    /// off as two.
     @Test("Booking a week off lowers the target")
     func leaveMovesTheTarget() {
         let august = Month(year: 2026, month: 8)
@@ -55,8 +55,9 @@ struct LeaveTests {
             )).target
         }
         #expect(target([]) == 8)
-        #expect(target([17, 18, 19]) == 8, "three days is short of a block")
-        #expect(target([17, 18, 19, 20, 21]) == 6, "the working week is a block")
+        #expect(target([17]) == 8, "one day is short of a pair")
+        #expect(target([17, 18, 19]) == 7, "three days is one pair")
+        #expect(target([17, 18, 19, 20, 21]) == 6, "the working week is two")
     }
 }
 

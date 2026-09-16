@@ -326,19 +326,19 @@ struct LeaveScreen: View {
     }
 
     /// Where the target came from, in the one place with room to say it
-    /// properly. Leave that has not reached a whole block still gets named,
-    /// with the threshold it has not reached — a card that answers "why is it
-    /// still 8?" is worth more than one that only reports the number.
+    /// properly. Leave that has not reached a pair still gets named, with the
+    /// threshold it has not reached — a card that answers "why is it still 8?"
+    /// is worth more than one that only reports the number.
     nonisolated static func explanation(_ result: Quota.Result) -> String {
         let working = "across \(result.workingDays) working days"
         guard result.leaveTaken > 0 else {
-            return "8 days a month, \(working). Every 5 days' leave takes 2 off."
+            return "8 days a month, \(working). Every 2 days' leave takes 1 off."
         }
         let days = "\(number(result.leaveTaken)) "
             + "\(result.leaveTaken == 1 ? "day's" : "days'") leave"
         guard result.relief > 0 else {
             return "8 days a month, \(working). \(days) booked so far — the "
-                + "first 2 come off at 5 days."
+                + "first comes off at 2 days."
         }
         return "8 days a month less \(number(result.relief)) for \(days), \(working)."
     }
