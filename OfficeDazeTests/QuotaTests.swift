@@ -7,9 +7,9 @@ struct QuotaTests {
     let august = Month(year: 2026, month: 8)
 
     /// The handoff's worked example: 21 weekdays less the bank holiday is 20,
-    /// minus three days' leave is 17. Three days is not a whole block of five,
-    /// so the target stays at 8 — the mock was drawn against the pro-rate it
-    /// replaced, which put it at 7.
+    /// minus three days' leave is 17. Three days is one pair and a day over, so
+    /// the target is 7 — the mock's number again. The mock was drawn against
+    /// the pro-rate, and blocks of five had put the same month at 8.
     @Test("August 2026, as the mock shows it")
     func augustWorkedExample() {
         let result = Quota.calculate(.init(
@@ -35,17 +35,17 @@ struct QuotaTests {
         #expect(result.leaveTaken == 3)
         #expect(result.eligible == 17)
 
-        // Three days is short of a block, so nothing comes off.
-        #expect(result.relief == 0)
-        #expect(result.target == 8)
+        // One pair, so one day comes off; the third day waits for a fourth.
+        #expect(result.relief == 1)
+        #expect(result.target == 7)
 
         // The gauge: 2 attended, 2 forecast, centre reads 4.
         #expect(result.attended == 2)
         #expect(result.forecast == 2)
         #expect(result.attended + result.forecast == 4)
 
-        // The footer: 4 days to go, 18 working days left.
-        #expect(result.shortfall == 4)
+        // The footer: 3 days to go, 18 working days left.
+        #expect(result.shortfall == 3)
         #expect(result.daysToRun == 18)
     }
 
@@ -67,7 +67,7 @@ struct QuotaTests {
         ))
         #expect(result.leaveTaken == 0.5)
         #expect(result.eligible == 19.5)
-        #expect(result.target == 8)      // half a day is nowhere near a block
+        #expect(result.target == 8)      // half a day is short of a pair
         #expect(result.attended == 0.5)
         #expect(result.shortfall == 7.5)
     }
@@ -314,23 +314,28 @@ struct QuotaTests {
     @Test("The working days left are on the verdict line in every standing")
     func workingDaysLeft() {
         // All four on the same morning, so all four have the same days left.
-        let today = Day(2026, 8, 4)
-        let ahead = august.weekdays.filter { $0 > today }
-        // Every working day after today off: three blocks of five take the
-        // target to two, and leave one working day — today — to find them in.
-        let allOff = ahead.map { Quota.DayFraction($0) }
+        // Thursday the 20th: seven working days from today to the 28th, too few
+        // to find eight in from nothing. It used to be the 4th with every day
+        // after it booked off, which pairs now take to a target of nothing.
+        let today = Day(2026, 8, 20)
         let standings = [
             Quota.calculate(.init(
-                month: august, leave: allOff,
-                attendance: [.init(Day(2026, 8, 3)), .init(today)], today: today
+                month: august,
+                attendance: [3, 4, 5, 6, 7, 10, 11, 12].map { .init(Day(2026, 8, $0)) },
+                today: today
             )),
-            Quota.calculate(.init(month: august, deskBookingDays: Set(ahead.prefix(8)), today: today)),
+            Quota.calculate(.init(
+                month: august,
+                attendance: [3, 4, 5, 6].map { .init(Day(2026, 8, $0)) },
+                deskBookingDays: Set([24, 25, 26, 27].map { Day(2026, 8, $0) }),
+                today: today
+            )),
+            Quota.calculate(.init(month: august, attendance: [.init(Day(2026, 8, 3))], today: today)),
             Quota.calculate(.init(month: august, today: today)),
-            Quota.calculate(.init(month: august, leave: allOff, today: today)),
         ]
         #expect(standings.map(\.standing) == [.met, .onTrack, .behind, .unreachable])
         for result in standings {
-            #expect(HomeScreen.workingDays(result, month: august, today: today) == "18 working days left")
+            #expect(HomeScreen.workingDays(result, month: august, today: today) == "6 working days left")
         }
 
         // A month you are not inside has no deadline to be counting down to,
@@ -553,7 +558,7 @@ struct QuotaTests {
     @Test("Half days still add up to eligible days")
     func halfDayArithmetic() {
         // Three days off with one of them a half: eligible becomes 17.5, and
-        // 2.5 days is still short of the first block.
+        // 2.5 days is one pair with half a day over.
         let result = Quota.calculate(.init(
             month: august,
             leave: [
@@ -565,23 +570,25 @@ struct QuotaTests {
         ))
         #expect(result.leaveTaken == 2.5)
         #expect(result.eligible == 17.5)
-        #expect(result.target == 8)
+        #expect(result.target == 7)
     }
 
-    // MARK: Blocks of five
+    // MARK: Pairs
 
-    /// The rule, one row at a time. August has 20 working days, so nothing here
-    /// runs into the clamp — this is the block arithmetic on its own.
+    /// The rule, one row at a time, from nothing to the whole of August. Its 20
+    /// working days never run into the clamp to the days left; the last rows
+    /// run into the eight there are to take instead.
     @Test(
-        "Every whole five days' leave takes two days off the target",
+        "Every two days' leave takes a day off the target",
         arguments: [
-            (0.0, 0.0, 8), (1.0, 0.0, 8), (4.0, 0.0, 8), (4.5, 0.0, 8),
-            (5.0, 2.0, 6), (5.5, 2.0, 6), (9.5, 2.0, 6),
-            (10.0, 4.0, 4), (14.0, 4.0, 4),
-            (15.0, 6.0, 2), (20.0, 8.0, 0),
+            (0.0, 0.0, 8), (1.0, 0.0, 8), (1.5, 0.0, 8),
+            (2.0, 1.0, 7), (2.5, 1.0, 7), (3.5, 1.0, 7),
+            (4.0, 2.0, 6), (5.0, 2.0, 6),
+            (10.0, 5.0, 3), (15.5, 7.0, 1),
+            (16.0, 8.0, 0), (19.5, 8.0, 0), (20.0, 8.0, 0),
         ]
     )
-    func blocksOfFive(leave: Double, relief: Double, target: Int) {
+    func pairs(leave: Double, relief: Double, target: Int) {
         // Laid down as whole and half days from the 3rd, which is a Monday, so
         // the run never lands on a weekend or the bank holiday on the 31st.
         let wholeDays = Int(leave)
@@ -597,12 +604,14 @@ struct QuotaTests {
         #expect(result.leaveTaken == leave)
         #expect(result.relief == relief)
         #expect(result.target == target, "\(leave) days' leave")
+        #expect(Double(result.target) <= result.eligible, "never more than the days left")
     }
 
-    /// Four days off used to shave a day under the pro-rate; now it is the
-    /// fifth that does the work, and it does two days' worth at once. The step
-    /// is the whole point of the rule, so it is worth a test of its own.
-    @Test("The fifth day is where the target moves, and it moves by two")
+    /// Blocks of five moved nothing for four days and then two at once. A pair
+    /// moves the target a day at a time, on every second day off, and the day
+    /// in between does nothing. The step is the whole point of the rule, so it
+    /// is worth a test of its own.
+    @Test("Every second day off is where the target moves, and it moves by one")
     func theStep() {
         func target(_ days: Int) -> Int {
             Quota.calculate(.init(
@@ -611,26 +620,32 @@ struct QuotaTests {
                 today: Day(2026, 8, 1)
             )).target
         }
-        #expect(target(4) == 8)
-        #expect(target(5) == 6, "not 7 — a block is worth two days")
+        #expect(target(1) == 8)
+        #expect(target(2) == 7, "not 6 — two days off are worth one")
+        #expect(target(3) == 7, "the third waits for a fourth")
+        #expect(target(4) == 6)
     }
 
-    /// A month almost entirely on leave has three whole blocks and so a target
-    /// of two, against nothing like two days to spend. The days that are left
-    /// are the real ceiling.
-    @Test("The target never exceeds the days actually left")
-    func clampedToEligible() {
-        // 19 of August's 20 working days off: 3 blocks, 6 off, target 2 by the
-        // block rule — but only one working day remains.
+    /// Sixteen days off take all eight, and a month spent almost entirely on
+    /// leave has pairs to spare. There is nothing past the eighth day to take,
+    /// so the relief stops there, and the line under the slots still adds up.
+    @Test("Nineteen days off take eight days, not nine")
+    func reliefStopsAtTheTarget() {
+        // 19 of August's 20 working days off: nine pairs, and one working day
+        // left.
         let result = Quota.calculate(.init(
             month: august,
             leave: august.weekdays.filter { !BankHolidays.englandAndWales(in: august).contains($0) }
                 .prefix(19).map { .init($0) },
             today: Day(2026, 8, 1)
         ))
-        #expect(result.relief == 6)
+        #expect(result.relief == 8, "nine pairs, but only eight days to take")
         #expect(result.eligible == 1)
-        #expect(result.target == 1, "two days cannot be asked of one day")
+        #expect(result.target == 0)
+        #expect(
+            HomeScreen.targetExplanation(result) == "Target 0 — 8 days less 8 for 19 days' leave",
+            "not 8 less 9"
+        )
     }
 
     /// The explanation under the gauge is the only place the rule is stated, so
@@ -647,11 +662,11 @@ struct QuotaTests {
         }
         #expect(line(0) == "Target 8 — 8 days a month")
         #expect(
-            line(3) == "Target 8 — 3 days' leave; 5 days takes 2 off",
-            "leave that has moved nothing still has to be visible"
+            line(1) == "Target 8 — 1 day's leave; 2 days takes 1 off",
+            "leave that has moved nothing still has to be visible, and one day is singular"
         )
+        #expect(line(3) == "Target 7 — 8 days less 1 for 3 days' leave", "the day over a pair is still named")
         #expect(line(5) == "Target 6 — 8 days less 2 for 5 days' leave")
-        #expect(line(1).contains("1 day's leave"), "one day is singular")
     }
 }
 

@@ -99,12 +99,11 @@ enum SeedData {
         ]
         attendance.forEach(context.insert)
 
-        // Three days' leave. Under the old pro-rate this moved the target to 7;
-        // under blocks of five it moves nothing, and that is the state worth
-        // seeding — it is the one that needs explaining, and the target line
-        // has a sentence for it. Five days here would take the target to 6 and
-        // put the month on track, which would cost the previews the amber
-        // shortfall strip the design is built around.
+        // Three days' leave: one pair and a day over, so the target is 7 — the
+        // design's number again, which blocks of five had put back to 8. Four
+        // days here would take the target to 6 and put the month on track,
+        // which would cost the previews the shortfall the design is built
+        // around.
         for day in [Day(2026, 8, 17), Day(2026, 8, 18), Day(2026, 8, 19)] {
             context.insert(LeaveDay(day: day, kind: .annual))
         }
