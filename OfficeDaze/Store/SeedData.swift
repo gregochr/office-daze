@@ -1,12 +1,17 @@
 import Foundation
 import SwiftData
 
-/// The sample month from the design: two offices, four desk bookings, four
-/// attended days and three days' leave in August 2026.
+/// What a first launch finds: the company's two offices and, on the simulator,
+/// the sample month from the design — four desk bookings, four attended days
+/// and three days' leave in August 2026.
 ///
 /// Seeded so the app has something to show before a single screenshot has been
 /// captured, and so the gauge can be looked at against a known answer. The
 /// numbers are the design's — London 3, Brussels 1, target 7.
+///
+/// Only the offices are real, so only the offices go onto a phone. The sample
+/// month never happened, and in someone's own store it would be three weeks of
+/// history they did not live. See `populate(_:forSimulator:)`.
 @MainActor
 enum SeedData {
 
@@ -19,39 +24,62 @@ enum SeedData {
     /// The month the sample data describes.
     static let month = Month(year: 2026, month: 8)
 
-    static func populate(_ context: ModelContext) throws {
+    /// Lays the seed down and saves it.
+    ///
+    /// `forSimulator` is the difference between the two places the app runs.
+    /// The simulator gets everything: the screenshots, the debug screens and
+    /// `-capture` are all drawn against the sample month, and the arrival alert
+    /// can only be looked at with a perimeter to be inside. A phone gets the
+    /// offices, with no sample month and no coordinates. Tests and previews
+    /// take the default, which is the simulator's seed.
+    static func populate(_ context: ModelContext, forSimulator: Bool = true) throws {
+        insertOffices(context, located: forSimulator)
+        if forSimulator {
+            insertSampleMonth(context)
+        }
+        try context.save()
+    }
+
+    /// Coleman and Brussels, the part of the seed that is true for anyone at
+    /// the company.
+    ///
+    /// Coordinates only when `located`. They were read off the street rather
+    /// than surveyed — near enough to draw a 50m perimeter in the simulator,
+    /// where nobody has to walk into it. On a phone they would be wrong in a
+    /// way nothing corrects: a saved office is only geocoded again when its
+    /// address changes. Left unlocated, Settings says "no location yet" and
+    /// the first save in the office editor asks the geocoder where it is.
+    private static func insertOffices(_ context: ModelContext, located: Bool) {
         // Named as the booking system prints it, because that is what the
         // matcher has to recognise: every capture sample says "Coleman", and a
         // seed office called anything else makes the sheet ask which office
         // "Coleman" is on every single import.
-        //
-        // Coordinates as for Brussels — off the street, not surveyed, and
-        // replaced by the geocoder the first time the office is saved.
         let coleman = Office(
             id: colemanID,
             name: "Coleman",
             address: "63 Coleman Street, London",
             postcode: "EC2R 5BB",
-            latitude: 51.5172,
-            longitude: -0.0893,
             colourHex: OfficeColours.palette[0],
             siteCode: "CO"
         )
-        // Euroclear Bank. The coordinates are read off the street, not
-        // surveyed — close enough to seed a 50m perimeter for the simulator,
-        // and the geocoder replaces them the first time the office is saved.
+        // Euroclear Bank.
         let brussels = Office(
             id: brusselsID,
             name: "Brussels",
             address: "1 Boulevard du Roi Albert II, 1210 Brussels",
             postcode: "1210",
-            latitude: 50.8568,
-            longitude: 4.3567,
             colourHex: OfficeColours.palette[1]
         )
+        if located {
+            (coleman.latitude, coleman.longitude) = (51.5172, -0.0893)
+            (brussels.latitude, brussels.longitude) = (50.8568, 4.3567)
+        }
         context.insert(coleman)
         context.insert(brussels)
+    }
 
+    /// The design's August, which is there to be drawn rather than counted.
+    private static func insertSampleMonth(_ context: ModelContext) {
         // The four bookings on the home screen. The 5th and 6th have been
         // attended; the 11th and 12th are still ahead, and count as forecast.
         let bookings = [
@@ -107,7 +135,5 @@ enum SeedData {
         for day in [Day(2026, 8, 17), Day(2026, 8, 18), Day(2026, 8, 19)] {
             context.insert(LeaveDay(day: day, kind: .annual))
         }
-
-        try context.save()
     }
 }

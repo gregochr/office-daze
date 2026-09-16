@@ -783,14 +783,40 @@ struct StoreGateTests {
         UserDefaults(suiteName: "OfficeDazeTests.\(UUID().uuidString)")!
     }
 
-    @Test("A fresh install gets the sample month, and is marked as having had it")
+    @Test("A fresh install in the simulator gets the offices and the sample month, and is marked as having had it")
     func seedsOnce() throws {
         let context = container.mainContext
         let defaults = freshDefaults()
         #expect(!Store.hasSeeded(in: defaults))
 
-        try Store.seedIfNeeded(context, defaults: defaults)
+        try Store.seedIfNeeded(context, defaults: defaults, forSimulator: true)
         #expect(try context.fetchCount(FetchDescriptor<Office>()) == 2)
+        #expect(try context.fetch(FetchDescriptor<Office>()).allSatisfy(\.isLocated))
+        #expect(try context.fetchCount(FetchDescriptor<DeskBooking>()) == 4)
+        #expect(Store.hasSeeded(in: defaults))
+    }
+
+    /// The seed that goes onto a phone, a colleague's included. The offices are
+    /// the company's own and worth having. The sample month is bookings, days
+    /// worked and leave that never happened, and on a phone it would sit in
+    /// someone's history counting toward an August they lived differently. The
+    /// coordinates stay behind too: they were never surveyed, and nothing
+    /// geocodes an office again while its address is unchanged, so a phone's
+    /// offices start unlocated and the office editor asks.
+    @Test("A fresh install on a phone gets the offices, unlocated, and none of the sample month")
+    func aPhoneGetsTheOfficesOnly() throws {
+        let context = container.mainContext
+        let defaults = freshDefaults()
+
+        try Store.seedIfNeeded(context, defaults: defaults, forSimulator: false)
+
+        let offices = try context.fetch(FetchDescriptor<Office>())
+        #expect(offices.map(\.name).sorted() == ["Brussels", "Coleman"])
+        #expect(offices.first { $0.name == "Coleman" }?.siteCode == "CO", "named and coded as the booking system prints them")
+        #expect(offices.allSatisfy { !$0.isLocated }, "no guessed point to draw a perimeter round")
+        #expect(try context.fetchCount(FetchDescriptor<DeskBooking>()) == 0)
+        #expect(try context.fetchCount(FetchDescriptor<AttendanceDay>()) == 0)
+        #expect(try context.fetchCount(FetchDescriptor<LeaveDay>()) == 0)
         #expect(Store.hasSeeded(in: defaults))
     }
 
