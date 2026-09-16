@@ -18,6 +18,8 @@ struct HomeScreen: View {
     // state the list is entitled to — keep it that way when moving code across.
     @Environment(\.modelContext) var context
     @Environment(CaptureCoordinator.self) private var capture
+    /// Where a Home Screen quick action waits for this screen. See `SceneDelegate`.
+    @Environment(SceneDelegate.self) private var sceneDelegate
 
     @Query(sort: \Office.name) var offices: [Office]
     @Query(sort: \DeskBooking.date) private var bookings: [DeskBooking]
@@ -182,6 +184,21 @@ struct HomeScreen: View {
             BookingScanner { data in
                 Task { await capture.receive(photo: data) }
             }
+        }
+        // "Scan a booking" on the app icon. It ends on the flag the scan button
+        // sets, so the springboard is one step from a live viewfinder too.
+        // `initial`, because on a cold launch the action arrived before this
+        // screen existed and there is no change left for it to see.
+        //
+        // Nothing has to be cleared out of the way first. The cover opens over
+        // a pushed screen, and over the capture sheet, which is still there
+        // underneath when the scanner closes; a "Delete what?" dialog is
+        // dismissed, which deletes nothing. The one thing it waits for is a
+        // sheet this screen has up itself — a manual editor — which SwiftUI
+        // will not stack a cover on: the scanner opens as that sheet closes,
+        // and nothing typed into it is thrown away to make room.
+        .onChange(of: sceneDelegate.pendingQuickAction, initial: true) {
+            if sceneDelegate.take(.scan) { camera = true }
         }
     }
 
@@ -462,4 +479,5 @@ struct HomeScreen: View {
     return NavigationStack { HomeScreen() }
         .modelContainer(container)
         .environment(CaptureCoordinator(context: container.mainContext))
+        .environment(SceneDelegate())
 }

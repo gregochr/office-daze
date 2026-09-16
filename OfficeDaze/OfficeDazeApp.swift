@@ -19,6 +19,10 @@ struct OfficeDazeApp: App {
     /// the arrival silently.
     @State private var arrival: ArrivalMonitor
 
+    /// Here only to name the scene delegate that Home Screen quick actions are
+    /// delivered to. Nothing reads it; see `AppDelegate`.
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+
     init() {
         // The `try!` is the documented decision above, not an oversight: there
         // is no app without its store, and a placeholder failure screen is a
