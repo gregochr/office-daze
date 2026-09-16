@@ -37,6 +37,34 @@ nonisolated struct ParsedBooking: Equatable, Sendable, Identifiable {
     var needsChecking: Bool { !unsureFields.isEmpty }
 }
 
+nonisolated extension ParsedBooking {
+
+    /// This booking as filed under an office whose desk ids open with `site`.
+    ///
+    /// A desk id the recogniser got the site code wrong on — `CC03D128` for a
+    /// Coleman desk — is put right by the office it is filed under, because
+    /// the office is the one fact about the desk the user has just confirmed.
+    /// Once the id decodes, the floor and zone it encodes fill in whatever
+    /// the page did not print, and stop being fields to check. Nothing else
+    /// changes; an id already under that site, or a desk that is not an id
+    /// in the site's shape at all, comes back as it was.
+    func filed(underSite site: String?) -> ParsedBooking {
+        guard let site, let desk = DeskID.parse(deskID), desk.site != site else { return self }
+        let filed = desk.filed(underSite: site)
+        var booking = self
+        booking.deskID = filed.text
+        if booking.floor == nil, let floor = filed.decodedFloor {
+            booking.floor = floor
+            booking.unsureFields.removeAll { $0 == "floor" }
+        }
+        if booking.zone == nil, let zone = filed.decodedZone {
+            booking.zone = zone
+            booking.unsureFields.removeAll { $0 == "zone" }
+        }
+        return booking
+    }
+}
+
 nonisolated enum CaptureError: LocalizedError, Equatable {
     case unsupportedFile(String)
     /// Chosen from the library and then unreadable — a format ImageIO does not

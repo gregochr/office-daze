@@ -205,9 +205,14 @@ struct CaptureSheet: View {
         return existing
     }
 
-    private func review(_ booking: ParsedBooking) -> some View {
-        let matched = coordinator.matchedOffice(for: booking)
+    private func review(_ read: ParsedBooking) -> some View {
+        let matched = coordinator.matchedOffice(for: read)
         let officeID = Self.officeToFileUnder(matched: matched?.id, chosen: chosenOffice)
+        // As it will be written, not as it was read: the office the user has
+        // just picked puts right a desk id the recogniser got the site code
+        // wrong on, and the card shows the desk that is about to be saved.
+        // See `Office.siteCode`.
+        let booking = coordinator.filed(read, under: officeID)
         let clash = Self.clash(
             with: officeID.flatMap {
                 coordinator.existingBooking(day: booking.day, officeID: $0)

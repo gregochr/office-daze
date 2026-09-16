@@ -38,6 +38,14 @@ final class Office {
     /// here: the answer is already the thing worth remembering, and asking the
     /// same question after it has been answered is the app failing to listen.
     var aliases: [String] = []
+    /// The two letters the booking system opens this office's desk ids with —
+    /// `CO` for Coleman Street, the London office's address.
+    ///
+    /// Learned from the first desk filed here whose id decodes, and used to
+    /// put right the site code of one that does not: a recogniser that read
+    /// `CC03D128` off a monitor was looking at a Coleman desk, and the user
+    /// filing it under Coleman is what says so. See `ParsedBooking.filed`.
+    var siteCode: String?
 
     init(
         id: UUID = UUID(),
@@ -49,7 +57,8 @@ final class Office {
         radiusMetres: Double = 50,
         colourHex: String,
         alertEnabled: Bool = true,
-        aliases: [String] = []
+        aliases: [String] = [],
+        siteCode: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -61,6 +70,7 @@ final class Office {
         self.colourHex = colourHex
         self.alertEnabled = alertEnabled
         self.aliases = aliases
+        self.siteCode = siteCode
     }
 
     /// Whether there is a point to draw a perimeter around. 0,0 is the

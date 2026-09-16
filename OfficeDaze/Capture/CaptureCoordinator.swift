@@ -410,6 +410,38 @@ final class CaptureCoordinator {
         return offices.first { $0.id == match.id }
     }
 
+    /// The site code the desks at this office open with: what the office has
+    /// been told, or failing that what the desks it already holds say. See
+    /// `Office.siteCode`.
+    func siteCode(for officeID: UUID) -> String? {
+        guard let office = office(officeID) else { return nil }
+        if let code = office.siteCode { return code }
+        let held = (try? context.fetch(FetchDescriptor<DeskBooking>())) ?? []
+        return DeskID.site(sharedBy: held.filter { $0.officeID == officeID }.map(\.deskID))
+    }
+
+    /// The booking as it will be written under this office: the desk id's
+    /// site code put right by the office's, when the office has one. No
+    /// office yet, no correction — the sheet shows the id as read until it
+    /// is told where the desk is.
+    func filed(_ booking: ParsedBooking, under officeID: UUID?) -> ParsedBooking {
+        guard let officeID else { return booking }
+        return booking.filed(underSite: siteCode(for: officeID))
+    }
+
+    private func office(_ id: UUID) -> Office? {
+        (try? context.fetch(FetchDescriptor<Office>()))?.first { $0.id == id }
+    }
+
+    /// The office has just been handed a desk whose id decodes, and did not
+    /// know its site code. Now it does, and the next id filed here with
+    /// those two letters misread is put right rather than kept.
+    private func learnSite(from deskID: String, for officeID: UUID) {
+        guard let office = office(officeID), office.siteCode == nil,
+              let desk = DeskID.parse(deskID), desk.isDecodable else { return }
+        office.siteCode = desk.site
+    }
+
     /// The booking already held for this office and day, if there is one.
     ///
     /// A second capture of the same day is a change rather than a duplicate, so
@@ -450,6 +482,11 @@ final class CaptureCoordinator {
         if let printed = booking.officeName, matchedOffice(for: booking) == nil {
             remember(printed, as: officeID)
         }
+        // Under this office, the desk is this office's desk: its site code is
+        // the office's, whatever the recogniser read. Done here as well as in
+        // the sheet, so a booking saved by any route is written the same way.
+        let booking = filed(booking, under: officeID)
+        learnSite(from: booking.deskID, for: officeID)
         // Only a write that landed may be drawn as one. `try?` here meant a
         // failed save turned the segment green and advanced the sheet anyway:
         // the user watched three capsules fill, the sheet dismissed, and the

@@ -32,6 +32,31 @@ struct DeskIDTests {
         #expect(id.decodedZone == nil)
     }
 
+    /// The office a desk is filed under knows its own site code, and puts
+    /// right an id whose first two letters the recogniser got wrong.
+    @Test("An id filed under a site takes that site's code and decodes as one of its desks")
+    func filedUnderASite() throws {
+        let read = try #require(DeskID.parse("CC03D128"))
+        #expect(!read.isDecodable, "CC is nobody's site")
+
+        let filed = read.filed(underSite: "CO")
+        #expect(filed.text == "CO03D128")
+        #expect(filed.decodedOffice == "Coleman, London")
+        #expect(filed.decodedFloor == "03")
+        #expect(filed.decodedZone == "D")
+    }
+
+    /// What an office's history says before it has been told. Only ids from
+    /// a known site count, so a misread cannot teach its own mistake.
+    @Test("The site a list of desks shares is the one known site they decode to")
+    func sharedSite() {
+        #expect(DeskID.site(sharedBy: ["CO03C117", "CO03A424", "3C-114"]) == "CO")
+        #expect(DeskID.site(sharedBy: ["CO03C117", "CC03D128"]) == "CO", "a misread is not a second site")
+        #expect(DeskID.site(sharedBy: ["CC03D128", "BR02A014"]) == nil, "nothing here decodes")
+        #expect(DeskID.site(sharedBy: ["3C-114", "2-041"]) == nil)
+        #expect(DeskID.site(sharedBy: []) == nil)
+    }
+
     @Test("Anything else is not a desk id", arguments: [
         "WRES2011757", "CO03C11", "CO03C1177", "CO3C117", "COLEMAN,", "Building", "Location",
         "Reserved", "Duration", "Training", "", "2026-10-05",
