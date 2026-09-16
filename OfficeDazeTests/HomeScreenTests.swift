@@ -232,6 +232,19 @@ struct HomeScreenTests {
                 == "August 2025")
     }
 
+    // MARK: The scan bar
+
+    /// The mock measures the bar's 26pt from the bottom of the glass, through
+    /// the home indicator. Padding by 26 on top of the safe area would put the
+    /// buttons 60pt up a Face ID phone; padding by nothing would sit them on the
+    /// bottom edge of a phone with a home button.
+    @Test("The scan bar pads only what the safe area leaves of the mock's 26pt")
+    func barBottomPadding() {
+        #expect(HomeScreen.barBottomPadding(safeArea: 34) == 0, "a home indicator already clears it")
+        #expect(HomeScreen.barBottomPadding(safeArea: 0) == 26, "a home button leaves all of it")
+        #expect(HomeScreen.barBottomPadding(safeArea: 20) == 6)
+    }
+
     // MARK: Answering "Were you there?"
 
     /// The refusal `try?` hid.
@@ -410,27 +423,6 @@ struct HomeScreenTests {
         #expect(calls == 0)
     }
 
-    /// The red strip's trailing half. Singular and plural are the whole of it,
-    /// and "1 days left" under the app's only red is the kind of thing that
-    /// makes the number beside it look guessed at.
-    @Test("The days left in an unreachable month are counted in English")
-    func daysLeftIsSingularForOne() {
-        // Friday 28 August 2026 is the last working day of that month — the
-        // 29th and 30th are the weekend and the 31st is the summer bank
-        // holiday — so the day itself is the only one left.
-        let one = Quota.calculate(
-            Quota.Inputs(month: Month(year: 2026, month: 8), today: Day(2026, 8, 28))
-        )
-        #expect(one.daysAvailable == 1)
-        #expect(HomeScreen.daysLeftText(one) == "1 day left")
-
-        let several = Quota.calculate(
-            Quota.Inputs(month: Month(year: 2026, month: 8), today: Day(2026, 8, 26))
-        )
-        #expect(several.daysAvailable == 3, "the 26th, 27th and 28th")
-        #expect(HomeScreen.daysLeftText(several) == "3 days left")
-    }
-
     /// The branch the two closures exist to protect. A booked day is marked and
     /// kept — the desk was reserved whether or not it was used — and an
     /// intention that came to nothing is deleted. Swapping them would lose a
@@ -584,7 +576,7 @@ private struct StoreRefused: LocalizedError {
 /// file wants it — but a `static` that is never reached from `body` is a rule
 /// the screen does not follow, and nothing above could tell the difference. The
 /// cards that only exist in one state of the store are the same problem: the
-/// empty month, the question on an unanswered day, the met strip.
+/// empty month, the question on an unanswered day, the target met.
 ///
 /// These tests read the real clock, because the screen does: it opens on
 /// `Day.today.month_` and there is no seam for a date. So each one builds its
@@ -660,7 +652,7 @@ struct HomeScreenRenderTests {
         #expect(
             HomeScreen.targetExplanation(snapshot.result)
                 .hasPrefix("Target \(snapshot.result.target)"),
-            "the line under the dial names the number the dial is measured against"
+            "the line under the slots names the number they are measured against"
         )
 
         let view = render(container)
@@ -668,11 +660,12 @@ struct HomeScreenRenderTests {
         #expect(!view.subviews.isEmpty)
     }
 
-    /// The success strip, which is the one state of the four that says the month
-    /// is over as far as the target is concerned. Twelve days is more than the
-    /// target can ever be — it is capped at eight before leave takes any of it
-    /// away — so this is `.met` on whatever date the suite runs.
-    @Test("A month worked past its target draws the met strip rather than a shortfall")
+    /// The one state of the four that says the month is over as far as the
+    /// target is concerned, and the one that runs the slots past eight. Twelve
+    /// days is more than the target can ever be — it is capped at eight before
+    /// leave takes any of it away — so this is `.met` on whatever date the
+    /// suite runs, and the verdict carries the surplus the row cannot.
+    @Test("A month worked past its target draws as met, with the surplus in words")
     func aMetMonthDraws() throws {
         let container = try Store.makeInMemoryContainer(seeded: true)
         let context = container.mainContext
@@ -686,7 +679,12 @@ struct HomeScreenRenderTests {
 
         let result = try QuotaService.snapshot(for: month, today: .today, in: context).result
         #expect(result.attended >= Double(result.target))
-        #expect(result.standing == .met, "which is the branch the success strip is behind")
+        #expect(result.standing == .met, "which is the branch the green verdict is behind")
+        #expect(HomeScreen.verdict(result, month: month, today: .today).tone == .met)
+        #expect(
+            GaugeMetrics.slots(attended: result.attended, booked: 0, target: result.target).count == 8,
+            "twelve days, eight slots"
+        )
         #expect(result.shortfall == 0)
 
         #expect(!render(container).subviews.isEmpty)

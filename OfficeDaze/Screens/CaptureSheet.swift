@@ -161,7 +161,7 @@ struct CaptureSheet: View {
                 switch tick {
                 case .done:
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(Palette.met)
+                        .foregroundStyle(Palette.success)
                 case .active:
                     Circle()
                         .strokeBorder(Palette.tint, lineWidth: 2)
@@ -279,7 +279,7 @@ struct CaptureSheet: View {
 
     static func colour(of segment: Segment) -> Color {
         switch segment {
-        case .saved: Palette.met
+        case .saved: Palette.success
         case .current: Palette.tint
         case .pending: Palette.hairline
         }

@@ -234,7 +234,7 @@ struct CaptureSheetTests {
     /// Three states, three colours, and the green is the one that means filed.
     @Test("The bar's three states are drawn in three different colours")
     func theBarsColoursAreDistinct() {
-        #expect(CaptureSheet.colour(of: .saved) == Palette.met)
+        #expect(CaptureSheet.colour(of: .saved) == Palette.success)
         #expect(CaptureSheet.colour(of: .current) == Palette.tint)
         #expect(CaptureSheet.colour(of: .pending) == Palette.hairline)
     }

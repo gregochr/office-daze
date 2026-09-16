@@ -11,9 +11,10 @@ import Foundation
 /// self-enforcing: nothing here can quietly start reading the screen's state,
 /// because there is no state in this file to read.
 ///
-/// The three nested types come with it. `Entry`, `Deletion` and `Answer` are
-/// the vocabulary these rules are written in — a row, what deleting one means,
-/// and what answering one did — and none of them mentions a view.
+/// The four nested types come with it. `Entry`, `Deletion`, `Answer` and
+/// `Verdict` are the vocabulary these rules are written in — a row, what
+/// deleting one means, what answering one did, and what the month amounts to —
+/// and none of them mentions a view.
 extension HomeScreen {
 
     /// A row in the month's list.
@@ -141,21 +142,64 @@ extension HomeScreen {
         return .bookingOrAttendance(record)
     }
 
-    // MARK: The gauge's sentences
+    // MARK: The month card's sentences
 
-    /// `4 August · 18 working days left`, and the second half of the sentence
-    /// the dial is telling. Another month is not a deadline you are inside, so
-    /// it says how big it was rather than how much of it is left.
-    static func dateLine(_ result: Quota.Result, month: Month, today: Day) -> String {
+    /// The left half of the line under the slots, and all the judgement on the
+    /// card, from `Quota.Standing`.
+    ///
+    /// It was a tinted strip in four colours, amber whenever the month was
+    /// short. Now it is a line of text and only two of its states have a
+    /// colour: the target met, and a target that cannot be reached this month.
+    /// Short but still able to get there is an errand rather than a warning,
+    /// and it reads in the text colour.
+    struct Verdict: Equatable {
+        enum Tone: Equatable {
+            case met, plain, unreachable
+        }
+
+        let text: String
+        let tone: Tone
+    }
+
+    static func verdict(_ result: Quota.Result, month: Month, today: Day) -> Verdict {
+        switch result.standing {
+        case .met:
+            // The slots stop at eight, so past them the surplus is said here or
+            // nowhere.
+            let over = GaugeMetrics.overshoot(attended: result.attended, target: result.target)
+            return Verdict(text: over > 0 ? "Target met · \(number(over)) over" : "Target met", tone: .met)
+        case _ where month < today.month_:
+            // A month that has finished is not a warning, whatever it came to.
+            // Every state below is written in the present tense about a
+            // deadline you are still inside, and "Can't reach 8 this month"
+            // under the heading July is both wrong and the app's one red — on
+            // screen for every month you ever fell short in.
+            return Verdict(text: "Fell \(number(Double(result.target) - result.attended)) short", tone: .plain)
+        case .onTrack:
+            return Verdict(text: "All \(result.target) planned", tone: .plain)
+        case .behind:
+            // The action that closes the gap, not only its size. What is
+            // already lined up is the figure above, `6 of 7 planned`.
+            let days = result.shortfall == 1 ? "day" : "days"
+            return Verdict(text: "\(number(result.shortfall)) more \(days) to book", tone: .plain)
+        case .unreachable:
+            return Verdict(text: "Can't reach \(result.target) this month", tone: .unreachable)
+        }
+    }
+
+    /// `18 working days left` — the right half of the verdict line, in every
+    /// state.
+    ///
+    /// The app is entirely about a deadline, and the remaining month once
+    /// appeared only beside the amber strip, so on track or met it vanished —
+    /// exactly when you want to know whether you can stop. Another month is not
+    /// a deadline you are inside, so it says how big it was rather than how much
+    /// of it is left.
+    static func workingDays(_ result: Quota.Result, month: Month, today: Day) -> String {
         guard month == today.month_ else {
             return "\(result.workingDays) working days"
         }
-        let left = result.daysToRun == 1 ? "1 working day left" : "\(result.daysToRun) working days left"
-        return "\(today.dayAndMonth) · \(left)"
-    }
-
-    static func daysLeftText(_ result: Quota.Result) -> String {
-        result.daysAvailable == 1 ? "1 day left" : "\(result.daysAvailable) days left"
+        return result.daysToRun == 1 ? "1 working day left" : "\(result.daysToRun) working days left"
     }
 
     /// `Target 6 — 8 days less 2 for 5 days' leave`. The one line that says
@@ -173,27 +217,6 @@ extension HomeScreen {
         let days = "\(number(result.leaveTaken)) \(result.leaveTaken == 1 ? "day's" : "days'") leave"
         guard result.relief > 0 else { return "\(target) — \(days); 5 days takes 2 off" }
         return "\(target) — 8 days less \(number(result.relief)) for \(days)"
-    }
-
-    /// The amber strip's two halves.
-    ///
-    /// "4 days to go" gave the size of the gap and said nothing about what was
-    /// already arranged, so a month with four days lined up and four still to
-    /// find read exactly like one with nothing at all. The leading half now
-    /// names the action that closes the gap, and the trailing half says what is
-    /// already counted toward it — and how much month is left to do it in,
-    /// which is the half that matters when the two numbers stop fitting.
-    ///
-    /// "Booked" covers planned days too. They are distinguished on their own
-    /// rows, where the difference is actionable; in a one-line summary of what
-    /// is lined up, it is not.
-    static func shortfallText(_ result: Quota.Result) -> (leading: String, trailing: String) {
-        let short = number(result.shortfall)
-        let leading = "\(short) more \(result.shortfall == 1 ? "day" : "days") to book"
-        let lined = result.forecast == 0
-            ? "none booked"
-            : "\(number(result.forecast)) booked"
-        return (leading, "\(lined) · \(result.daysToRun) days left")
     }
 
     static func number(_ value: Double) -> String {
