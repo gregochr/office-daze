@@ -52,6 +52,34 @@
 	<key>NSCalendarsWriteOnlyAccessUsageDescription</key>
 	<string>Adding a desk booking to your calendar puts the office, the floor and the hours where the rest of your day already is. Office Daze only ever writes events; it cannot read your calendar.</string>
 
+	<!--
+	  The Home Screen quick action: long-press the icon, "Scan a booking", and
+	  the app opens on the live scanner. QuickAction.swift routes it to the
+	  flag the scan button sets, so it is one step to a viewfinder from the
+	  springboard as well as from inside the app.
+
+	  Declared here rather than set from code, because a static item is on the
+	  icon from the moment the app is installed, and one set from code is not
+	  there until the app has been opened once. It needs no entitlement and no
+	  paid account.
+
+	  The type must match QuickAction.action(for:) exactly. A mismatch fails
+	  nowhere — the app just opens on the home screen — so QuickActionTests
+	  reads this array back and holds the two together. A viewfinder, not a
+	  camera: the booking is read off a screen, not photographed.
+	-->
+	<key>UIApplicationShortcutItems</key>
+	<array>
+		<dict>
+			<key>UIApplicationShortcutItemType</key>
+			<string>com.thegregorysonline.officedaze.scan</string>
+			<key>UIApplicationShortcutItemTitle</key>
+			<string>Scan a booking</string>
+			<key>UIApplicationShortcutItemIconSymbolName</key>
+			<string>viewfinder</string>
+		</dict>
+	</array>
+
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>

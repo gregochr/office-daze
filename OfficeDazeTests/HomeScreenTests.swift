@@ -594,6 +594,7 @@ struct HomeScreenRenderTests {
         let host = UIHostingController(
             rootView: NavigationStack { HomeScreen() }
                 .environment(CaptureCoordinator(context: container.mainContext))
+                .environment(SceneDelegate())
                 .modelContainer(container)
         )
         let window = ArrivalPreviewRenderTests.renderWindow()
