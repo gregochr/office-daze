@@ -107,5 +107,15 @@
 			<string>Alternate</string>
 		</dict>
 	</array>
+
+	<!--
+	  The export-compliance answer, given once here rather than to App Store
+	  Connect on every build uploaded to TestFlight. False because the app
+	  brings no encryption of its own: no cryptography, no network code, and
+	  the only traffic is Apple's own services (the geocoder and Maps), whose
+	  encryption is the operating system's and exempt.
+	-->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 </dict>
 </plist>

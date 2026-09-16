@@ -30,12 +30,12 @@ enum Store {
         return container
     }
 
-    /// Whether the sample month has ever been laid down.
+    /// Whether the first launch's seed has ever been laid down.
     ///
     /// A flag rather than "is the store empty", because those stop being the
     /// same question the moment the store can be wiped: an emptied store is
-    /// empty on purpose, and re-seeding it would put the sample bookings
-    /// straight back on the next launch.
+    /// empty on purpose, and re-seeding it would put the seed straight back on
+    /// the next launch.
     ///
     /// Where the flag is kept is injected, for the same reason `today` is
     /// injected all through the store: it is process-wide state with exactly
@@ -53,15 +53,32 @@ enum Store {
         defaults.set(true, forKey: seededKey)
     }
 
+    /// Whether this build is running in the simulator, which decides which of
+    /// the two seeds a first launch lays down. See `SeedData.populate`.
+    ///
+    /// The simulator rather than `DEBUG`. A debug build is also what goes onto
+    /// a phone plugged into this Mac — without a paid account, the only way to
+    /// put the app on someone else's phone — and that phone should start with
+    /// the offices, not with a month of bookings nobody made.
+    nonisolated static var isSimulator: Bool {
+        #if targetEnvironment(simulator)
+        return true
+        #else
+        return false
+        #endif
+    }
+
     static func seedIfNeeded(
-        _ context: ModelContext, defaults: UserDefaults = .standard
+        _ context: ModelContext,
+        defaults: UserDefaults = .standard,
+        forSimulator: Bool = Store.isSimulator
     ) throws {
         guard !hasSeeded(in: defaults) else { return }
         guard try context.fetchCount(FetchDescriptor<Office>()) == 0 else {
             markSeeded(in: defaults)
             return
         }
-        try SeedData.populate(context)
+        try SeedData.populate(context, forSimulator: forSimulator)
         markSeeded(in: defaults)
     }
 
@@ -121,9 +138,8 @@ enum Store {
             try context.delete(model: model)
         }
         try context.save()
-        // So the sample month does not come back on the next launch. Set for
-        // either scope: re-seeding over the offices someone kept would put the
-        // sample bookings back under them.
+        // So the seed does not come back on the next launch. Set for either
+        // scope, so the offices someone chose to keep are never seeded over.
         markSeeded(in: defaults)
     }
 }
