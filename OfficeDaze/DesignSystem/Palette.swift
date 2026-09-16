@@ -2,7 +2,7 @@ import SwiftUI
 
 /// The design has no theme. It should look like a well-built system app,
 /// because that is the point — so these are the system's own greys, named, plus
-/// the four places colour is allowed to appear.
+/// the few places colour is allowed to appear.
 ///
 /// Literal hex rather than semantic system colours (`.systemGroupedBackground`
 /// and friends) because the handoff specifies exact values and the app is
@@ -19,24 +19,36 @@ enum Palette {
 
     /// The row label grey, a shade darker than `secondary`.
     static let rowLabel = Color(hex: 0x636366)
-    /// Gauge ticks.
-    static let tick = Color(hex: 0xD1D1D6)
 
-    /// The dial, and the whole of it: one hue plus greys, and no judgement in
-    /// any of them. Solid is counted, tint is promised, empty is owed, hatched
-    /// is not owed. A second colour here puts back the problem the bands had —
-    /// four things said in colour by three different rules on one card.
+    /// The eight slots, and the whole of them: one hue plus greys, and no
+    /// judgement in any of them. Solid is worked, tint is promised, grey is
+    /// still to find, hatched is what leave took off. A status colour here puts
+    /// back the problem the dial's bands had — "behind" said in colour by three
+    /// different rules on one card.
     static let gaugeAttended = tint
-    static let gaugeBooked = Color(hex: 0xC2DEDB)
-    static let gaugeGap = Color(hex: 0xEFEFF4)
+    static let gaugeBooked = Color(hex: 0x9FCDC7)
+    static let gaugeGap = Color(hex: 0xEBEBF0)
     static let gaugeOff = Color(hex: 0xEDEDF2)
-    static let gaugeHatch = Color(hex: 0xCFCFD6)
+    static let gaugeHatch = Color(hex: 0xD5D5DC)
 
-    /// The destructive swipe, which is iOS's own convention and not a judgement
-    /// about the month. Nothing on the gauge is this colour.
-    static let behind = Color(hex: 0xE5484D)
-    static let close = Color(hex: 0xF5A623)
-    static let met = Color(hex: 0x2FA36B)
+    /// The verdict line under the slots, and nowhere else: the month card's one
+    /// green and its one red. The red means the target cannot be reached this
+    /// month — not that you are behind. It shows up perhaps twice a year, and
+    /// when it does it is a fact rather than a mood.
+    ///
+    /// They replace `met`, `close` and `behind`, the dial's green, amber and
+    /// red bands, and are named for the line they belong to because `met` had
+    /// already been borrowed by screens that were not about the target.
+    static let verdictMet = Color(hex: 0x1B6B47)
+    static let verdictUnreachable = Color(hex: 0xA32126)
+
+    /// The scan bar's top edge. A shade darker than `hairline`, because it is
+    /// drawn over rows scrolling under it rather than between two of them.
+    static let barHairline = Color(hex: 0xE4E4E9)
+
+    /// Something done: a day attended, a booking filed, an alert that will
+    /// fire. What `met` was being used for everywhere but the dial.
+    static let success = Color(hex: 0x2FA36B)
 
     static let warningSurface = Color(hex: 0xFFF8E8)
     static let warningText = Color(hex: 0x8A5A00)
@@ -44,17 +56,6 @@ enum Palette {
 
     static let successSurface = Color(hex: 0xEAF7F0)
     static let successText = Color(hex: 0x1B6B47)
-
-    /// The one red in the app, and it means the target cannot be reached this
-    /// month — not that you are behind. It shows up perhaps twice a year, and
-    /// when it does it is a fact rather than a mood.
-    static let dangerSurface = Color(hex: 0xFDECEC)
-    static let dangerText = Color(hex: 0xA32126)
-
-    /// On track: everything needed is booked and none of it worked yet. Not
-    /// green, which would claim the month is done when it is only arranged.
-    static let neutralSurface = Color(hex: 0xEFEFF4)
-    static let neutralText = Color(hex: 0x3A3A3C)
 }
 
 extension Color {

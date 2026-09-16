@@ -692,7 +692,6 @@ struct CardsTests {
     func secondaryFollowsTheTone() {
         #expect(StatusStrip.secondary(.warning) == Palette.warningSecondary)
         #expect(StatusStrip.secondary(.success) == Palette.successText)
-        #expect(StatusStrip.secondary(.neutral) == Palette.secondary)
         for tone in StatusStrip.Tone.allCases where tone != .warning {
             #expect(
                 StatusStrip.secondary(tone) != Palette.warningSecondary,
@@ -701,39 +700,38 @@ struct CardsTests {
         }
     }
 
-    /// Four tones is four meanings, and a tone that shared another's colours
-    /// would be a meaning the user cannot see. `allCases` rather than the four
-    /// written out, so a fifth cannot be added without its own colours.
+    /// Each tone is a meaning, and a tone that shared another's colours would be
+    /// a meaning the user cannot see. `allCases` rather than the tones written
+    /// out, so a new one cannot be added without its own colours.
     @Test("No two tones wear the same colours")
     func tonesAreDistinct() {
         let tones = StatusStrip.Tone.allCases
-        #expect(tones.count == 4)
+        #expect(tones.count == 2)
         #expect(Set(tones.map(StatusStrip.surface)).count == tones.count)
         #expect(Set(tones.map(StatusStrip.text)).count == tones.count)
         #expect(Set(tones.map(StatusStrip.secondary)).count == tones.count)
     }
 
-    /// Red means the target cannot be reached this month, and it is the only
-    /// red in the app. Green means it has been met. Those two are the card
-    /// shape; the two quiet ones are a pill under the dial.
-    @Test("Only the two loud tones take the card shape")
+    /// The confirmation is the card shape; a warning is a pill.
+    @Test("Only the confirmation takes the card shape")
     func loudness() {
         #expect(StatusStrip.isLoud(.success))
-        #expect(StatusStrip.isLoud(.danger))
         #expect(!StatusStrip.isLoud(.warning))
-        #expect(!StatusStrip.isLoud(.neutral))
         #expect(
-            StatusStrip.Tone.allCases.filter(StatusStrip.isLoud).count == 2,
+            StatusStrip.Tone.allCases.filter(StatusStrip.isLoud).count == 1,
             "a new tone is quiet until someone decides otherwise"
         )
     }
 
-    @Test("Red is the danger strip and nothing else")
+    /// The strip used to carry the month's verdict, red included. That is a
+    /// line on the month card now, and the red went with it: it means the
+    /// target cannot be reached, and a strip about one booking has no business
+    /// saying so.
+    @Test("No strip is red; the red belongs to the verdict line")
     func redIsSpentOnce() {
-        #expect(StatusStrip.text(.danger) == Palette.dangerText)
-        #expect(StatusStrip.surface(.danger) == Palette.dangerSurface)
-        for tone in StatusStrip.Tone.allCases where tone != .danger {
-            #expect(StatusStrip.text(tone) != Palette.dangerText)
+        for tone in StatusStrip.Tone.allCases {
+            #expect(StatusStrip.text(tone) != Palette.verdictUnreachable)
+            #expect(StatusStrip.secondary(tone) != Palette.verdictUnreachable)
         }
     }
 

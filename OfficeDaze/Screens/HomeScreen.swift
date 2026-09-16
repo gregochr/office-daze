@@ -1,10 +1,11 @@
 import SwiftData
 import SwiftUI
 
-/// The gauge, the month's split by office, and every booking in it.
+/// The month card, the month's split by office, every booking in it, and the
+/// bar that adds one.
 ///
 /// The screen is three files, split where it already divided itself. This one
-/// holds the state, the body, and the two cards that report the month;
+/// holds the state, the body, the two cards that report the month and the bar;
 /// `HomeScreen+List.swift` holds the list underneath and every write its rows
 /// make; `HomeScreen+Rules.swift` holds the decisions both of them ask for,
 /// static and answerable without a screen.
@@ -30,8 +31,13 @@ struct HomeScreen: View {
 
     @State var camera = false
 
-    /// Which kind of manual entry the header's menu is adding, if any.
+    /// Which kind of manual entry the scan bar's plus is adding, if any.
     @State var adding: ManualEntry?
+
+    /// How much of the screen's bottom edge the system keeps clear — the home
+    /// indicator's strip, or nothing on a phone with a home button. The scan
+    /// bar pads by what this leaves over; see `barBottomPadding(safeArea:)`.
+    @State private var bottomSafeArea: CGFloat = 0
 
     /// The booking a row's menu sent to the editor, if any.
     @State var editing: DeskBooking?
@@ -94,6 +100,14 @@ struct HomeScreen: View {
             .padding(.bottom, 30)
         }
         .background(Palette.ground)
+        // Pinned rather than placed in the list, so the list scrolls under it
+        // and the one thing done on nearly every visit stays under the thumb.
+        .safeAreaInset(edge: .bottom, spacing: 0) { addBar }
+        // Read outside the inset, so this is the screen's own bottom edge and
+        // not one the bar has already added its height to.
+        .onGeometryChange(for: CGFloat.self) { $0.safeAreaInsets.bottom } action: {
+            bottomSafeArea = $0
+        }
         .navigationTitle("Office Daze")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -171,56 +185,85 @@ struct HomeScreen: View {
         }
     }
 
-    // MARK: The gauge
+    // MARK: The month card
 
     /// Takes the snapshot rather than reading it: the card mentions it four
     /// times, and as a property each mention was four fetches of its own.
     private func gaugeCard(_ snapshot: QuotaService.Snapshot?) -> some View {
         Card(padding: EdgeInsets(top: 12, leading: 16, bottom: 16, trailing: 16)) {
-            VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 0) {
                 monthStepper
                 AttendanceGauge(
                     attended: snapshot?.result.attended ?? 0,
                     booked: snapshot?.result.forecast ?? 0,
                     target: snapshot?.result.target ?? 0
                 )
-                .padding(.top, 2)
+                .padding(.top, 16)
                 if let result = snapshot?.result {
-                    // Where the month is, permanently. The app is entirely
-                    // about a deadline, and the only place the remaining month
-                    // appeared was the trailing half of the amber strip — which
-                    // rendered in one state out of four, so on track or met it
-                    // vanished. That is exactly when you want to know whether
-                    // you can stop, or whether the days you have booked still
-                    // have room to land.
-                    Text(Self.dateLine(result, month: month, today: .today))
-                        .font(.system(size: 13))
-                        .monospacedDigit()
-                        .foregroundStyle(Palette.secondary)
-                        .padding(.top, 6)
-                    shortfallStrip(result).padding(.top, 10)
+                    // Edge to edge, through the card's own padding: above it is
+                    // the tally, below it is what the tally amounts to.
+                    Rectangle()
+                        .fill(Palette.hairline)
+                        .frame(height: 1)
+                        .padding(.horizontal, -16)
+                        .padding(.top, 13)
+                    verdictLine(result).padding(.top, 12)
                     // Tapping the sentence opens the thing it explains. The
                     // target moves because of leave, so leave is where the
                     // explanation should lead — and it is the best answer in
                     // the app to "why has my target moved", which is worth more
-                    // than twelve-point grey with nothing saying it is a link.
+                    // than grey text with nothing saying it is a link.
                     NavigationLink {
                         LeaveScreen(month: month)
                     } label: {
-                        HStack(spacing: 3) {
-                            Text(Self.targetExplanation(result))
-                                .font(.system(size: 13))
-                                .foregroundStyle(Palette.tint)
-                                .multilineTextAlignment(.center)
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 11, weight: .semibold))
-                                .foregroundStyle(Palette.tint.opacity(0.6))
-                        }
-                        .padding(.top, 11)
+                        Text(Self.targetExplanation(result) + " ›")
+                            .font(.system(size: 12))
+                            .foregroundStyle(Palette.tint)
+                            .multilineTextAlignment(.leading)
+                            .padding(.top, 10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    // The sentence without its chevron, which VoiceOver would
+                    // read out as a quotation mark.
+                    .accessibilityLabel(Self.targetExplanation(result))
                 }
             }
+        }
+    }
+
+    /// The verdict, and how much of the month is left to act on it.
+    ///
+    /// The days left are on the line in every state. Met or on track is exactly
+    /// when you want to know whether you can stop, or whether the days you have
+    /// booked still have room to land.
+    private func verdictLine(_ result: Quota.Result) -> some View {
+        let verdict = Self.verdict(result, month: month, today: .today)
+        return HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text(verdict.text)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Self.colour(of: verdict.tone))
+            Spacer(minLength: 0)
+            Text(Self.workingDays(result, month: month, today: .today))
+                .font(.system(size: 13))
+                .foregroundStyle(Palette.secondary)
+        }
+        // One line, shrinking a little rather than truncating. "Can't reach 8
+        // this month" beside "18 working days left" is a tight fit on the
+        // narrowest phone, and half a sentence is worse than a smaller whole one.
+        .lineLimit(1)
+        .minimumScaleFactor(0.8)
+    }
+
+    /// Two colours, spent on the two facts. Short but still able to get there
+    /// is in the text colour, like every other sentence on the screen: an
+    /// errand is not a warning.
+    static func colour(of tone: Verdict.Tone) -> Color {
+        switch tone {
+        case .met: Palette.verdictMet
+        case .plain: Palette.text
+        case .unreachable: Palette.verdictUnreachable
         }
     }
 
@@ -287,48 +330,77 @@ struct HomeScreen: View {
         .disabled(!enabled)
     }
 
-    /// All the judgement in the app, in one strip, from `Quota.Standing`.
+    // MARK: Adding
+
+    /// Scanning is nearly every booking, so it is the screen's primary action,
+    /// with the two manual routes behind a plus beside it.
     ///
-    /// Four states rather than three. "On track" loses its green: green claimed
-    /// the month was done when it was only arranged, which is the same
-    /// conflation the whole AttendanceDay / DeskBooking split exists to
-    /// prevent. And red now means something — the target cannot be reached this
-    /// month — rather than being on screen for the first fortnight of every one.
-    @ViewBuilder
-    private func shortfallStrip(_ result: Quota.Result) -> some View {
-        switch result.standing {
-        case .met:
-            StatusStrip(tone: .success, leading: "Target met", dot: true)
-        case _ where month < Day.today.month_:
-            // A month that has finished is not a warning, whatever it came to.
-            // Every state below is written in the present tense about a
-            // deadline you are still inside, and "Can't reach 8 this month"
-            // under the heading July is both wrong and the app's one red — on
-            // screen for every month you ever fell short in.
-            StatusStrip(
-                tone: .neutral,
-                leading: "Fell \(number(Double(result.target) - result.attended)) short",
-                trailing: "\(number(result.attended)) of \(result.target)"
-            )
-        case .onTrack:
-            StatusStrip(
-                tone: .neutral,
-                leading: "On track",
-                trailing: "\(number(result.forecast)) booked"
-            )
-        case .behind:
-            let text = Self.shortfallText(result)
-            StatusStrip(tone: .warning, leading: text.leading, trailing: text.trailing)
-        case .unreachable:
-            StatusStrip(
-                tone: .danger,
-                leading: "Can't reach \(result.target) this month",
-                trailing: Self.daysLeftText(result)
-            )
+    /// It was a plus in the list header opening a menu of all three. That beat
+    /// the two unlabelled icons before it, but it priced every route the same
+    /// and taxed the one actually taken: a scan cost the plus, the menu and the
+    /// first item in it. Now launch to a live viewfinder is one tap, straight
+    /// to `BookingScanner` with no sheet in between.
+    ///
+    /// A viewfinder and not a camera, wherever scanning is offered. The booking
+    /// is being read off a monitor, and a camera says photograph this.
+    private var addBar: some View {
+        HStack(spacing: 10) {
+            Button {
+                camera = true
+            } label: {
+                HStack(spacing: 9) {
+                    Image(systemName: "viewfinder")
+                        .font(.system(size: 21))
+                        .accessibilityHidden(true)
+                    Text("Scan a booking")
+                        .font(.system(size: 17, weight: .semibold))
+                }
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: Self.barButtonSize)
+                .background(Palette.tint, in: RoundedRectangle(cornerRadius: Self.barButtonRadius))
+                .contentShape(RoundedRectangle(cornerRadius: Self.barButtonRadius))
+            }
+            .buttonStyle(.plain)
+
+            // The manual routes only. Scanning is not in here as well: the
+            // button beside it already does that, one tap sooner.
+            Menu {
+                Button("Desk booking", systemImage: "square.and.pencil") {
+                    adding = .booking
+                }
+                Button("Day in the office", systemImage: "building.2") {
+                    adding = .attendance
+                }
+            } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 21))
+                    .foregroundStyle(Palette.tint)
+                    .frame(width: Self.barButtonSize, height: Self.barButtonSize)
+                    .background(Palette.card, in: RoundedRectangle(cornerRadius: Self.barButtonRadius))
+                    .contentShape(RoundedRectangle(cornerRadius: Self.barButtonRadius))
+            }
+            .accessibilityLabel("Add by hand")
+        }
+        .padding(.top, 10)
+        .padding(.horizontal, Metrics.screenPadding)
+        .padding(.bottom, Self.barBottomPadding(safeArea: bottomSafeArea))
+        .background(Palette.ground.opacity(0.94))
+        .overlay(alignment: .top) {
+            Rectangle().fill(Palette.barHairline).frame(height: 1)
         }
     }
 
-    private func number(_ value: Double) -> String { Self.number(value) }
+    private static let barButtonSize: CGFloat = 50
+    private static let barButtonRadius: CGFloat = 13
+
+    /// The mock puts the buttons 26pt above the bottom of the glass, measured
+    /// through the home indicator. The safe area already keeps them 34pt clear
+    /// on a phone that has one, so only what it leaves over is added: nothing
+    /// there, and the whole 26 on a phone with a home button.
+    static func barBottomPadding(safeArea: CGFloat) -> CGFloat {
+        max(0, 26 - safeArea)
+    }
 
     // MARK: Offices
 

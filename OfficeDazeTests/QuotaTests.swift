@@ -182,62 +182,166 @@ struct QuotaTests {
         #expect(result.attended == 5)
     }
 
-    /// "4 days to go" was the gap and nothing else, so a month with four days
-    /// already lined up read exactly like a month with nothing arranged at all.
-    @Test("The amber strip says what is booked, not only what is missing")
-    func shortfallCopy() {
+    /// "4 days to go" was the gap and nothing else. The verdict names the
+    /// action that closes it; what is already lined up is the figure above it,
+    /// `4 of 8 planned`, so the line no longer says it twice.
+    @Test("Behind names the days still to book, in the text colour")
+    func behindCopy() {
         // September's shape: nothing attended, four days lined up, eight
         // needed.
+        let september = Month(year: 2026, month: 9)
         let behind = Quota.calculate(.init(
-            month: Month(year: 2026, month: 9),
+            month: september,
             deskBookingDays: [Day(2026, 9, 7)],
             plannedDays: Set([8, 9, 10].map { Day(2026, 9, $0) }),
             today: Day(2026, 8, 31)
         ))
         #expect(behind.standing == .behind)
-        let text = HomeScreen.shortfallText(behind)
-        #expect(text.leading == "4 more days to book", "names the action, not just the gap")
-        #expect(text.trailing == "4 booked · 22 days left")
+        #expect(
+            HomeScreen.verdict(behind, month: september, today: Day(2026, 8, 31))
+                == .init(text: "4 more days to book", tone: .plain),
+            "names the action, not just the gap"
+        )
 
         // One day reads as a day.
         let nearly = Quota.calculate(.init(
-            month: Month(year: 2026, month: 9),
+            month: september,
             attendance: (1...7).map { .init(Day(2026, 9, $0)) },
             today: Day(2026, 9, 8)
         ))
-        #expect(HomeScreen.shortfallText(nearly).leading == "1 more day to book")
+        #expect(HomeScreen.verdict(nearly, month: september, today: Day(2026, 9, 8)).text == "1 more day to book")
+    }
+
+    /// The four standings, each in its own words — and colour spent on only two
+    /// of them. Amber is gone: short but able to get there is an errand.
+    @Test("The verdict line says each standing once, and only met and unreachable in colour")
+    func verdictCopy() {
+        let today = Day(2026, 8, 13)
+        func verdict(_ result: Quota.Result) -> HomeScreen.Verdict {
+            HomeScreen.verdict(result, month: august, today: today)
+        }
+
+        let met = Quota.calculate(.init(
+            month: august,
+            attendance: [3, 4, 5, 6, 7, 10, 11, 12].map { .init(Day(2026, 8, $0)) },
+            today: today
+        ))
+        #expect(met.attended == 8)
+        #expect(verdict(met) == .init(text: "Target met", tone: .met), "exactly met is not over")
+
+        let onTrack = Quota.calculate(.init(
+            month: august,
+            attendance: [3, 4, 5, 6].map { .init(Day(2026, 8, $0)) },
+            deskBookingDays: Set([24, 25, 26, 27].map { Day(2026, 8, $0) }),
+            today: today
+        ))
+        #expect(verdict(onTrack) == .init(text: "All 8 planned", tone: .plain))
+
+        let behind = Quota.calculate(.init(
+            month: august, attendance: [.init(Day(2026, 8, 3))], today: today
+        ))
+        #expect(verdict(behind) == .init(text: "7 more days to book", tone: .plain))
+
+        let lastThursday = Day(2026, 8, 27)
+        let unreachable = Quota.calculate(.init(
+            month: august, attendance: [.init(Day(2026, 8, 3))], today: lastThursday
+        ))
         #expect(
-            HomeScreen.shortfallText(nearly).trailing.hasPrefix("none booked"),
-            "nothing lined up says so rather than reading as zero of something"
+            HomeScreen.verdict(unreachable, month: august, today: lastThursday)
+                == .init(text: "Can't reach 8 this month", tone: .unreachable)
+        )
+
+        // Red is the unreachable tone and nothing else, and plain is the text
+        // colour — no second hue for being behind.
+        #expect(HomeScreen.colour(of: .unreachable) == Palette.verdictUnreachable)
+        #expect(HomeScreen.colour(of: .met) == Palette.verdictMet)
+        #expect(HomeScreen.colour(of: .plain) == Palette.text)
+    }
+
+    /// The slots stop at eight, so past them the surplus is said on this line
+    /// or nowhere.
+    @Test("Nine attended is the target met, and one over")
+    func overCopy() {
+        let result = Quota.calculate(.init(
+            month: august,
+            attendance: (3...13).filter { $0 != 8 && $0 != 9 }.map { .init(Day(2026, 8, $0)) },
+            today: Day(2026, 8, 20)
+        ))
+        #expect(result.attended == 9)
+        #expect(
+            HomeScreen.verdict(result, month: august, today: Day(2026, 8, 20))
+                == .init(text: "Target met · 1 over", tone: .met)
         )
     }
 
-    /// The app is entirely about a deadline, and the remaining month used to
-    /// appear only in the trailing half of the amber strip — so on track or met
-    /// it vanished, which is exactly when you want to know whether you can stop.
-    @Test("The date line says where the month is, in every state")
-    func dateLine() {
-        let result = Quota.calculate(.init(month: august, today: Day(2026, 8, 4)))
+    /// Unreachable is decided by `Quota.Standing`, which counts today as a day
+    /// the target can still be met on. `daysToRun` does not — so on the last
+    /// working day it reads nought, and a line testing the shortfall against
+    /// it would go red on a morning the month could still be finished.
+    @Test("One day short on the last working day is plain, not red")
+    func lastDayIsNotRed() {
+        let friday = Day(2026, 8, 28)
+        let result = Quota.calculate(.init(
+            month: august,
+            attendance: (3...11).filter { $0 != 8 && $0 != 9 }.map { .init(Day(2026, 8, $0)) },
+            today: friday
+        ))
+        #expect(result.daysToRun == 0)
+        #expect(result.shortfall == 1)
         #expect(
-            HomeScreen.dateLine(result, month: august, today: Day(2026, 8, 4))
-                == "4 August · 18 working days left"
+            HomeScreen.verdict(result, month: august, today: friday)
+                == .init(text: "1 more day to book", tone: .plain)
         )
+    }
+
+    /// A month that has finished is not a warning, whatever it came to — and
+    /// the standing it computes to is `.unreachable`, since no days are left.
+    @Test("A month gone by fell short in plain text rather than in red")
+    func pastMonthIsNotRed() {
+        let result = Quota.calculate(.init(
+            month: august, attendance: [.init(Day(2026, 8, 3))], today: Day(2026, 9, 16)
+        ))
+        #expect(result.standing == .unreachable)
+        #expect(
+            HomeScreen.verdict(result, month: august, today: Day(2026, 9, 16))
+                == .init(text: "Fell 7 short", tone: .plain)
+        )
+    }
+
+    /// The app is entirely about a deadline, and the remaining month once
+    /// appeared only beside the amber strip — so on track or met it vanished,
+    /// which is exactly when you want to know whether you can stop.
+    @Test("The working days left are on the verdict line in every standing")
+    func workingDaysLeft() {
+        // All four on the same morning, so all four have the same days left.
+        let today = Day(2026, 8, 4)
+        let ahead = august.weekdays.filter { $0 > today }
+        // Every working day after today off: three blocks of five take the
+        // target to two, and leave one working day — today — to find them in.
+        let allOff = ahead.map { Quota.DayFraction($0) }
+        let standings = [
+            Quota.calculate(.init(
+                month: august, leave: allOff,
+                attendance: [.init(Day(2026, 8, 3)), .init(today)], today: today
+            )),
+            Quota.calculate(.init(month: august, deskBookingDays: Set(ahead.prefix(8)), today: today)),
+            Quota.calculate(.init(month: august, today: today)),
+            Quota.calculate(.init(month: august, leave: allOff, today: today)),
+        ]
+        #expect(standings.map(\.standing) == [.met, .onTrack, .behind, .unreachable])
+        for result in standings {
+            #expect(HomeScreen.workingDays(result, month: august, today: today) == "18 working days left")
+        }
 
         // A month you are not inside has no deadline to be counting down to,
         // so it says how big it was rather than how much of it is left.
         let september = Month(year: 2026, month: 9)
-        let ahead = Quota.calculate(.init(month: september, today: Day(2026, 8, 4)))
-        #expect(
-            HomeScreen.dateLine(ahead, month: september, today: Day(2026, 8, 4))
-                == "22 working days"
-        )
+        let nextMonth = Quota.calculate(.init(month: september, today: today))
+        #expect(HomeScreen.workingDays(nextMonth, month: september, today: today) == "22 working days")
 
         // One day is a day.
         let last = Quota.calculate(.init(month: august, today: Day(2026, 8, 27)))
-        #expect(
-            HomeScreen.dateLine(last, month: august, today: Day(2026, 8, 27))
-                == "27 August · 1 working day left"
-        )
+        #expect(HomeScreen.workingDays(last, month: august, today: Day(2026, 8, 27)) == "1 working day left")
     }
 
     /// A workshop you have not been to yet is as good a reason to expect a day

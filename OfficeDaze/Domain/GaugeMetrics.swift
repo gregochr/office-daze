@@ -1,62 +1,42 @@
 import Foundation
 
-/// The dial's arithmetic, with no SwiftUI in it.
+/// The slot row's arithmetic, with no SwiftUI in it.
 ///
-/// Pulled out of the view because angles are the easiest thing here to get
-/// quietly wrong — an arc that starts a few degrees off still looks like a
-/// gauge — and because the segment arithmetic is a rule rather than a drawing
-/// detail: the four parts always sum to eight, whatever the month.
+/// Pulled out of the view because what fills a slot is a rule rather than a
+/// drawing detail: the parts always sum to eight, whatever the month, and they
+/// are laid out by state rather than by date. `AttendanceGauge` only paints what
+/// this decides.
 ///
-/// All angles are degrees clockwise from east (3 o'clock), which is where
-/// SwiftUI's `Path.addArc` starts from too. The arc runs 240°, opening at the
-/// bottom: from 150° (lower left) round to 390° (lower right).
-///
-/// **The scale is fixed at eight — the base target, never the pro-rated one.**
+/// **The row is always eight long — the base target, never the pro-rated one.**
 /// That is what makes two months comparable: a month with five days' leave and
-/// a month with none draw the same dial at the same rate, and the difference
-/// between them is drawn rather than left to the end label. The pro-rating is
-/// the hatched segment; the target is a mark on the scale, not the scale.
+/// a month with none draw eight slots each, and the difference between them is
+/// drawn, as hatching at the far end, rather than left to a label.
 nonisolated enum GaugeMetrics {
 
-    static let startAngle: Double = 150
-    static let sweep: Double = 240
+    /// Eight, whatever this month's target is. Never nine: past eight the row
+    /// is full and the verdict line carries the surplus.
+    static var slotCount: Int { Int(Quota.baseTarget) }
 
-    /// The dial always runs 0 to 8, whatever this month's target is.
-    static var scale: Double { Quota.baseTarget }
-
-    // The drawing is laid out in a fixed 256×208 box and scaled to fit, so
-    // these are the mock's own numbers rather than fractions of the frame.
-    static let boxSize = CGSize(width: 256, height: 208)
-    static let centre = CGPoint(x: 128, y: 128)
-    static let valueRadius: Double = 94
-    static let valueWidth: Double = 20
-    static let tickInnerRadius: Double = 116
-    static let tickOuterRadius: Double = 124
-    static let tickWidth: Double = 2
-    /// The target mark, drawn across the arc rather than outside it: it is a
-    /// line on the scale, and everything left of it has to be filled.
-    static let markerWidth: Double = 2.5
-    static let markerOverhang: Double = 4
-
-    /// What a stretch of the arc is saying.
+    /// What a stretch of the row is saying.
     ///
     /// Colour has one job each and no judgement in any of them: solid means
-    /// counted, tint means promised, empty means owed, hatched means not owed.
-    /// There is no red, amber or green anywhere on the dial — it is an
-    /// inventory, and the judgement lives in the strip underneath.
+    /// counted, tint means promised, grey means owed, hatched means not owed.
+    /// There is no red, amber or green anywhere in the row — it is a tally, and
+    /// the judgement lives in the verdict line underneath.
     enum Part: Sendable {
         /// Days worked. The only thing that counts.
         case attended
-        /// Days booked ahead — the same currency, not yet earned.
+        /// Days booked and not yet worked, today's included — the same
+        /// currency, not yet earned.
         case booked
-        /// The gap between the two and the target. Empty track.
+        /// The gap between the two and the target. Still to find.
         case gap
         /// `8 − target`: what leave took off. Hatched, so it reads as excluded
         /// rather than merely empty.
         case off
     }
 
-    /// A stretch of the arc, in days from the start of the scale.
+    /// A stretch of the row, in days from its start.
     struct Segment: Equatable, Sendable {
         let part: Part
         let from: Double
@@ -65,19 +45,25 @@ nonisolated enum GaugeMetrics {
         var days: Double { to - from }
     }
 
+    /// How much of one slot a part fills, reading left to right.
+    struct Share: Equatable, Sendable {
+        let part: Part
+        let fraction: Double
+    }
+
     /// The four segments, laid end to end, always summing to eight.
     ///
-    /// Surplus runs on past the target marker and eats into the hatching, which
-    /// is the right picture — days you did not owe. Beyond eight the arc is
-    /// capped and the label carries the rest: a dial that can leave its own
-    /// scale is not telling you anything.
+    /// Surplus runs on past the target and eats into the hatching, which is the
+    /// right picture — days you did not owe. Beyond eight the row is capped and
+    /// the verdict line carries the rest: a ninth slot would be a tally that
+    /// can leave its own frame.
     static func segments(attended: Double, booked: Double, target: Int) -> [Segment] {
-        let scale = scale
-        let worked = min(scale, max(0, attended))
-        let promised = min(scale - worked, max(0, booked))
-        let rest = scale - worked - promised
+        let length = Double(slotCount)
+        let worked = min(length, max(0, attended))
+        let promised = min(length - worked, max(0, booked))
+        let rest = length - worked - promised
         // What is still to find: the distance from what is arranged to the
-        // target, and never more than the arc has left.
+        // target, and never more than the row has left.
         let gap = min(rest, max(0, Double(target) - worked - promised))
         let off = rest - gap
 
@@ -90,31 +76,31 @@ nonisolated enum GaugeMetrics {
             }
     }
 
-    /// Where the target mark sits, as a fraction of the arc. This is the one
-    /// rule to learn — the arc has to reach the mark — and it is the same rule
-    /// in every month.
-    static func markerFraction(target: Int) -> Double {
-        fraction(days: Double(target))
+    /// The eight slots, each as the parts that fill it.
+    ///
+    /// A whole day fills a slot on its own. Only a half day splits one, because
+    /// attendance is recorded in halves: rounding it up would draw half a day
+    /// nobody worked, and rounding it down would hide one that was.
+    static func slots(attended: Double, booked: Double, target: Int) -> [[Share]] {
+        let segments = Self.segments(attended: attended, booked: booked, target: target)
+        return (0..<slotCount).map { index in
+            let start = Double(index)
+            return segments.compactMap { segment in
+                let overlap = min(start + 1, segment.to) - max(start, segment.from)
+                return overlap > 0 ? Share(part: segment.part, fraction: overlap) : nil
+            }
+        }
     }
 
-    /// How far round the arc a number of days sits, 0 to 1.
-    static func fraction(days: Double) -> Double {
-        min(1, max(0, days / scale))
+    /// Worked, plus today if it is booked, plus everything booked ahead: the
+    /// second figure under the row, `6 of 7 planned`. `booked` is the quota's
+    /// forecast, which already holds today until the day is out.
+    static func planned(attended: Double, booked: Double) -> Double {
+        max(0, attended) + max(0, booked)
     }
 
-    /// Days over target, or zero. The `+1 over` label.
+    /// Days over target, or zero. The verdict line's `· 1 over`.
     static func overshoot(attended: Double, target: Int) -> Double {
         max(0, attended - Double(target))
-    }
-
-    /// The angle at a given fraction of the way round.
-    static func angle(at fraction: Double) -> Double {
-        startAngle + sweep * fraction
-    }
-
-    /// One tick per whole day, 0 through 8 inclusive. Fixed, like the scale —
-    /// the ticks are days, and a day is the same size in every month.
-    static func tickAngles() -> [Double] {
-        (0...Int(scale)).map { angle(at: fraction(days: Double($0))) }
     }
 }

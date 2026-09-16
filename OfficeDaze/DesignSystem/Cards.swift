@@ -3,7 +3,7 @@ import SwiftUI
 /// The grouped-list vocabulary, built by hand rather than with `List`.
 ///
 /// `List` would give the separators and the row insets for free, but not the
-/// gauge card, the two coloured strips or the office cards — and mixing a List
+/// month card, the coloured strips or the office cards — and mixing a List
 /// with free-standing cards on one scroll view fights the framework the whole
 /// way. A ScrollView of white rounded rectangles is what the design draws, and
 /// it is less code than bending `List` into the same shape.
@@ -186,17 +186,17 @@ struct RowStack<Item: Identifiable, Row: View>: View {
     }
 }
 
-/// The shortfall strip, the green confirmation, and the two states between
-/// them — one shape in four colours.
+/// A booking's confirmation and its warnings — one shape in two colours.
 ///
-/// This is where all the judgement in the app lives, and the only place any of
-/// it does. The gauge above it is an inventory; red here means the target
-/// cannot be reached this month, and nothing else in the app is red.
+/// It was four, when it was also the month's verdict under the dial: grey for
+/// on track and red for a target out of reach. The verdict is a line of text on
+/// the month card now, so those two tones went with it, and no strip is red —
+/// the one red in the app belongs to that line.
 struct StatusStrip: View {
     /// `CaseIterable` so a test can hold every tone to the rule rather than the
-    /// four that happened to be written down — a fifth tone added without its
-    /// own colours would otherwise wear another one's silently.
-    enum Tone: CaseIterable { case warning, success, neutral, danger }
+    /// ones that happened to be written down — a new tone added without its own
+    /// colours would otherwise wear another one's silently.
+    enum Tone: CaseIterable { case warning, success }
 
     let tone: Tone
     let leading: String
@@ -207,8 +207,6 @@ struct StatusStrip: View {
         switch tone {
         case .warning: Palette.warningSurface
         case .success: Palette.successSurface
-        case .neutral: Palette.neutralSurface
-        case .danger: Palette.dangerSurface
         }
     }
 
@@ -216,8 +214,6 @@ struct StatusStrip: View {
         switch tone {
         case .warning: Palette.warningText
         case .success: Palette.successText
-        case .neutral: Palette.neutralText
-        case .danger: Palette.dangerText
         }
     }
 
@@ -227,14 +223,12 @@ struct StatusStrip: View {
         switch tone {
         case .warning: Palette.warningSecondary
         case .success: Palette.successText
-        case .neutral: Palette.secondary
-        case .danger: Palette.dangerText.opacity(0.75)
         }
     }
 
-    /// The two loud states keep the card shape and the roomier padding; the two
-    /// quiet ones are a pill under the dial.
-    static func isLoud(_ tone: Tone) -> Bool { tone == .success || tone == .danger }
+    /// The confirmation keeps the card shape and the roomier padding; a warning
+    /// is a pill.
+    static func isLoud(_ tone: Tone) -> Bool { tone == .success }
 
     private var surface: Color { Self.surface(tone) }
     private var text: Color { Self.text(tone) }
@@ -244,7 +238,7 @@ struct StatusStrip: View {
     var body: some View {
         HStack(spacing: 10) {
             if dot {
-                Circle().fill(Palette.met).frame(width: 8, height: 8)
+                Circle().fill(Palette.success).frame(width: 8, height: 8)
             }
             Text(leading)
                 .font(.system(size: 14, weight: dot ? .regular : .semibold))
@@ -256,9 +250,8 @@ struct StatusStrip: View {
                     .foregroundStyle(secondary)
             }
         }
-        // One line, shrinking a little rather than truncating. The strip now
-        // carries three numbers on a narrow phone, and half a sentence is
-        // worse than a slightly smaller whole one.
+        // One line, shrinking a little rather than truncating. On a narrow
+        // phone half a sentence is worse than a slightly smaller whole one.
         .lineLimit(1)
         .minimumScaleFactor(0.8)
         .padding(.vertical, isLoud ? 14 : 11)

@@ -240,7 +240,7 @@ struct SettingsScreen: View {
                     // reassuring colour.
                     .foregroundStyle(
                         Self.readiness(office, arrival: arrival).willFire
-                            ? Palette.met : Palette.secondary
+                            ? Palette.success : Palette.secondary
                     )
             }
         }

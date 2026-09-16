@@ -18,30 +18,9 @@ extension HomeScreen {
 
     var bookingsSection: some View {
         VStack(spacing: 8) {
-            // One plus, three labelled ways in.
-            //
-            // It was two unlabelled icons side by side, and a camera in a list
-            // header reads as "photograph this list" rather than "read a
-            // booking off a screen". The menu labels were already written and
-            // already good; they just could not be seen until something was
-            // pressed. Scanning goes first because it is the fastest way in —
-            // the confirmation is nearly always on a monitor in front of you,
-            // and there is not even a shutter to press.
-            SectionHeader(title: Self.bookingsTitle(month: month, today: .today)) {
-                Menu {
-                    Button("Scan a booking", systemImage: "camera") { camera = true }
-                    Button("Desk booking", systemImage: "square.and.pencil") {
-                        adding = .booking
-                    }
-                    Button("Day in the office", systemImage: "building.2") {
-                        adding = .attendance
-                    }
-                } label: {
-                    headerIcon("plus")
-                }
-                .accessibilityLabel("Add")
-                .foregroundStyle(Palette.tint)
-            }
+            // Just a title. Adding lives in the bar pinned to the bottom of the
+            // screen, where scanning costs one tap rather than three.
+            SectionHeader(Self.bookingsTitle(month: month, today: .today))
             if monthEntries.isEmpty {
                 emptyBookings
             } else {
@@ -89,7 +68,7 @@ extension HomeScreen {
                 // show. The row is the whole record.
                 deskless(
                     officeID: record.officeID, day: record.day,
-                    status: "Attended", tone: Palette.met
+                    status: "Attended", tone: Palette.success
                 )
             case .planned(let record):
                 deskless(
@@ -146,7 +125,7 @@ extension HomeScreen {
             if let status = bookingStatus(booking, attended: attended) {
                 Text(status)
                     .font(.system(size: 12, weight: attended ? .semibold : .regular))
-                    .foregroundStyle(attended ? Palette.met : Palette.secondary)
+                    .foregroundStyle(attended ? Palette.success : Palette.secondary)
             }
         }
         .padding(.vertical, 13)
@@ -160,13 +139,16 @@ extension HomeScreen {
     /// that could not be read — the never-guess rule is the app's best idea,
     /// and following it up deserves better than row, detail, Edit, then hunt
     /// for which of five fields is blank.
+    ///
+    /// In the colour of the "Needs checking" pill it leads to. It used to
+    /// borrow the dial's amber band, which went when the dial did.
     private func checkingButton(_ booking: DeskBooking) -> some View {
         Button {
             editing = booking
         } label: {
             Image(systemName: "exclamationmark.circle.fill")
                 .font(.system(size: 15))
-                .foregroundStyle(Palette.close)
+                .foregroundStyle(Palette.warningText)
                 .padding(.vertical, 13)
                 .padding(.horizontal, 14)
                 .frame(minHeight: Metrics.minimumRow)
@@ -182,15 +164,6 @@ extension HomeScreen {
         if attended { return "Attended" }
         if booking.notAttended { return "Not attended" }
         return unanswered(.booking(booking)) ? nil : "Booked"
-    }
-
-    /// An icon on its own is a small target, so it carries a tappable frame
-    /// around it rather than only its own glyph.
-    private func headerIcon(_ symbol: String) -> some View {
-        Image(systemName: symbol)
-            .font(.system(size: 17))
-            .frame(width: 36, height: 30)
-            .contentShape(Rectangle())
     }
 
     /// A day on prem with no desk behind it, worked or intended. Says so where
@@ -214,7 +187,7 @@ extension HomeScreen {
             Spacer(minLength: 8)
             if let status {
                 Text(status)
-                    .font(.system(size: 12, weight: tone == Palette.met ? .semibold : .regular))
+                    .font(.system(size: 12, weight: tone == Palette.success ? .semibold : .regular))
                     .foregroundStyle(tone)
             }
         }

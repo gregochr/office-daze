@@ -1,162 +1,111 @@
 import SwiftUI
 
-/// The month at a glance: a fixed 0–8 scale with the days stacked along it.
+/// The month at a glance: eight slots, and the two figures under them.
 ///
-/// It replaced a banded speedometer, and the reason is worth keeping: that dial
-/// said "behind" in colour by three different rules six millimetres apart, and
-/// none of them was the thing you wanted to know. Fixed fractions of the target
-/// cannot be right for a count that accumulates toward a month-end deadline —
-/// on the 2nd, nought of eight is normal; on the 28th, four of eight is a
-/// crisis — so the red band was on screen for the first fortnight of every
-/// month, when nothing was wrong. A warning that is correct by default is a
-/// warning you stop reading.
+/// It replaced a dial, and the reason is worth keeping: the dial answered
+/// neither of the questions actually asked of this card — have I done eight
+/// days, and have I got eight days planned. It drew one number three times, as
+/// an arc, a needle at the arc's end and a marker, and left the days booked
+/// ahead in a caption. Before that it was a banded speedometer whose bands were
+/// fixed fractions of the target, so they could not know what day it was:
+/// nought of eight on the 2nd read red, and four of eight on the 28th read
+/// amber, which is backwards.
 ///
-/// So there is no judgement on the dial at all. It is an inventory: solid means
-/// counted, tint means promised, empty means owed, hatched means not owed. The
-/// one rule to learn is that the arc has to reach the marker, and it is the same
-/// rule in every month. Judgement lives in the strip underneath, once, from
-/// `Quota.Standing`.
-///
-/// Drawn at a fixed `GaugeMetrics.boxSize`, so the mock's radii can be used
-/// verbatim rather than re-derived as fractions of the frame. Everything about
-/// angles lives in `GaugeMetrics`; this file only turns those into strokes.
+/// So this is a tally. Eight slots whatever the target, filled in order of
+/// state — worked, booked, still to find, and hatched for what leave took off —
+/// so eight is small enough to count without a scale. **Not a calendar**: slot
+/// three is not a particular day, and nothing here can be tapped. The list
+/// below is where days are touched. Judgement lives in the verdict line
+/// underneath, once, from `Quota.Standing`.
 struct AttendanceGauge: View {
     let attended: Double
-    /// Days booked ahead and not yet worked. The number the old dial left out
-    /// entirely — it was a phrase in the strip, arguing with the arc above it.
+    /// Days planned and not yet worked: today if it is booked, and every day
+    /// booked ahead. The quota's forecast.
     var booked: Double = 0
     let target: Int
 
-    private var segments: [GaugeMetrics.Segment] {
-        GaugeMetrics.segments(attended: attended, booked: booked, target: target)
-    }
-
-    private var overshoot: Double { GaugeMetrics.overshoot(attended: attended, target: target) }
+    // The mock's own numbers, rather than fractions of the card.
+    private static let slotSpacing: CGFloat = 6
+    private static let slotHeight: CGFloat = 46
+    private static let slotRadius: CGFloat = 7
+    private static let hatchWidth: CGFloat = 2
+    /// Measured square to the lines, as the mock's gradient measures it.
+    private static let hatchPitch: CGFloat = 6
 
     var body: some View {
-        ZStack {
-            Canvas { context, _ in draw(in: &context) }
-                .frame(
-                    width: GaugeMetrics.boxSize.width,
-                    height: GaugeMetrics.boxSize.height
-                )
-
-            // The reading sits inside the open bottom of the arc. Text rather
-            // than Canvas so it stays selectable to VoiceOver's rotor and picks
-            // up tabular figures for free.
-            VStack(spacing: 1) {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(Self.number(attended))
-                        .font(.system(size: 40, weight: .bold))
-                        .monospacedDigit()
-                        .kerning(-1.2)
-                        .foregroundStyle(Palette.text)
-                    Text("of \(target)")
-                        .font(.system(size: 17))
-                        .foregroundStyle(Palette.secondary)
-                }
-                // The second half of the reading, and the reason the dial no
-                // longer needs a sentence underneath arguing with it.
-                if let ahead {
-                    Text(ahead)
-                        .font(.system(size: 13))
-                        .monospacedDigit()
-                        .foregroundStyle(Palette.tint)
+        VStack(spacing: 14) {
+            HStack(spacing: Self.slotSpacing) {
+                ForEach(Array(slots.enumerated()), id: \.offset) { _, shares in
+                    Self.slot(shares)
                 }
             }
-            // Sized to the dial's own box, not to whatever the card offers.
-            // Left to expand, the end labels drift inward and land on the arc.
-            .frame(
-                width: GaugeMetrics.boxSize.width,
-                height: GaugeMetrics.boxSize.height,
-                alignment: .bottom
-            )
-            .padding(.bottom, 4)
+            .frame(height: Self.slotHeight)
 
-            // The two ends of the scale — 0 and 8, never the target. The target
-            // is the marker on the arc, and putting it here as well was what
-            // let a hard month and an easy one draw an identical dial.
-            HStack {
-                Text("0")
-                Spacer()
-                Text(Self.number(GaugeMetrics.scale))
+            HStack(spacing: 10) {
+                figure(Palette.gaugeAttended, Self.number(attended), Self.unit(attended) + " done")
+                Spacer(minLength: 0)
+                figure(Palette.gaugeBooked, "\(Self.number(planned)) of \(target)", "planned")
             }
-            .font(.system(size: 12))
-            .foregroundStyle(Palette.tertiary)
-            .padding(.horizontal, 12)
-            .frame(
-                width: GaugeMetrics.boxSize.width,
-                height: GaugeMetrics.boxSize.height,
-                alignment: .bottom
-            )
-            .padding(.bottom, 50)
         }
-        .frame(width: GaugeMetrics.boxSize.width, height: GaugeMetrics.boxSize.height)
+        // One element, read as the two figures. The slots are the same numbers
+        // drawn, and eight stops saying "filled" would be a calendar VoiceOver
+        // could not tell the dates of.
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Attendance")
-        .accessibilityValue(accessibilityValue)
+        .accessibilityLabel(Self.spoken(attended: attended, booked: booked, target: target))
     }
 
-    /// `+3 booked`, or `+1 over` once the target is passed. Never both: past
-    /// the target, what is still booked ahead is no longer the news.
-    private var ahead: String? {
-        if overshoot > 0 { return "+\(Self.number(overshoot)) over" }
-        guard booked > 0 else { return nil }
-        return "+\(Self.number(booked)) booked"
+    private var slots: [[GaugeMetrics.Share]] {
+        GaugeMetrics.slots(attended: attended, booked: booked, target: target)
     }
 
-    private var accessibilityValue: String {
-        var parts = ["\(Self.number(attended)) of \(target) days"]
-        if booked > 0 { parts.append("\(Self.number(booked)) booked ahead") }
-        if overshoot > 0 { parts.append("\(Self.number(overshoot)) over target") }
-        let off = GaugeMetrics.scale - Double(target)
-        if off > 0 { parts.append("\(Self.number(off)) off the target for leave") }
-        return parts.joined(separator: ", ")
+    private var planned: Double { GaugeMetrics.planned(attended: attended, booked: booked) }
+
+    /// `4 days done, 6 of 7 planned` — what VoiceOver reads for the whole row.
+    static func spoken(attended: Double, booked: Double, target: Int) -> String {
+        let planned = GaugeMetrics.planned(attended: attended, booked: booked)
+        return "\(number(attended)) \(unit(attended)) done, \(number(planned)) of \(target) planned"
     }
 
     static func number(_ value: Double) -> String {
         value.formatted(.number.precision(.fractionLength(0...1)))
     }
 
-    // MARK: Drawing
-
-    /// The Canvas is pinned to `GaugeMetrics.boxSize`, so it is drawn in the
-    /// mock's own 256×208 coordinates and no `size` is passed in.
-    ///
-    /// There used to be a `context.scaleBy(size.width / boxSize.width)` here,
-    /// under a comment saying the dial shrank to fit a small phone. It never
-    /// did: the Canvas, the label overlays and the enclosing ZStack are all
-    /// framed at `boxSize`, so the factor was structurally 1 and the shrinking
-    /// was a promise the code could not keep. It is deleted rather than made
-    /// real because it does not need to be real — the narrowest phone iOS 26
-    /// supports is 375pt, which leaves 311pt of card interior after the
-    /// screen and card padding, against a 256pt box. If that ever stops being
-    /// true, scaling the context is not enough on its own: the two label
-    /// overlays are positioned in `boxSize` too, so they would have to be
-    /// driven from a measured width at the same time, or they will drift onto
-    /// the arc.
-    private func draw(in context: inout GraphicsContext) {
-        drawSegments(&context)
-        drawTicks(&context)
-        drawMarker(&context)
+    private static func unit(_ days: Double) -> String {
+        days == 1 ? "day" : "days"
     }
 
-    private func drawSegments(_ context: inout GraphicsContext) {
-        for segment in segments {
-            let path = arc(
-                from: GaugeMetrics.fraction(days: segment.from),
-                to: GaugeMetrics.fraction(days: segment.to)
-            )
-            context.stroke(
-                path,
-                with: .color(colour(segment.part)),
-                lineWidth: GaugeMetrics.valueWidth
-            )
-            if segment.part == .off { hatch(&context, over: path) }
+    /// A swatch in the slot's own fill, then the figure in the text colour and
+    /// the words in grey — so the number is what the eye lands on.
+    private func figure(_ swatch: Color, _ figure: String, _ words: String) -> some View {
+        HStack(spacing: 7) {
+            RoundedRectangle(cornerRadius: 3)
+                .fill(swatch)
+                .frame(width: 10, height: 10)
+            Text("\(Text(figure).fontWeight(.semibold).monospacedDigit().foregroundStyle(Palette.text)) \(words)")
+                .font(.system(size: 13))
+                .foregroundStyle(Palette.secondary)
+                .lineLimit(1)
         }
     }
 
-    private func colour(_ part: GaugeMetrics.Part) -> Color {
+    // MARK: Drawing
+
+    /// One slot. A whole day is one fill; a half day splits the slot where it
+    /// ends, so a canvas rather than a filled shape.
+    private static func slot(_ shares: [GaugeMetrics.Share]) -> some View {
+        Canvas { context, size in
+            var x: CGFloat = 0
+            for share in shares {
+                let rect = CGRect(x: x, y: 0, width: size.width * share.fraction, height: size.height)
+                context.fill(Path(rect), with: .color(colour(share.part)))
+                if share.part == .off { hatch(&context, in: rect) }
+                x = rect.maxX
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: slotRadius))
+    }
+
+    private static func colour(_ part: GaugeMetrics.Part) -> Color {
         switch part {
         case .attended: Palette.gaugeAttended
         case .booked: Palette.gaugeBooked
@@ -165,82 +114,31 @@ struct AttendanceGauge: View {
         }
     }
 
-    /// Diagonals clipped to the segment's own stroked shape. Hatching rather
-    /// than a fourth grey because these days are excluded rather than merely
-    /// empty, and one more shade of grey would not say the difference.
-    private func hatch(_ context: inout GraphicsContext, over path: Path) {
-        let shape = path.strokedPath(StrokeStyle(lineWidth: GaugeMetrics.valueWidth))
+    /// Diagonals at 45°, falling left to right, clipped to the part of the slot
+    /// that is off. Hatching rather than a fifth grey because these days are
+    /// excluded rather than merely empty, and one more shade of grey would not
+    /// say the difference.
+    private static func hatch(_ context: inout GraphicsContext, in rect: CGRect) {
+        // The pitch is square to the lines, so along the row they are √2 apart.
+        let step = hatchPitch * 2.squareRoot()
         var lines = Path()
-        let box = shape.boundingRect.insetBy(dx: -GaugeMetrics.valueWidth, dy: -GaugeMetrics.valueWidth)
-        var x = box.minX - box.height
-        while x < box.maxX {
-            lines.move(to: CGPoint(x: x, y: box.maxY))
-            lines.addLine(to: CGPoint(x: x + box.height, y: box.minY))
-            x += 6
+        var x = rect.minX - rect.height
+        while x < rect.maxX {
+            lines.move(to: CGPoint(x: x, y: rect.minY))
+            lines.addLine(to: CGPoint(x: x + rect.height, y: rect.maxY))
+            x += step
         }
         context.drawLayer { layer in
-            layer.clip(to: shape)
-            layer.stroke(lines, with: .color(Palette.gaugeHatch), lineWidth: 1.5)
+            layer.clip(to: Path(rect))
+            layer.stroke(lines, with: .color(Palette.gaugeHatch), lineWidth: hatchWidth)
         }
-    }
-
-    /// One per whole day, outside the arc. They must not overlap it — a tick
-    /// crossing the arc reads as a gap in it.
-    private func drawTicks(_ context: inout GraphicsContext) {
-        for angle in GaugeMetrics.tickAngles() {
-            let radians = Angle(degrees: angle).radians
-            var path = Path()
-            path.move(to: point(radius: GaugeMetrics.tickInnerRadius, radians: radians))
-            path.addLine(to: point(radius: GaugeMetrics.tickOuterRadius, radians: radians))
-            context.stroke(
-                path, with: .color(Palette.tick), lineWidth: GaugeMetrics.tickWidth
-            )
-        }
-    }
-
-    /// Where the hatching starts, and the whole rule the dial is teaching:
-    /// everything left of this has to be filled.
-    private func drawMarker(_ context: inout GraphicsContext) {
-        let radians = Angle(
-            degrees: GaugeMetrics.angle(at: GaugeMetrics.markerFraction(target: target))
-        ).radians
-        let inner = GaugeMetrics.valueRadius - GaugeMetrics.valueWidth / 2 - GaugeMetrics.markerOverhang
-        let outer = GaugeMetrics.valueRadius + GaugeMetrics.valueWidth / 2 + GaugeMetrics.markerOverhang
-        var path = Path()
-        path.move(to: point(radius: inner, radians: radians))
-        path.addLine(to: point(radius: outer, radians: radians))
-        context.stroke(
-            path,
-            with: .color(Palette.text),
-            style: StrokeStyle(lineWidth: GaugeMetrics.markerWidth, lineCap: .round)
-        )
-    }
-
-    // MARK: Geometry
-
-    private func arc(from: Double, to: Double) -> Path {
-        var path = Path()
-        path.addArc(
-            center: GaugeMetrics.centre,
-            radius: GaugeMetrics.valueRadius,
-            startAngle: .degrees(GaugeMetrics.angle(at: from)),
-            endAngle: .degrees(GaugeMetrics.angle(at: to)),
-            clockwise: false
-        )
-        return path
-    }
-
-    private func point(radius: Double, radians: Double) -> CGPoint {
-        CGPoint(
-            x: GaugeMetrics.centre.x + radius * cos(radians),
-            y: GaugeMetrics.centre.y + radius * sin(radians)
-        )
     }
 }
 
 // MARK: - Sample states
 
-/// One row of the sheet of dials — a caption and the three numbers that draw it.
+/// One row of the sheet of tallies — a caption and the three numbers that draw
+/// it.
 ///
 /// A named type rather than a tuple because there are four fields and two of
 /// them are `Double`s that mean different things: `(3, 3, 6)` and `(3, 6, 3)`
@@ -249,8 +147,8 @@ struct AttendanceGauge: View {
 ///
 /// It lives beside the gauge rather than beside either of its callers because
 /// both the Xcode preview below and the `-screen gauge` page in `DebugRouter`
-/// draw the same sheet, and the sheet is a property of the dial: the fixed
-/// scale only means anything if the states are compared with each other.
+/// draw a sheet of them, and the sheet is a property of the row: eight fixed
+/// slots only mean anything if the states are compared with each other.
 struct GaugeSample {
     let title: String
     let attended: Double
@@ -260,43 +158,32 @@ struct GaugeSample {
 
 // MARK: - Previews
 
-/// The states from the review, so the dial can be judged on its own before it
-/// is embedded in anything. The point of the fixed scale is that these are
-/// comparable with each other — the same day is the same width in all of them.
-#Preview("Four states") {
+/// The same days against three targets, so the one thing the fixed eight is for
+/// can be seen: a hard month and an easy one are different cards.
+#Preview("Targets eight, six and four") {
     let states = [
-        GaugeSample(title: "Can't reach it · 2 of 8, +1 booked", attended: 2, booked: 1, target: 8),
-        GaugeSample(title: "On track · 3 of 6, +3 booked", attended: 3, booked: 3, target: 6),
-        GaugeSample(title: "Target met · 6 of 6", attended: 6, booked: 0, target: 6),
-        GaugeSample(title: "Over · 7 of 6", attended: 7, booked: 1, target: 6),
+        GaugeSample(title: "Target 8 · 4 done, 2 booked", attended: 4, booked: 2, target: 8),
+        GaugeSample(title: "Target 6 · the same days", attended: 4, booked: 2, target: 6),
+        GaugeSample(title: "Target 4 · 2 done, 1 booked", attended: 2, booked: 1, target: 4),
+        GaugeSample(title: "Nine done · capped at eight", attended: 9, booked: 0, target: 8),
+        GaugeSample(title: "A half day · 4.5 done", attended: 4.5, booked: 2, target: 7),
     ]
     return ScrollView {
         VStack(spacing: Metrics.cardGap) {
             ForEach(states, id: \.title) { state in
-                VStack(spacing: 2) {
-                    Text(state.title)
-                        .font(.system(size: 13))
-                        .foregroundStyle(Palette.secondary)
-                    AttendanceGauge(
-                        attended: state.attended, booked: state.booked, target: state.target
-                    )
+                Card(padding: EdgeInsets(top: 12, leading: 16, bottom: 16, trailing: 16)) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text(state.title)
+                            .font(.system(size: 13))
+                            .foregroundStyle(Palette.secondary)
+                        AttendanceGauge(
+                            attended: state.attended, booked: state.booked, target: state.target
+                        )
+                    }
                 }
-                .padding(.vertical, 12)
-                .frame(maxWidth: .infinity)
-                .background(Palette.card)
-                .clipShape(RoundedRectangle(cornerRadius: Metrics.cardRadius))
             }
         }
         .padding(Metrics.screenPadding)
     }
-    .background(Palette.ground)
-}
-
-#Preview("Half days and an empty month") {
-    VStack(spacing: Metrics.cardGap) {
-        AttendanceGauge(attended: 4.5, booked: 1, target: 7)
-        AttendanceGauge(attended: 0, booked: 0, target: 8)
-    }
-    .padding(Metrics.screenPadding)
     .background(Palette.ground)
 }

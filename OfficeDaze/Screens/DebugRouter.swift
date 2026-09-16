@@ -121,37 +121,40 @@ struct DebugRouter: View {
     }
 }
 
-/// The dial's states side by side, which is the only way to judge it: the
-/// point of a fixed scale is that two months are comparable, and a scale can
+/// The slot row's states side by side, which is the only way to judge it: the
+/// point of eight fixed slots is that two months are comparable, and a row can
 /// only be compared with another one.
 ///
-/// The same four the Xcode preview draws, put behind `-screen gauge` because a
-/// preview cannot be screenshotted from a script and the hatching is the
-/// fiddliest thing in the drawing.
+/// Put behind `-screen gauge` because a preview cannot be screenshotted from a
+/// script, and the hatching and the half-day split are the fiddliest things in
+/// the drawing.
 struct GaugeStates: View {
 
     /// The states the page exists to put side by side.
     ///
-    /// A named table rather than five literals inside the body, because the
-    /// value of this screen is entirely in the list being *complete*: drop the
-    /// over-target row and the hatching — the fiddliest thing in the drawing,
-    /// and the only part with no month in the sample data to exercise it —
-    /// stops being looked at, and the page still renders four perfectly good
-    /// dials that say nothing is wrong.
+    /// A named table rather than literals inside the body, because the value of
+    /// this screen is entirely in the list being *complete*: drop the rows that
+    /// hatch, or the half day, and the fiddliest parts of the drawing — the ones
+    /// with no month in the sample data to exercise them — stop being looked
+    /// at, while the page still renders perfectly good rows that say nothing is
+    /// wrong. Targets eight and six share their days, so what leave does to the
+    /// card is the only difference between them.
     static let states: [GaugeSample] = [
-        GaugeSample(title: "Can't reach it · 2 of 8", attended: 2, booked: 1, target: 8),
-        GaugeSample(title: "On track · 3 of 6, two off for leave", attended: 3, booked: 3, target: 6),
-        GaugeSample(title: "Target met · 6 of 6", attended: 6, booked: 0, target: 6),
-        GaugeSample(title: "Over · 7 of 6", attended: 7, booked: 1, target: 6),
-        GaugeSample(title: "All month off · 0 of 0", attended: 0, booked: 0, target: 0),
+        GaugeSample(title: "Target 8 · 4 done, 2 booked", attended: 4, booked: 2, target: 8),
+        GaugeSample(title: "Target 6 · the same days", attended: 4, booked: 2, target: 6),
+        GaugeSample(title: "Target 4 · 2 done, 1 booked", attended: 2, booked: 1, target: 4),
+        GaugeSample(title: "Over target · 7 of 6, into the hatching", attended: 7, booked: 0, target: 6),
+        GaugeSample(title: "Nine done · capped at eight", attended: 9, booked: 0, target: 8),
+        GaugeSample(title: "A half day · 4.5 done", attended: 4.5, booked: 2, target: 7),
+        GaugeSample(title: "All month off · target 0", attended: 0, booked: 0, target: 0),
     ]
 
     var body: some View {
         ScrollView {
             VStack(spacing: Metrics.cardGap) {
                 ForEach(Self.states, id: \.title) { state in
-                    Card(padding: EdgeInsets(top: 12, leading: 8, bottom: 12, trailing: 8)) {
-                        VStack(spacing: 2) {
+                    Card(padding: EdgeInsets(top: 12, leading: 16, bottom: 16, trailing: 16)) {
+                        VStack(alignment: .leading, spacing: 12) {
                             Text(state.title)
                                 .font(.system(size: 13))
                                 .foregroundStyle(Palette.secondary)
@@ -159,7 +162,6 @@ struct GaugeStates: View {
                                 attended: state.attended, booked: state.booked, target: state.target
                             )
                         }
-                        .frame(maxWidth: .infinity)
                     }
                 }
             }
