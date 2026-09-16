@@ -211,6 +211,83 @@ struct CaptureCoordinatorTests {
         )
     }
 
+    /// A desk the recogniser read as `CC03D128` off a monitor, with nothing
+    /// else on the row to say which building it is in.
+    func misreadSite() -> [ParsedBooking] {
+        [ParsedBooking(
+            officeName: nil, day: Day(2026, 8, 4), deskID: "CC03D128",
+            floor: nil, zone: nil, startTime: "08:00", endTime: "17:00",
+            unsureFields: ["floor", "zone"]
+        )]
+    }
+
+    /// The rule the user set: CO is Coleman Street, so a desk filed under
+    /// Coleman is a CO desk whatever the recogniser made of those two letters.
+    /// The corrected id decodes, and the floor and zone the page did not print
+    /// come out of it.
+    @Test("A desk filed under an office whose site code is known takes that site code")
+    func filesUnderTheSiteCode() async throws {
+        stub(misreadSite())
+        await coordinator.receive(data: image, filename: "one.png")
+        let read = try #require(coordinator.current)
+        #expect(coordinator.matchedOffice(for: read) == nil, "nothing printed, so the sheet asks")
+
+        let filed = coordinator.filed(read, under: SeedData.colemanID)
+        #expect(filed.deskID == "CO03D128")
+        #expect(filed.floor == "03")
+        #expect(filed.zone == "D")
+        #expect(!filed.needsChecking, "\(filed.unsureFields)")
+        #expect(filed.id == read.id, "the same booking, corrected")
+
+        #expect(
+            coordinator.filed(read, under: SeedData.brusselsID).deskID == "CC03D128",
+            "an office with no site code to its name leaves the id as read"
+        )
+        #expect(coordinator.filed(read, under: nil).deskID == "CC03D128", "and so does no office")
+
+        coordinator.save(read, to: SeedData.colemanID)
+        let stored = try #require(try bookings().first { $0.day == Day(2026, 8, 4) })
+        #expect(stored.deskID == "CO03D128", "written as filed, whichever route saved it")
+        #expect(stored.floor == "03")
+        #expect(stored.zone == "D")
+    }
+
+    /// Nobody types a site code. The first desk filed under an office whose
+    /// id decodes teaches it, and from then on the office corrects.
+    @Test("An office learns its site code from the first decodable desk filed there")
+    func learnsTheSiteCode() async throws {
+        try office(SeedData.colemanID).siteCode = nil
+        stub(CaptureSamples.colemanWeek)
+        await coordinator.receive(data: image, filename: "week.png")
+        let booking = try #require(coordinator.current)
+
+        coordinator.save(booking, to: SeedData.colemanID)
+
+        #expect(try office(SeedData.colemanID).siteCode == "CO")
+    }
+
+    /// An office that was saved before site codes existed is not asked to
+    /// wait for a fresh capture: the desks it already holds say what it is.
+    @Test("An office never told its site code reads it off the desks it already holds")
+    func infersTheSiteCodeFromHistory() async throws {
+        try office(SeedData.colemanID).siteCode = nil
+        container.mainContext.insert(DeskBooking(
+            officeID: SeedData.colemanID, day: Day(2026, 8, 20), deskID: "CO03C117",
+            floor: "03", zone: "C", startTime: "08:00", endTime: "17:00", source: .capture
+        ))
+        try container.mainContext.save()
+        stub(misreadSite())
+        await coordinator.receive(data: image, filename: "one.png")
+        let read = try #require(coordinator.current)
+
+        #expect(coordinator.siteCode(for: SeedData.colemanID) == "CO")
+        #expect(coordinator.filed(read, under: SeedData.colemanID).deskID == "CO03D128")
+        #expect(
+            coordinator.siteCode(for: SeedData.brusselsID) == nil,
+            "the seeded Brussels desk is not in the site's shape, so it teaches nothing"
+        )
+    }
+
     /// Only the answers worth keeping. A name the rules already handle would
     /// fill the office's list with what it is called anyway.
     @Test("A name that already matched is not remembered")
@@ -862,7 +939,11 @@ struct CaptureCoordinatorTests {
         }
         #expect(coordinator.unsavedAsides.count == 1, "and the alias is not forgotten either")
         #expect(coordinator.unsavedAsides.first?.aside.officeName?.officeID == SeedData.colemanID)
-        #expect(attempted.candidates.first?.deskID == booking.deskID, "the write was for this row")
+        #expect(
+            attempted.candidates.first?.deskID
+                == coordinator.filed(booking, under: SeedData.colemanID).deskID,
+            "the write was for this row, as filed under the office"
+        )
         #expect(try storedAliases(SeedData.colemanID).isEmpty, "and this time nothing landed")
     }
 

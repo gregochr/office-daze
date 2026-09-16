@@ -42,6 +42,25 @@ nonisolated struct DeskID: Equatable, Sendable {
     /// The zone, when the id's scheme is known.
     var decodedZone: String? { isDecodable ? zone : nil }
 
+    /// The same desk under another site code: the correction an office makes
+    /// to an id filed under it, when the recogniser got those two letters
+    /// wrong. See `Office.siteCode`.
+    func filed(underSite site: String) -> DeskID {
+        var filed = self
+        filed.site = site
+        return filed
+    }
+
+    /// The one known site every decodable id in the list opens with, or nil
+    /// when none decodes or they disagree. What an office's history says its
+    /// site code is, before it has been told — and only ids from a known
+    /// site count, because a misread site code is exactly what this must not
+    /// learn from.
+    static func site(sharedBy deskIDs: [String]) -> String? {
+        let sites = Set(deskIDs.compactMap(parse).filter(\.isDecodable).map(\.site))
+        return sites.count == 1 ? sites.first : nil
+    }
+
     // MARK: Reading one
 
     /// The id an eight-character token is, once its misreadings are undone —

@@ -126,7 +126,7 @@ final class CaptureCoordinator {
     /// failure does *not* take the capture down with it.
     var writeAside: (Aside) throws -> Void
 
-    private let context: ModelContext
+    let context: ModelContext
 
     init(context: ModelContext) {
         self.context = context
@@ -164,7 +164,7 @@ final class CaptureCoordinator {
     ///
     /// What is not acceptable, and what was here, is `try?`. Carrying on is a
     /// decision; discarding the fact is not.
-    private func write(_ aside: Aside) {
+    func write(_ aside: Aside) {
         do {
             try writeAside(aside)
         } catch {
@@ -388,28 +388,6 @@ final class CaptureCoordinator {
         return index == bookings.count - 1
     }
 
-    /// The office this booking will be filed under, or nil if the sheet has to
-    /// ask. Never creates one.
-    func matchedOffice(for booking: ParsedBooking) -> Office? {
-        // Sorted, because a bare `FetchDescriptor` has no defined order and
-        // every rule in `OfficeMatcher` is "exactly one, or nothing" — a rule
-        // that has to look at all the candidates anyway should not have its
-        // answer depend on which one SwiftData happened to hand back first.
-        let offices = (try? context.fetch(
-            FetchDescriptor<Office>(sortBy: [SortDescriptor(\.name)])
-        )) ?? []
-        let candidates = offices.map {
-            OfficeMatcher.Candidate(
-                id: $0.id, name: $0.name, postcode: $0.postcode, address: $0.address,
-                aliases: $0.aliases
-            )
-        }
-        guard let match = OfficeMatcher.match(booking.officeName, against: candidates) else {
-            return nil
-        }
-        return offices.first { $0.id == match.id }
-    }
-
     /// The booking already held for this office and day, if there is one.
     ///
     /// A second capture of the same day is a change rather than a duplicate, so
@@ -450,6 +428,11 @@ final class CaptureCoordinator {
         if let printed = booking.officeName, matchedOffice(for: booking) == nil {
             remember(printed, as: officeID)
         }
+        // Under this office, the desk is this office's desk: its site code is
+        // the office's, whatever the recogniser read. Done here as well as in
+        // the sheet, so a booking saved by any route is written the same way.
+        let booking = filed(booking, under: officeID)
+        learnSite(from: booking.deskID, for: officeID)
         // Only a write that landed may be drawn as one. `try?` here meant a
         // failed save turned the segment green and advanced the sheet anyway:
         // the user watched three capsules fill, the sheet dismissed, and the
@@ -483,31 +466,6 @@ final class CaptureCoordinator {
         saved.insert(booking.id)
         phase = .review(bookings: bookings, index: index, saved: saved)
         advance()
-    }
-
-    /// The sheet asked which office this printed name meant and was told. Next
-    /// capture it will not ask.
-    ///
-    /// Taken off every other office on the way, because a building name means
-    /// one building: leaving it on two would make both claim it, which the
-    /// matcher reads as ambiguous and answers by asking again — the very thing
-    /// this exists to stop. The newest answer is the one that stands.
-    private func remember(_ printed: String, as officeID: UUID) {
-        let offices = (try? context.fetch(FetchDescriptor<Office>())) ?? []
-        guard let target = offices.first(where: { $0.id == officeID }) else { return }
-
-        for office in offices where office.id != officeID {
-            office.aliases.removeAll { OfficeMatcher.matches(printed, $0) }
-        }
-        if !target.aliases.contains(where: { OfficeMatcher.matches(printed, $0) }) {
-            target.aliases.append(printed)
-        }
-        // Not the booking, so not the error screen. The strip above and the
-        // append are both pending on the context the booking is about to be
-        // written through, so a save that fails here is usually flushed by that
-        // one anyway — and when it is not, the booking's failure is the sentence
-        // worth reading.
-        write(.officeName(printed, officeID: target.id))
     }
 
     /// Skip is a save that writes nothing. From here the two are the same

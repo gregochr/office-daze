@@ -34,7 +34,8 @@ enum SeedData {
             postcode: "EC2R 5BB",
             latitude: 51.5172,
             longitude: -0.0893,
-            colourHex: OfficeColours.palette[0]
+            colourHex: OfficeColours.palette[0],
+            siteCode: "CO"
         )
         // Euroclear Bank. The coordinates are read off the street, not
         // surveyed — close enough to seed a 50m perimeter for the simulator,
