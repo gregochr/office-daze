@@ -19,6 +19,11 @@ xcuserdata/
 # can't be committed by accident.
 *.secret
 
+# Claude Code's local session state. It is this machine's working notes, not
+# the project's — and being untracked, it was one stray `git add -A` away from
+# being committed by accident.
+.claude/
+
 # The design bundle stays on disk and out of the repo. It is the reference
 # the app was built from — the mockups, the handoff, the data-model spec —
 # and it is not source. Anyone picking this up needs it handed to them
