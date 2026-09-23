@@ -46,16 +46,19 @@ enum Palette {
     /// drawn over rows scrolling under it rather than between two of them.
     static let barHairline = Color(hex: 0xE4E4E9)
 
-    /// Something done: a day attended, a booking filed, an alert that will
-    /// fire. What `met` was being used for everywhere but the dial.
-    static let success = Color(hex: 0x2FA36B)
+    /// Something done and holding: a day attended, a booking filed, an alert
+    /// that will fire. The tint, named for what it means here — teal is the
+    /// only accent in the app, and the green this replaced said the same thing
+    /// as the attended slot in a second colour.
+    static let settled = tint
+    /// The ground under settled things — the success strip, an attended day in
+    /// the leave calendar: the tint at 10% over white, so it reads as the same
+    /// teal rather than as a new colour.
+    static let settledSurface = Color(hex: 0xE6F2F0)
 
     static let warningSurface = Color(hex: 0xFFF8E8)
     static let warningText = Color(hex: 0x8A5A00)
     static let warningSecondary = Color(hex: 0xA98033)
-
-    static let successSurface = Color(hex: 0xEAF7F0)
-    static let successText = Color(hex: 0x1B6B47)
 }
 
 extension Color {

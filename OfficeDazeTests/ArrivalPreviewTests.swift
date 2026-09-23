@@ -691,7 +691,7 @@ struct CardsTests {
     @Test("The right-hand figure takes the strip's colour, not the amber one")
     func secondaryFollowsTheTone() {
         #expect(StatusStrip.secondary(.warning) == Palette.warningSecondary)
-        #expect(StatusStrip.secondary(.success) == Palette.successText)
+        #expect(StatusStrip.secondary(.success) == Palette.settled)
         for tone in StatusStrip.Tone.allCases where tone != .warning {
             #expect(
                 StatusStrip.secondary(tone) != Palette.warningSecondary,

@@ -281,11 +281,11 @@ struct LeaveScreen: View {
 
     /// Leave wins over the ground it sits on, in both channels: a day booked off
     /// and later attended is drawn as leave, because leave is what the tap acts
-    /// on, and drawing it green would say the cell does nothing.
+    /// on, and drawing it teal would say the cell does nothing.
     static func foreground(_ cell: LeaveCell) -> Color {
         if cell.fraction != nil { return Palette.warningText }
         switch cell.ground {
-        case .attended: return Palette.successText
+        case .attended: return Palette.settled
         case .bankHoliday, .weekend: return Palette.tertiary
         case .working: return Palette.text
         }
@@ -299,7 +299,7 @@ struct LeaveScreen: View {
             return Palette.warningSurface.opacity(fraction >= 1 ? 1 : 0.5)
         }
         switch cell.ground {
-        case .attended: return Palette.successSurface
+        case .attended: return Palette.settledSurface
         case .bankHoliday, .weekend: return Palette.hairline.opacity(0.6)
         case .working: return .clear
         }

@@ -206,23 +206,23 @@ struct StatusStrip: View {
     static func surface(_ tone: Tone) -> Color {
         switch tone {
         case .warning: Palette.warningSurface
-        case .success: Palette.successSurface
+        case .success: Palette.settledSurface
         }
     }
 
     static func text(_ tone: Tone) -> Color {
         switch tone {
         case .warning: Palette.warningText
-        case .success: Palette.successText
+        case .success: Palette.settled
         }
     }
 
     /// Follows the tone. It was amber whatever the strip was, which only went
-    /// unnoticed while the green strip had nothing on its right.
+    /// unnoticed while the success strip had nothing on its right.
     static func secondary(_ tone: Tone) -> Color {
         switch tone {
         case .warning: Palette.warningSecondary
-        case .success: Palette.successText
+        case .success: Palette.settled
         }
     }
 
@@ -238,7 +238,7 @@ struct StatusStrip: View {
     var body: some View {
         HStack(spacing: 10) {
             if dot {
-                Circle().fill(Palette.success).frame(width: 8, height: 8)
+                Circle().fill(Palette.settled).frame(width: 8, height: 8)
             }
             Text(leading)
                 .font(.system(size: 14, weight: dot ? .regular : .semibold))

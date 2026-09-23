@@ -289,7 +289,7 @@ final class ArrivalMonitor: NSObject {
 ///
 /// A type rather than two functions on the settings row, because the row got it
 /// wrong: it asked `alertEnabled && canMonitor && isLocated` and printed
-/// "Alert on · 50m" in `Palette.success` green for a user who had granted Always
+/// "Alert on · 50m" in the reassuring colour for a user who had granted Always
 /// location and then declined the notification prompt that arrived alongside it.
 /// Two permissions have to hold, not one. Making it an enum forces every new
 /// reason the alert cannot fire to come with the line that explains it, and lets

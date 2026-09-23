@@ -448,7 +448,7 @@ struct SettingsArrivalRowTests {
         for readiness in [
             AlertReadiness.needsLocation, .needsNotifications, .notLocated, .notWatched, .off,
         ] {
-            #expect(!readiness.willFire, "\(readiness) is not green")
+            #expect(!readiness.willFire, "\(readiness) is not teal")
         }
     }
 

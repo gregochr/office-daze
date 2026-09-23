@@ -68,7 +68,7 @@ extension HomeScreen {
                 // show. The row is the whole record.
                 deskless(
                     officeID: record.officeID, day: record.day,
-                    status: "Attended", tone: Palette.success
+                    status: "Attended", tone: Palette.settled
                 )
             case .planned(let record):
                 deskless(
@@ -125,7 +125,7 @@ extension HomeScreen {
             if let status = bookingStatus(booking, attended: attended) {
                 Text(status)
                     .font(.system(size: 12, weight: attended ? .semibold : .regular))
-                    .foregroundStyle(attended ? Palette.success : Palette.secondary)
+                    .foregroundStyle(attended ? Palette.settled : Palette.secondary)
             }
         }
         .padding(.vertical, 13)
@@ -187,7 +187,7 @@ extension HomeScreen {
             Spacer(minLength: 8)
             if let status {
                 Text(status)
-                    .font(.system(size: 12, weight: tone == Palette.success ? .semibold : .regular))
+                    .font(.system(size: 12, weight: tone == Palette.settled ? .semibold : .regular))
                     .foregroundStyle(tone)
             }
         }

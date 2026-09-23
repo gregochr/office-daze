@@ -138,7 +138,7 @@ extension SettingsScreen {
     /// Every condition the alert actually depends on. The ladder itself lives in
     /// `AlertReadiness`, where it can be tested; a `View` cannot be. This is the
     /// wiring — which office's fields, and which of the monitor's two
-    /// permissions go where — and getting *that* wrong prints a green line just
+    /// permissions go where — and getting *that* wrong prints a reassuring line just
     /// as readily as the ladder did.
     ///
     /// The last argument is the one that stopped this row answering from
