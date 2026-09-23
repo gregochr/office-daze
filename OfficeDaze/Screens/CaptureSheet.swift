@@ -161,7 +161,7 @@ struct CaptureSheet: View {
                 switch tick {
                 case .done:
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(Palette.success)
+                        .foregroundStyle(Palette.settled)
                 case .active:
                     Circle()
                         .strokeBorder(Palette.tint, lineWidth: 2)
@@ -268,7 +268,7 @@ struct CaptureSheet: View {
 
     /// Saved outranks current, because only a write that landed may be drawn as
     /// one: a booking that failed to save must not keep the highlight that says
-    /// "this is the one you are on" *and* pick up the green that says it is
+    /// "this is the one you are on" *and* pick up the solid teal that says it is
     /// filed.
     static func bar(saved: [Bool], current: Int) -> [Segment] {
         saved.enumerated().map { index, isSaved -> Segment in
@@ -279,8 +279,9 @@ struct CaptureSheet: View {
 
     static func colour(of segment: Segment) -> Color {
         switch segment {
-        case .saved: Palette.success
-        case .current: Palette.tint
+        // The slots' language: solid is done, light is under way.
+        case .saved: Palette.settled
+        case .current: Palette.gaugeBooked
         case .pending: Palette.hairline
         }
     }

@@ -119,7 +119,7 @@ struct LeaveScreenTests {
     }
 
     /// The grid's states differed only by fill colour: amber, amber at half
-    /// strength, green, grey. Two of those pairs are a coin flip for a
+    /// strength, teal, grey. Two of those pairs are a coin flip for a
     /// colourblind user and all four are invisible to VoiceOver, so each state
     /// now carries a glyph and a sentence of its own.
     @Test("Whole leave, half leave and a day on prem are told apart without colour")
@@ -455,7 +455,7 @@ struct LeaveScreenDerivationTests {
 
     /// Leave wins over the ground in both channels. A day booked off and later
     /// attended is drawn as leave, because leave is what the tap acts on and
-    /// drawing it green would say the cell does nothing — which is the bug the
+    /// drawing it teal would say the cell does nothing — which is the bug the
     /// suite above exists for, in its visual half.
     @Test("Leave is painted over whatever the day underneath it was")
     func leaveOutranksItsGround() {
@@ -470,7 +470,7 @@ struct LeaveScreenDerivationTests {
             LeaveScreen.foreground(cell(fraction: 1, attended: [day])) == Palette.warningText,
             "attended underneath, still drawn as the leave the tap will clear"
         )
-        #expect(LeaveScreen.foreground(cell(fraction: nil, attended: [day])) == Palette.successText)
+        #expect(LeaveScreen.foreground(cell(fraction: nil, attended: [day])) == Palette.settled)
         #expect(LeaveScreen.foreground(cell(fraction: nil)) == Palette.text)
 
         let weekend = LeaveCell(
@@ -511,7 +511,7 @@ struct LeaveScreenDerivationTests {
             "the two are told apart by more than the marker"
         )
         #expect(
-            LeaveScreen.background(cell(day, attended: [day])) == Palette.successSurface
+            LeaveScreen.background(cell(day, attended: [day])) == Palette.settledSurface
         )
         #expect(LeaveScreen.background(cell(day)) == .clear, "a free working day is unpainted")
         #expect(

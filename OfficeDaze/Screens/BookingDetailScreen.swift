@@ -180,7 +180,7 @@ struct BookingDetailScreen: View {
     }
 
     /// A tap that lands says nothing and needs to say nothing: the row it was
-    /// on is replaced by the green "Attended" strip, because `attended` now
+    /// on is replaced by the teal "Attended" strip, because `attended` now
     /// finds a row. Only the two ways it does not land speak.
     private func answerTheQuestion() {
         switch Self.record(
