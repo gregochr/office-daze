@@ -410,19 +410,25 @@ struct CaptureCoordinatorTests {
 
     // MARK: Failure and retry
 
+    /// The reader's own failure — Vision not running, rather than Vision
+    /// finding nothing — is the one a retry can answer.
+    struct ReaderInterrupted: LocalizedError {
+        var errorDescription: String? { "the reader was interrupted" }
+    }
+
     /// Retry repeats the reading, not the check — which is why the bytes are
     /// checked before `lastInput` is set.
-    @Test("A failed call is surfaced, and retrying repeats only the call")
+    @Test("A reader that failed to run is surfaced, and retrying repeats only the reading")
     func failureThenRetry() async throws {
         coordinator.extractor = { [sent] data, today in
             sent.record(data, today)
-            if sent.calls == 1 { throw CaptureError.nothingUsable("the reader was interrupted") }
+            if sent.calls == 1 { throw ReaderInterrupted() }
             return CaptureSamples.one
         }
         await coordinator.receive(data: image, filename: "one.png")
 
         #expect(failure() == .nothingUsable("the reader was interrupted"))
-        #expect(coordinator.canRetry, "the image decoded, so there is something to send again")
+        #expect(coordinator.canRetry, "the reader never gave a verdict, so there is something to read again")
 
         await coordinator.retry()
 
@@ -432,6 +438,23 @@ struct CaptureCoordinatorTests {
             sent.images == [image, image],
             "the same prepared bytes both times — the retry is the call, not the conversion"
         )
+    }
+
+    /// The reader on the phone is deterministic: an image it found no booking
+    /// in is an image it will find no booking in again, a second later. The
+    /// button that offered that reading was the one the user pressed, watched
+    /// fail in under a second, and reported as broken.
+    @Test("A reading that found nothing offers no retry")
+    func verdictIsNotRetried() async throws {
+        stub(throwing: .nothingUsable("2026-10-19 was read but no desk id was."))
+        await coordinator.receive(data: image, filename: "one.png")
+
+        #expect(failure() == .nothingUsable("2026-10-19 was read but no desk id was."))
+        #expect(coordinator.canRetry == false, "the same pixels read again say the same thing")
+        #expect(sent.calls == 1)
+
+        await coordinator.retry()
+        #expect(sent.calls == 1, "and nothing re-reads them")
     }
 
     /// The extension is only good for the error message; what the bytes are is
@@ -541,7 +564,7 @@ struct CaptureCoordinatorTests {
         #expect(coordinator.current == nil)
         #expect(coordinator.segments.isEmpty, "and no progress bar with no segments in it")
         #expect(coordinator.position == nil)
-        #expect(coordinator.canRetry, "the bytes are still good; a second reading may not be")
+        #expect(coordinator.canRetry == false, "a second reading of the same bytes would come back as empty")
         #expect(sent.calls == 1)
 
         let captures = try container.mainContext.fetch(FetchDescriptor<Capture>())

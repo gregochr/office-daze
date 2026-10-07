@@ -43,8 +43,14 @@ final class CaptureCoordinator {
     /// it, and so it can be turned off entirely.
     var parsingFloor: Duration = .milliseconds(500)
 
-    /// Kept so `Try again` has something to retry with.
+    /// Kept so `Try again` has something to retry with — and cleared the
+    /// moment a retry could only repeat the answer. See `canRetry`.
     private var lastInput: Data?
+
+    /// The day the reader draws its line under the past. Injectable so a
+    /// test reading a drawn page does not stop passing on the day the page's
+    /// bookings go by.
+    var today: () -> Day = { .today }
     private var captureID: UUID?
 
     /// Which run the phase belongs to.
@@ -300,9 +306,18 @@ final class CaptureCoordinator {
         phase = .failed(error)
     }
 
-    /// False when the failure happened before there was anything to read —
-    /// an unreadable file, an unsupported one. Offering `Try again` there is
-    /// offering a button that does nothing.
+    /// False when a second reading could only say what the first did.
+    ///
+    /// That is most failures. Before there was anything to read — an
+    /// unreadable file, an unsupported one — there is nothing to read again.
+    /// And once the reader has read the image and found no booking in it,
+    /// reading the same pixels again finds the same nothing: the reader runs
+    /// on the phone and is deterministic, so `Try again` was a button that
+    /// re-ran a sub-second reading and put the same card straight back up.
+    /// The retry dates from a remote reader, where a failed call and a
+    /// failed reading were different things. Only the reader's own errors —
+    /// Vision refusing to run at all — keep it, because those are the one
+    /// failure that says nothing about the image.
     var canRetry: Bool { lastInput != nil }
 
     func retry() async {
@@ -318,7 +333,7 @@ final class CaptureCoordinator {
         let started = ContinuousClock.now
         do {
             phase = .parsing(step: .finding)
-            let bookings = try await extractor(data, .today)
+            let bookings = try await extractor(data, today())
             guard run == generation else { return }
 
             // A parse with nothing in it is a failure, not a review. The real
@@ -333,6 +348,7 @@ final class CaptureCoordinator {
             // extractor — is how it got here in the first place.
             guard !bookings.isEmpty else {
                 record(status: .failed)
+                lastInput = nil
                 phase = .failed(.nothingUsable("no bookings in the document"))
                 return
             }
@@ -349,11 +365,15 @@ final class CaptureCoordinator {
             guard run == generation else { return }
             phase = .review(bookings: bookings, index: 0, saved: [])
         } catch let error as CaptureError {
+            // The reader read the image and this is its verdict. The same
+            // bytes read again get the same verdict, so there is no retry.
             guard run == generation else { return }
             record(status: .failed)
+            lastInput = nil
             phase = .failed(error)
         } catch {
-            // Vision's own errors, which are not the app's to enumerate.
+            // Vision's own errors, which are not the app's to enumerate — and
+            // the one failure a retry can still answer, so `lastInput` stays.
             guard run == generation else { return }
             record(status: .failed)
             phase = .failed(.nothingUsable(error.localizedDescription))

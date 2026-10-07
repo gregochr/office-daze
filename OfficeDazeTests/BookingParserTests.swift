@@ -409,6 +409,28 @@ struct BookingParserTests {
         #expect(BookingParser.parse(DocumentReading()).isEmpty)
     }
 
+    // MARK: What was there
+
+    /// The parts, each once and in page order, from a page that makes no
+    /// booking of them: the ids are corrected first, a date beside a time
+    /// counts, and a row's two desks are two.
+    @Test("The dates and desk ids on a page are reported even when no booking is")
+    func whatWasFound() {
+        let page = "2026-10-19\nCOE36185 Chatopher Gregory\n2026-10-20\n2026-10-19\n12de"
+        #expect(BookingParser.found(in: Self.lines(page))
+                == BookingParser.Found(dates: ["2026-10-19", "2026-10-20"], desks: []))
+        #expect(Self.parse(page).isEmpty)
+
+        let cropped = "Reservation for C003C117\nBuildings\nColeman\nCO03D218"
+        #expect(BookingParser.found(in: Self.lines(cropped))
+                == BookingParser.Found(dates: [], desks: ["CO03C117", "CO03D218"]))
+
+        let stamped = "Starts 2026-10-05 08:00\nReserved items 2026-10-06 • 08:00 - 17:00"
+        #expect(BookingParser.found(in: Self.lines(stamped)).dates == ["2026-10-05", "2026-10-06"])
+
+        #expect(BookingParser.found(in: Self.lines("Funds\nESA\nSystems")) == BookingParser.Found())
+    }
+
     // MARK: The past
 
     /// The list photographed on 14 September starts on the 16th. Seen from

@@ -537,9 +537,12 @@ struct CaptureSheet: View {
 
             Card {
                 VStack(spacing: 0) {
-                    // Only when there is something to retry. A photo that never
-                    // decoded has no request behind it, and a button that
-                    // re-runs nothing is worse than no button.
+                    // Only when a second reading could say something new —
+                    // which is the reader having failed to run, not having
+                    // read the image and found nothing. See `canRetry`: a
+                    // button that re-reads the same pixels is worse than no
+                    // button, because it fails in under a second and looks
+                    // broken.
                     if coordinator.canRetry {
                         ActionRow(title: "Try again", centred: true) {
                             Task { await coordinator.retry() }

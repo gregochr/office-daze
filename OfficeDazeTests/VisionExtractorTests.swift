@@ -63,7 +63,27 @@ struct VisionExtractorTests {
             draw("Funds   ESA   Systems   Team   Office   APIs", 40, 40)
             draw("Nothing about a desk here.", 40, 120)
         }
-        await #expect(throws: CaptureError.nothingUsable("no complete booking in the document")) {
+        await #expect(throws: CaptureError.nothingUsable("no date or desk id was found on the page")) {
+            try await VisionExtractor.extract(image: try Self.png(of: page), today: Day(2026, 9, 14))
+        }
+    }
+
+    /// A photograph of the list taken from too far back: the dates are the
+    /// largest print and survive, the desk ids come back as noise. That is
+    /// what the user is told, with the fix, instead of "no complete booking".
+    @Test("A page whose dates read and whose desk ids did not says which")
+    func datesWithoutDesks() async throws {
+        let page = Self.page { draw in
+            draw("2026-10-19", 40, 40)
+            draw("COE36185   Chatopher Gregory   Conferred", 40, 120)
+            draw("2026-10-20", 40, 220)
+            draw("12de   Chatopher Gregory   Conferred", 40, 300)
+        }
+        await #expect(throws: CaptureError.nothingUsable(
+            "2026-10-19 and 2026-10-20 were read but no desk id was. "
+            + "The desk ids are too small or blurred to make out: move closer so they are sharp, "
+            + "or share a screenshot instead."
+        )) {
             try await VisionExtractor.extract(image: try Self.png(of: page), today: Day(2026, 9, 14))
         }
     }
@@ -86,11 +106,36 @@ struct VisionExtractorTests {
     @Test("The reason nothing came back is the first one that applies")
     func reasons() {
         #expect(VisionExtractor.nothingUsable(readNothing: true, pastBookings: 3) == "no text was found in the image")
-        #expect(VisionExtractor.nothingUsable(readNothing: false, pastBookings: 0) == "no complete booking in the document")
+        #expect(VisionExtractor.nothingUsable(readNothing: false, pastBookings: 0) == "no date or desk id was found on the page")
         #expect(VisionExtractor.nothingUsable(readNothing: false, pastBookings: 1)
                 == "the only booking in the document has already passed")
         #expect(VisionExtractor.nothingUsable(readNothing: false, pastBookings: 2)
                 == "all 2 bookings in the document have already passed")
+    }
+
+    /// The past is reported before the parts: a page of two past bookings
+    /// has dates and desks on it, and the reason is that they have gone.
+    @Test("What was read is named only when no booking came of it")
+    func partsAreNamed() {
+        typealias Found = BookingParser.Found
+        let both = Found(dates: ["2026-10-19"], desks: ["CO03C117"])
+        #expect(VisionExtractor.nothingUsable(readNothing: true, pastBookings: 0, found: both)
+                == "no text was found in the image")
+        #expect(VisionExtractor.nothingUsable(readNothing: false, pastBookings: 1, found: both)
+                == "the only booking in the document has already passed")
+
+        #expect(VisionExtractor.nothingUsable(readNothing: false, pastBookings: 0, found: Found(dates: ["2026-10-19"]))
+                .hasPrefix("2026-10-19 was read but no desk id was. "))
+        #expect(VisionExtractor.nothingUsable(
+            readNothing: false, pastBookings: 0, found: Found(dates: ["2026-10-19", "2026-10-20", "2026-10-21"])
+        ).hasPrefix("2026-10-19, 2026-10-20 and 2026-10-21 were read but no desk id was. "))
+        #expect(VisionExtractor.nothingUsable(readNothing: false, pastBookings: 0, found: Found(desks: ["CO03C117"]))
+                == "desk CO03C117 was read but no date was. Get the date into the frame as well.")
+        #expect(VisionExtractor.nothingUsable(readNothing: false, pastBookings: 0, found: Found(desks: ["CO03C117", "CO03D218"]))
+                .hasPrefix("desk CO03C117 and CO03D218 were read but no date was."))
+        #expect(VisionExtractor.nothingUsable(readNothing: false, pastBookings: 0, found: both)
+                == "2026-10-19 and desk CO03C117 were read but not as one booking. "
+                + "Each desk needs its date card in frame above it.")
     }
 
     @Test("Bytes that are not an image fail at the door")
@@ -111,6 +156,9 @@ struct VisionExtractorTests {
         let container = try Store.makeInMemoryContainer(seeded: true)
         let coordinator = CaptureCoordinator(context: container.mainContext)
         coordinator.parsingFloor = .zero
+        // The drawn list is for October 2026. Read from a fixed day before
+        // it, or this test stops passing the day those bookings go by.
+        coordinator.today = { Day(2026, 9, 14) }
 
         await coordinator.receive(photo: try Self.png(of: Self.list()))
 

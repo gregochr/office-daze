@@ -546,7 +546,7 @@ struct CaptureSheetTests {
         render(sheet)
 
         coordinator.phase = .failed(.nothingUsable("the reader was interrupted"))
-        #expect(coordinator.canRetry, "the image decoded, so Try again is drawn")
+        #expect(coordinator.canRetry, "the reader never ran, so Try again is drawn")
         render(sheet)
 
         // The write failure clears the retry, which is why it is the state that
