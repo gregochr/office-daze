@@ -21,6 +21,11 @@ struct CaptureSheet: View {
 
     @State private var chosenOffice: UUID?
     @State private var manualEntry = false
+    /// "Scan again" on the failure card. The sheet presents the scanner
+    /// itself: it is already up over the home screen, and a cover the home
+    /// screen owns cannot open above a sheet its ancestor is presenting —
+    /// the flag would flip and nothing would appear.
+    @State private var scanning = false
     @State private var confirmingReplace = false
 
     var body: some View {
@@ -58,6 +63,14 @@ struct CaptureSheet: View {
         }
         .sheet(isPresented: $manualEntry) {
             NavigationStack { BookingEditorScreen() }
+        }
+        // A capture restarts the coordinator underneath, so when the scanner
+        // closes this sheet is already reading the new frame. A scanner
+        // cancelled closes onto the failure card, which is where the user was.
+        .fullScreenCover(isPresented: $scanning) {
+            BookingScanner { data in
+                Task { await coordinator.receive(photo: data) }
+            }
         }
     }
 
@@ -490,6 +503,57 @@ struct CaptureSheet: View {
 
     // MARK: Failure
 
+    /// Never a silent drop, and never a bounce back to the home screen: the
+    /// error replaces the card in place and offers every way forward.
+    private func failure(_ error: CaptureError) -> some View {
+        VStack(spacing: Metrics.cardGap) {
+            Card(padding: EdgeInsets(top: 18, leading: 16, bottom: 18, trailing: 16)) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(Self.failureHeader(for: error))
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(Palette.text)
+                    Text(error.errorDescription ?? "Unknown failure")
+                        .font(.system(size: 14))
+                        .foregroundStyle(Palette.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            Card {
+                VStack(spacing: 0) {
+                    if Self.offersRescan(for: error) {
+                        ActionRow(title: "Scan again", centred: true) {
+                            scanning = true
+                        }
+                        RowDivider(inset: 0)
+                    }
+                    // Only when a second reading could say something new —
+                    // which is the reader having failed to run, not having
+                    // read the image and found nothing. See `canRetry`: a
+                    // button that re-reads the same pixels is worse than no
+                    // button, because it fails in under a second and looks
+                    // broken.
+                    if coordinator.canRetry {
+                        ActionRow(title: "Try again", centred: true) {
+                            Task { await coordinator.retry() }
+                        }
+                        RowDivider(inset: 0)
+                    }
+                    ActionRow(title: "Enter manually", centred: true) {
+                        manualEntry = true
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The failure card's words, kept beside the view and out of its body:
+/// three answers about a `CaptureError` that a test can ask without
+/// drawing anything.
+extension CaptureSheet {
+
     /// What broke, in the sheet's own two words and in its heading.
     ///
     /// Both used to be hard-coded to the reading, which was true of every
@@ -518,39 +582,16 @@ struct CaptureSheet: View {
         }
     }
 
-    /// Never a silent drop, and never a bounce back to the home screen: the
-    /// error replaces the card in place and offers both ways forward.
-    private func failure(_ error: CaptureError) -> some View {
-        VStack(spacing: Metrics.cardGap) {
-            Card(padding: EdgeInsets(top: 18, leading: 16, bottom: 18, trailing: 16)) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(Self.failureHeader(for: error))
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(Palette.text)
-                    Text(error.errorDescription ?? "Unknown failure")
-                        .font(.system(size: 14))
-                        .foregroundStyle(Palette.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            Card {
-                VStack(spacing: 0) {
-                    // Only when there is something to retry. A photo that never
-                    // decoded has no request behind it, and a button that
-                    // re-runs nothing is worse than no button.
-                    if coordinator.canRetry {
-                        ActionRow(title: "Try again", centred: true) {
-                            Task { await coordinator.retry() }
-                        }
-                        RowDivider(inset: 0)
-                    }
-                    ActionRow(title: "Enter manually", centred: true) {
-                        manualEntry = true
-                    }
-                }
-            }
+    /// Whether a fresh photograph is a way forward. It is for every failure
+    /// of the reading — a blurred photo, a page of the wrong thing, a file
+    /// that was not an image — because each of those is answered by pointing
+    /// the scanner at the monitor again. A booking that was read and could
+    /// not be written is not: scanning it again would read it again, and the
+    /// writing is what failed.
+    static func offersRescan(for error: CaptureError) -> Bool {
+        switch error {
+        case .couldNotSave: false
+        case .unsupportedFile, .unreadableImage, .nothingUsable: true
         }
     }
 }

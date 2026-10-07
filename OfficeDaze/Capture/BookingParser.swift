@@ -80,6 +80,36 @@ nonisolated enum BookingParser {
         }
     }
 
+    // MARK: What was there
+
+    /// The parts of a booking the page printed, whether or not a booking
+    /// came of them: every date and every desk id, each once, in page order.
+    ///
+    /// For the failure card. "No complete booking" is true of a blurred
+    /// photograph and of a photograph of a lunch menu, and sends the user
+    /// to the same next step for both. Which parts were read is what tells
+    /// them apart: two dates and no desk id is a photo whose small print
+    /// has gone, and the fix is to get closer or share a screenshot.
+    struct Found: Equatable, Sendable {
+        var dates: [String] = []
+        var desks: [String] = []
+    }
+
+    static func found(in lines: [String]) -> Found {
+        var found = Found()
+        for fact in lines.flatMap(facts(in:)) {
+            switch fact {
+            case .date(let date), .dateAndRange(let date, _), .stamp(let date, _):
+                if !found.dates.contains(date) { found.dates.append(date) }
+            case .desk(let desk):
+                if !found.desks.contains(desk.text) { found.desks.append(desk.text) }
+            case .range, .location:
+                break
+            }
+        }
+        return found
+    }
+
     // MARK: The list
 
     /// One booking per complete section. A section is a date card and the

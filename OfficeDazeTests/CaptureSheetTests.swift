@@ -126,6 +126,16 @@ struct CaptureSheetTests {
         )
     }
 
+    /// The one failure a new photograph cannot answer is the one where the
+    /// photograph was fine.
+    @Test("Every failure of the reading offers a fresh scan, and the write failure does not")
+    func rescanIsOfferedForReadingFailures() {
+        for error in [CaptureError.unsupportedFile("pdf"), .unreadableImage, .nothingUsable("no rows")] {
+            #expect(CaptureSheet.offersRescan(for: error), "\(error)")
+        }
+        #expect(!CaptureSheet.offersRescan(for: .couldNotSave("the disk is full")))
+    }
+
     // MARK: Which card is up
 
     /// One sheet for all three faces, so the flow never flashes between
@@ -546,7 +556,7 @@ struct CaptureSheetTests {
         render(sheet)
 
         coordinator.phase = .failed(.nothingUsable("the reader was interrupted"))
-        #expect(coordinator.canRetry, "the image decoded, so Try again is drawn")
+        #expect(coordinator.canRetry, "the reader never ran, so Try again is drawn")
         render(sheet)
 
         // The write failure clears the retry, which is why it is the state that
