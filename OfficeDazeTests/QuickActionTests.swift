@@ -96,19 +96,6 @@ struct QuickActionTests {
         #expect(delegate.take(.scan))
     }
 
-    /// The capture sheet's "Scan again" goes through the same holder as the
-    /// icon's shortcut, and the home screen takes it the same way, once.
-    @Test("A screen asking for the scanner is held and handed over exactly like a shortcut")
-    func aScreensRequestIsHeldAndTakenOnce() {
-        let delegate = SceneDelegate()
-
-        delegate.request(.scan)
-
-        #expect(delegate.pendingQuickAction == .scan)
-        #expect(delegate.take(.scan))
-        #expect(!delegate.take(.scan), "one press opens the scanner once")
-    }
-
     private func hostScene() throws -> UIWindowScene {
         try #require(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
     }

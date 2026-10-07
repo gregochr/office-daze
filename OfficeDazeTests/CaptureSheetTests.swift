@@ -609,7 +609,7 @@ struct CaptureSheetTests {
     private func render(_ sheet: CaptureSheet, in store: ModelContainer? = nil) {
         let window = ArrivalPreviewRenderTests.renderWindow()
         window.rootViewController = UIHostingController(
-            rootView: sheet.modelContainer(store ?? container).environment(SceneDelegate())
+            rootView: sheet.modelContainer(store ?? container)
         )
         window.makeKeyAndVisible()
         window.layoutIfNeeded()
