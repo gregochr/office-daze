@@ -126,6 +126,16 @@ struct CaptureSheetTests {
         )
     }
 
+    /// The one failure a new photograph cannot answer is the one where the
+    /// photograph was fine.
+    @Test("Every failure of the reading offers a fresh scan, and the write failure does not")
+    func rescanIsOfferedForReadingFailures() {
+        for error in [CaptureError.unsupportedFile("pdf"), .unreadableImage, .nothingUsable("no rows")] {
+            #expect(CaptureSheet.offersRescan(for: error), "\(error)")
+        }
+        #expect(!CaptureSheet.offersRescan(for: .couldNotSave("the disk is full")))
+    }
+
     // MARK: Which card is up
 
     /// One sheet for all three faces, so the flow never flashes between
@@ -599,7 +609,7 @@ struct CaptureSheetTests {
     private func render(_ sheet: CaptureSheet, in store: ModelContainer? = nil) {
         let window = ArrivalPreviewRenderTests.renderWindow()
         window.rootViewController = UIHostingController(
-            rootView: sheet.modelContainer(store ?? container)
+            rootView: sheet.modelContainer(store ?? container).environment(SceneDelegate())
         )
         window.makeKeyAndVisible()
         window.layoutIfNeeded()

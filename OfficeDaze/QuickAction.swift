@@ -7,7 +7,9 @@ import UIKit
 /// opens on the live scanner. It is the scan button pressed from the
 /// springboard, and it ends on the flag that button sets — `HomeScreen`'s
 /// `camera` — so there is one way to open the scanner rather than two that
-/// could drift apart.
+/// could drift apart. The capture sheet's "Scan again" is the same button
+/// pressed from a failure card: a screen that cannot reach the flag asks
+/// for the action instead, through `SceneDelegate.request(_:)`.
 ///
 /// The item itself is declared in Info.plist. This is the half that says what
 /// its type means.
@@ -77,6 +79,12 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 /// flag that opens the scanner is `HomeScreen`'s own state, so the screen takes
 /// the action when it can act on it — which, on a cold launch, is after this
 /// delegate has already been told.
+///
+/// A third door is inside the app: `request(_:)`, for a screen that wants
+/// the scanner and cannot reach the flag. The capture sheet is presented from
+/// the app's root, above the home screen that owns the camera, and it is
+/// also where a failed reading ends — which is exactly where "scan it again"
+/// is the thing to offer.
 @Observable
 final class SceneDelegate: NSObject, UIWindowSceneDelegate {
 
@@ -109,6 +117,12 @@ final class SceneDelegate: NSObject, UIWindowSceneDelegate {
         }
         pendingQuickAction = action
         return true
+    }
+
+    /// A screen asking for the action itself, which is held exactly as a
+    /// shortcut's is and taken the same way.
+    func request(_ action: QuickAction) {
+        pendingQuickAction = action
     }
 
     /// Whether `action` was waiting, forgetting it if so. One press opens the

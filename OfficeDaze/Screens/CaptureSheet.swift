@@ -15,6 +15,9 @@ import SwiftUI
 struct CaptureSheet: View {
     @Environment(\.modelContext) private var context
     @Environment(\.dismiss) private var dismiss
+    /// How "Scan again" reaches the scanner, which is the home screen's to
+    /// open. See `SceneDelegate.request(_:)`.
+    @Environment(SceneDelegate.self) private var sceneDelegate
     @Query(sort: \Office.name) private var offices: [Office]
 
     let coordinator: CaptureCoordinator
@@ -518,8 +521,27 @@ struct CaptureSheet: View {
         }
     }
 
+    /// Whether a fresh photograph is a way forward. It is for every failure
+    /// of the reading — a blurred photo, a page of the wrong thing, a file
+    /// that was not an image — because each of those is answered by pointing
+    /// the scanner at the monitor again. A booking that was read and could
+    /// not be written is not: scanning it again would read it again, and the
+    /// writing is what failed.
+    static func offersRescan(for error: CaptureError) -> Bool {
+        switch error {
+        case .couldNotSave: false
+        case .unsupportedFile, .unreadableImage, .nothingUsable: true
+        }
+    }
+
     /// Never a silent drop, and never a bounce back to the home screen: the
-    /// error replaces the card in place and offers both ways forward.
+    /// error replaces the card in place and offers every way forward.
+    ///
+    /// "Scan again" opens the scanner over this sheet rather than in place of
+    /// it, the way the app icon's shortcut does. A capture from there restarts
+    /// the coordinator underneath, so when the scanner closes the sheet is
+    /// already reading the new frame; a scanner cancelled closes onto this
+    /// card, which is where the user was.
     private func failure(_ error: CaptureError) -> some View {
         VStack(spacing: Metrics.cardGap) {
             Card(padding: EdgeInsets(top: 18, leading: 16, bottom: 18, trailing: 16)) {
@@ -537,6 +559,12 @@ struct CaptureSheet: View {
 
             Card {
                 VStack(spacing: 0) {
+                    if Self.offersRescan(for: error) {
+                        ActionRow(title: "Scan again", centred: true) {
+                            sceneDelegate.request(.scan)
+                        }
+                        RowDivider(inset: 0)
+                    }
                     // Only when a second reading could say something new —
                     // which is the reader having failed to run, not having
                     // read the image and found nothing. See `canRetry`: a
